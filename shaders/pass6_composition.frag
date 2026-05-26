@@ -35,6 +35,69 @@ uniform vec3  u_phosphor_color;      // colour of the monochrome phosphor
 uniform vec3  u_glass_tint;          // per-channel multiplier for glass colour
 uniform float u_glass_age;           // [0..1] adds amber drift on top of tint
 uniform float u_target_aspect;       // 4/3, 5/4, 16/9... 0 = fill window (no bars)
+uniform int   u_bezel_style;         // 0=none 1=pvm 2=beige 3=wood 4=mac 5=generic
+
+// ----- Programmatic bezel (SDF, no PNG asset) ----------------------------
+//
+// `picture_uv01` is the UV of the current pixel mapped into the picture
+// rect (0..1 inside the picture, outside that range = bezel region). The
+// `dist` value is how far OUTSIDE the picture rect we are, in window-UV
+// units — used for inner shadow + outer-edge highlight.
+//
+// Returns the RGB colour to display at this pixel; the caller short-
+// circuits the rest of the pipeline when we're outside the picture.
+vec3 bezel_color(vec2 win_uv, vec2 picture_min, vec2 picture_max, int style) {
+    // Distance from current pixel into the picture rect (positive = outside).
+    vec2 d = max(picture_min - win_uv, win_uv - picture_max);
+    float dist = max(d.x, d.y);   // outside picture iff dist > 0
+
+    // Per-style base colour + finish.
+    vec3 base       = vec3(0.05);
+    vec3 highlight  = vec3(0.10);
+    float roughness = 0.5;
+    if (style == 1) {              // PVM matte black metal
+        base      = vec3(0.045, 0.045, 0.050);
+        highlight = vec3(0.08, 0.08, 0.09);
+        roughness = 0.30;
+    } else if (style == 2) {       // beige terminal plastic
+        base      = vec3(0.72, 0.66, 0.55);
+        highlight = vec3(0.82, 0.76, 0.65);
+        roughness = 0.70;
+    } else if (style == 3) {       // B&W TV wood console
+        base      = vec3(0.32, 0.20, 0.11);
+        highlight = vec3(0.45, 0.30, 0.18);
+        roughness = 0.85;
+    } else if (style == 4) {       // compact Mac white plastic
+        base      = vec3(0.83, 0.81, 0.74);
+        highlight = vec3(0.92, 0.90, 0.83);
+        roughness = 0.60;
+    } else {                       // generic dark grey (5)
+        base      = vec3(0.10, 0.10, 0.11);
+        highlight = vec3(0.18, 0.18, 0.20);
+        roughness = 0.50;
+    }
+
+    // Soft top-to-bottom shading (fake plastic / metal sheen).
+    float v = win_uv.y;
+    vec3 col = mix(highlight, base, smoothstep(0.0, 1.0, v));
+
+    // Subtle horizontal noise for plastic / wood grain texture.
+    float grain = sin(win_uv.y * 800.0) * sin(win_uv.x * 13.0);
+    col += grain * 0.012 * roughness;
+
+    // Outer-edge highlight: a bright thin line on the very outside,
+    // simulating the rounded plastic / metal edge catching light.
+    float outer_d = min(min(win_uv.x, 1.0 - win_uv.x),
+                        min(win_uv.y, 1.0 - win_uv.y));
+    col += smoothstep(0.012, 0.0, outer_d) * highlight * 0.5;
+
+    // Recessed shadow ring just outside the picture rect — the tube
+    // sits in a well in the bezel.
+    float ring = smoothstep(0.0, 0.020, dist) * (1.0 - smoothstep(0.020, 0.040, dist));
+    col *= 1.0 - 0.45 * ring;
+
+    return col;
+}
 
 vec2 barrel(vec2 uv, float k) {
     vec2 c = uv - 0.5;
@@ -67,25 +130,40 @@ vec3 sample_with_convergence(vec2 uv) {
 
 void main() {
     // Letterbox / pillarbox: if the window aspect differs from the CRT's
-    // native aspect, black bars are inserted so the picture isn't stretched.
+    // native aspect, bezel (or black bars when bezel_style == 0) outside
+    // the picture rect. Compute the picture rect bounds first so we can
+    // either short-circuit to bezel rendering OR continue with the
+    // normal CRT pipeline for pixels inside the picture.
     vec2 uv = v_uv;
+    vec2 picture_min = vec2(0.0);
+    vec2 picture_max = vec2(1.0);
     if (u_target_aspect > 0.0) {
         float win_aspect = u_resolution.x / max(u_resolution.y, 1.0);
         if (win_aspect > u_target_aspect + 0.001) {
-            // Window wider than target → vertical pillarbox bars.
             float scale = u_target_aspect / win_aspect;
             float pad   = (1.0 - scale) * 0.5;
+            picture_min.x = pad;
+            picture_max.x = 1.0 - pad;
             if (uv.x < pad || uv.x > 1.0 - pad) {
-                o_color = vec4(0.0, 0.0, 0.0, 1.0);
+                if (u_bezel_style != 0) {
+                    o_color = vec4(bezel_color(v_uv, picture_min, picture_max, u_bezel_style), 1.0);
+                } else {
+                    o_color = vec4(0.0, 0.0, 0.0, 1.0);
+                }
                 return;
             }
             uv.x = (uv.x - pad) / scale;
         } else if (win_aspect < u_target_aspect - 0.001) {
-            // Window taller than target → horizontal letterbox bars.
             float scale = win_aspect / u_target_aspect;
             float pad   = (1.0 - scale) * 0.5;
+            picture_min.y = pad;
+            picture_max.y = 1.0 - pad;
             if (uv.y < pad || uv.y > 1.0 - pad) {
-                o_color = vec4(0.0, 0.0, 0.0, 1.0);
+                if (u_bezel_style != 0) {
+                    o_color = vec4(bezel_color(v_uv, picture_min, picture_max, u_bezel_style), 1.0);
+                } else {
+                    o_color = vec4(0.0, 0.0, 0.0, 1.0);
+                }
                 return;
             }
             uv.y = (uv.y - pad) / scale;

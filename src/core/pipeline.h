@@ -92,6 +92,12 @@ public:
         // differs, the shader letterboxes / pillarboxes with black bars.
         float target_aspect     = 0.0f;
 
+        // Programmatic bezel (Pass 6 SDF, no PNG asset).
+        // 0 = none (plain black bars), 1 = pvm metal black,
+        // 2 = beige plastic terminal, 3 = wood-tone B&W TV console,
+        // 4 = compact Mac (asymmetric white plastic), 5 = generic dark.
+        int   bezel_style       = 0;
+
         // Pass 5 (temporal phosphor persistence)
         // Per-channel exponential decay. persistence_strength is a global
         // 0..1 dial; per-channel ratios modulate it (P22 colour CRTs have

@@ -139,6 +139,7 @@ void apply_uniforms_for_pass(ShaderProgram& sh,
                           glm::vec3(p.glass_tint_r, p.glass_tint_g, p.glass_tint_b));
             sh.set_float("u_glass_age",         p.glass_age);
             sh.set_float("u_target_aspect",     p.target_aspect);
+            sh.set_int  ("u_bezel_style",       p.bezel_style);
             break;
         default:
             break;
@@ -457,6 +458,30 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
         params_.glass_tint_r = params_.glass_tint_g = params_.glass_tint_b = 1.0f;
     }
     params_.glass_age = static_cast<float>(p.glass_age);
+
+    // Pick a default bezel style based on the profile category. The user
+    // can still override via the menu Combo. Mapping:
+    //   - colour PVM/BVM/professional → matte black metal (style 1)
+    //   - terminal P31 green / P3 amber → beige plastic (style 2)
+    //   - vintage analog B&W TV → wood console (style 3)
+    //   - Mac Classic / Lisa → compact white plastic (style 4)
+    //   - generic / consumer → generic dark (style 5)
+    const bool is_mac_classic_b =
+        p.id.find("mac-classic") != std::string::npos ||
+        p.id.find("apple-lisa")  != std::string::npos;
+    if (is_mac_classic_b) {
+        params_.bezel_style = 4;
+    } else if (p.phosphor_type == PhosphorType::P4 && !is_mac_classic_b) {
+        params_.bezel_style = 3;  // B&W TV wood
+    } else if (is_mono) {
+        params_.bezel_style = 2;  // beige terminal
+    } else if (p.id.find("pvm") != std::string::npos ||
+               p.id.find("bvm") != std::string::npos ||
+               p.id.find("fw900") != std::string::npos) {
+        params_.bezel_style = 1;  // PVM black metal
+    } else {
+        params_.bezel_style = 5;  // generic dark
+    }
 
     // Curvature → barrel + vignette. Conservative so corners aren't cut on
     // a desktop overlay, but visibly different across profiles. Skipped

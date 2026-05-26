@@ -400,6 +400,24 @@ void Menu::build_widgets(Pipeline& pipeline,
             window_actions.toggle_fullscreen_requested = true;
         }
         ImGui::TextDisabled("Fullscreen preserves aspect ratio (letterbox)");
+
+        // Bezel style: programmatic frame drawn outside the picture rect
+        // (i.e. replaces the letterbox bars). Picked automatically per
+        // profile (PVM → metal black, terminal → beige plastic, B&W TV
+        // → wood console, Mac Classic → white plastic) but overridable.
+        static const char* kBezelLabels[6] = {
+            "None (black bars)",
+            "PVM matte black metal",
+            "Beige terminal plastic",
+            "B&W TV wood console",
+            "Compact Mac white plastic",
+            "Generic dark grey",
+        };
+        int bz = std::clamp(P.bezel_style, 0, 5);
+        if (ImGui::Combo("Bezel style", &bz, kBezelLabels, 6)) {
+            P.bezel_style = bz;
+        }
+        ImGui::TextDisabled("Default comes from CRT profile category");
     }
 
     if (!mono_locked && ImGui::CollapsingHeader("Pass toggles")) {
