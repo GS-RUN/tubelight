@@ -129,11 +129,19 @@ void main() {
     }
 
     // ---- ringing: edge overshoot --------------------------------------
+    // Ringing on a real composite chain happens just under the luma
+    // bandwidth cutoff (period ≈ 1/luma_mhz). The previous shader used
+    // sin(v_uv.x * u_resolution.x * 2π) — that oscillates at the monitor
+    // pixel rate and creates a moiré with the LCD pixel grid that looks
+    // like fine vertical lines across the whole picture. Scale by
+    // radius_y so ringing tracks the signal bandwidth instead.
     if (u_ringing_amount > 0.0) {
         float left  = rgb_to_yiq(texture(u_source, v_uv + vec2(-px_size.x, 0.0)).rgb).x;
         float right = rgb_to_yiq(texture(u_source, v_uv + vec2( px_size.x, 0.0)).rgb).x;
         float edge  = abs(right - left);
-        float ring  = sin(v_uv.x * u_resolution.x * 6.28318) * edge * 0.3 * u_ringing_amount;
+        float period_px = max(radius_y * 2.5, 3.0);
+        float ring = sin(v_uv.x * u_resolution.x * 6.28318 / period_px)
+                   * edge * 0.20 * u_ringing_amount;
         yiq_filtered.x += ring;
     }
 

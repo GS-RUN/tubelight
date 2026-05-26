@@ -197,16 +197,25 @@ void Menu::build_widgets(Pipeline& pipeline,
             }
         }
 
-        int sig_idx = -1;
-        for (size_t i = 0; i < sig_ids_.size(); ++i)
-            if (sig_ids_[i] == current_signal_id) { sig_idx = static_cast<int>(i); break; }
-        std::vector<const char*> sig_items(sig_names_.size());
-        for (size_t i = 0; i < sig_names_.size(); ++i) sig_items[i] = sig_names_[i].c_str();
-        if (ImGui::Combo("Signal", &sig_idx, sig_items.data(),
-                         static_cast<int>(sig_items.size()))) {
-            if (sig_idx >= 0 && sig_idx < static_cast<int>(sig_ids_.size())) {
-                current_signal_id = sig_ids_[sig_idx];
+        // Signal combo: only meaningful for colour CRTs. Monochrome
+        // terminals are locked to a clean RGB-direct signal path (P31
+        // green / amber / Mac Classic / B&W); showing the picker would
+        // suggest the user can change it, but apply_signal_profile
+        // ignores the request while monochrome is active.
+        if (pipeline.params().monochrome == 0) {
+            int sig_idx = -1;
+            for (size_t i = 0; i < sig_ids_.size(); ++i)
+                if (sig_ids_[i] == current_signal_id) { sig_idx = static_cast<int>(i); break; }
+            std::vector<const char*> sig_items(sig_names_.size());
+            for (size_t i = 0; i < sig_names_.size(); ++i) sig_items[i] = sig_names_[i].c_str();
+            if (ImGui::Combo("Signal", &sig_idx, sig_items.data(),
+                             static_cast<int>(sig_items.size()))) {
+                if (sig_idx >= 0 && sig_idx < static_cast<int>(sig_ids_.size())) {
+                    current_signal_id = sig_ids_[sig_idx];
+                }
             }
+        } else {
+            ImGui::TextDisabled("Signal: clean RGB (locked for monochrome)");
         }
     }
 
@@ -217,8 +226,18 @@ void Menu::build_widgets(Pipeline& pipeline,
     }
 
     auto& P = pipeline.params();
+    const bool mono_locked = (P.monochrome == 1);
 
-    if (ImGui::CollapsingHeader("Scanlines / beam", ImGuiTreeNodeFlags_DefaultOpen)) {
+    // Scanlines / mask / bloom / composition sliders only matter for
+    // colour CRTs. For monochrome profiles the locked preset already
+    // set them to known-good values; exposing the sliders just lets
+    // the user accidentally break the look. Show a one-liner instead.
+    if (mono_locked) {
+        ImGui::TextDisabled("Monochrome preset locked. Only Intensity adjustable.");
+        ImGui::TextDisabled("Switch CRT to a colour profile to unlock sliders.");
+    }
+
+    if (!mono_locked && ImGui::CollapsingHeader("Scanlines / beam", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SliderFloat("Scanline strength", &P.scanline_strength, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Beam width",        &P.beam_width,        0.5f, 3.0f, "%.2f");
         ImGui::SliderFloat("CRT gamma",         &P.gamma_crt,         1.8f, 3.0f, "%.2f");
@@ -226,21 +245,23 @@ void Menu::build_widgets(Pipeline& pipeline,
         ImGui::TextDisabled("240=NTSC, 288=PAL, 480=VGA");
     }
 
-    if (ImGui::CollapsingHeader("Phosphor mask")) {
+    if (!mono_locked && ImGui::CollapsingHeader("Phosphor mask")) {
         ImGui::Combo("Type", &P.mask_type, kMaskTypeLabels, 7);
         ImGui::SliderFloat("Strength",  &P.mask_strength,  0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Pitch (px)", &P.mask_pitch_px, 1.0f, 10.0f, "%.1f");
     }
 
-    if (ImGui::CollapsingHeader("Bloom / halation")) {
+    if (!mono_locked && ImGui::CollapsingHeader("Bloom / halation")) {
         ImGui::SliderFloat("Bloom",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Halation", &P.halation_strength, 0.0f, 1.0f, "%.2f");
     }
 
     if (ImGui::CollapsingHeader("Composition")) {
-        ImGui::SliderFloat("Barrel",        &P.barrel_strength,   0.0f, 0.20f, "%.3f");
-        ImGui::SliderFloat("Vignette",      &P.vignette_strength, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Display gamma", &P.gamma_display,     1.8f, 3.0f, "%.2f");
+        if (!mono_locked) {
+            ImGui::SliderFloat("Barrel",        &P.barrel_strength,   0.0f, 0.20f, "%.3f");
+            ImGui::SliderFloat("Vignette",      &P.vignette_strength, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Display gamma", &P.gamma_display,     1.8f, 3.0f, "%.2f");
+        }
 
         // Aspect ratio override. Picking an option overwrites target_aspect;
         // selecting a different CRT profile after will re-derive from its
@@ -291,7 +312,7 @@ void Menu::build_widgets(Pipeline& pipeline,
         ImGui::TextDisabled("Fullscreen preserves aspect ratio (letterbox)");
     }
 
-    if (ImGui::CollapsingHeader("Pass toggles")) {
+    if (!mono_locked && ImGui::CollapsingHeader("Pass toggles")) {
         for (int i = 0; i < Pipeline::kPassCount; ++i) {
             bool e = pipeline.is_pass_enabled(i);
             if (ImGui::Checkbox(kPassNames[i], &e)) {

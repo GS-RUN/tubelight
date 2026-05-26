@@ -63,7 +63,12 @@ public:
         // Pass 2 (beam + scanlines)
         float scanline_strength = 0.35f;
         float beam_width        = 1.30f;
-        float gamma_crt         = 2.5f;
+        // CRT gamma 2.2 matches sRGB so passthrough mode round-trips
+        // cleanly. Old default of 2.5 paired with display gamma 2.2
+        // crushed midtones (~src^1.14) and "ate" subtle background
+        // detail in monochrome / dark scenes. The user can still crank
+        // it up via the slider for a more contrasty look.
+        float gamma_crt         = 2.2f;
         // Visible scanlines per output frame: 240 = NTSC raster visible,
         // 288 = PAL, 480 = VGA, etc. Set from SignalProfile when available;
         // a slider in the menu lets the user pick non-standard values.

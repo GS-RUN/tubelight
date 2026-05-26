@@ -307,6 +307,47 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
         // analog TV, more than pure 1-bit). Profiles can override this
         // through their JSON if they want a different look.
         params_.posterize_levels = 6;
+
+        // Locked monochrome preset. Two flavours depending on what kind
+        // of monochrome tube we're emulating:
+        //
+        //   - "Terminal" monochromes (P31 green, P3 amber, P1 scope,
+        //     Mac Classic / Lisa B&W): RGB-direct connection, sharp
+        //     letters, light scanlines (~350 raster), low glow.
+        //   - "TV" monochrome (tv-bw-p4, analog B&W broadcast TV):
+        //     visible 240-line NTSC raster, heavier beam bloom, slight
+        //     curvature, posterize off (analog continuous gradient).
+        //
+        // The phosphor type alone isn't enough to distinguish (Mac
+        // Classic is also P4) — we use the is_mac_classic flag computed
+        // above so Macs stay in the terminal preset.
+        const bool is_tv_bw = (p.phosphor_type == PhosphorType::P4 && !is_mac_classic);
+
+        if (is_tv_bw) {
+            params_.scanline_strength = 0.45f; // visible TV scanlines
+            params_.scanline_count    = 240.0f; // NTSC raster
+            params_.beam_width        = 1.60f;
+            params_.gamma_crt         = 2.4f;
+            params_.gamma_display     = 2.2f;
+            params_.bloom_strength    = 0.18f; // bigger phosphor glow
+            params_.halation_strength = 0.0f;
+            params_.barrel_strength   = 0.035f; // mild TV curvature
+            params_.vignette_strength = 0.22f;
+        } else {
+            params_.scanline_strength = 0.18f; // soft terminal lines
+            params_.scanline_count    = 350.0f; // text-terminal raster
+            params_.beam_width        = 1.40f;
+            params_.gamma_crt         = 2.2f;  // sRGB round-trip
+            params_.gamma_display     = 2.2f;
+            params_.bloom_strength    = 0.10f;
+            params_.halation_strength = 0.0f;
+            params_.barrel_strength   = 0.018f;
+            params_.vignette_strength = 0.10f;
+        }
+
+        // Force every pass on so any earlier user toggling doesn't leave
+        // the locked preset partially disabled.
+        for (int i = 0; i < kPassCount; ++i) set_pass_enabled(i, true);
         switch (p.phosphor_type) {
             case PhosphorType::P31: // bright green (Apple II / VT100 class)
                 params_.phosphor_color_r = 0.10f;
@@ -349,15 +390,33 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
     params_.glass_age = static_cast<float>(p.glass_age);
 
     // Curvature → barrel + vignette. Conservative so corners aren't cut on
-    // a desktop overlay, but visibly different across profiles.
-    switch (p.screen_curvature) {
-        case ScreenCurvature::Flat:       params_.barrel_strength = 0.010f; params_.vignette_strength = 0.08f; break;
-        case ScreenCurvature::Mild:       params_.barrel_strength = 0.035f; params_.vignette_strength = 0.20f; break;
-        case ScreenCurvature::Aggressive: params_.barrel_strength = 0.080f; params_.vignette_strength = 0.40f; break;
+    // a desktop overlay, but visibly different across profiles. Skipped
+    // for monochrome profiles — the locked preset above already set
+    // barrel + vignette to look right for terminals.
+    if (!is_mono) {
+        switch (p.screen_curvature) {
+            case ScreenCurvature::Flat:       params_.barrel_strength = 0.010f; params_.vignette_strength = 0.08f; break;
+            case ScreenCurvature::Mild:       params_.barrel_strength = 0.035f; params_.vignette_strength = 0.20f; break;
+            case ScreenCurvature::Aggressive: params_.barrel_strength = 0.080f; params_.vignette_strength = 0.40f; break;
+        }
+    } else {
+        // Clear any previously-loaded signal profile: monochrome CRTs were
+        // RGB-direct (TTL or VGA), never composite. Pass −1 falls back to
+        // its identity defaults so no NTSC/PAL artifacts contaminate the
+        // clean phosphor look.
+        signal_snapshot_ = std::nullopt;
+        params_.scanline_count = 350.0f;
     }
 }
 
 void Pipeline::apply_signal_profile(const SignalProfile& s) {
+    if (params_.monochrome == 1) {
+        // Monochrome CRTs are locked to a clean RGB-direct signal path.
+        // Ignore the requested signal profile so the user can't
+        // accidentally pair P31 / Mac Classic / amber terminal with
+        // composite NTSC and get smearing + dot crawl.
+        return;
+    }
     signal_snapshot_ = s;
     // Pick a sensible default visible scanline count from the signal standard.
     // The user can override via the menu slider.

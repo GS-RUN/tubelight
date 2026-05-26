@@ -563,7 +563,12 @@ int run(const Options& opts) {
         auto s = tubelight::load_signal_profile_by_id(opts.signal_id, err);
         if (s) {
             pipeline.apply_signal_profile(*s);
-            std::printf("[overlay] signal profile: %s\n", s->display_name.c_str());
+            if (pipeline.params().monochrome == 1) {
+                std::printf("[overlay] signal profile '%s' ignored (locked to clean RGB for monochrome)\n",
+                             s->display_name.c_str());
+            } else {
+                std::printf("[overlay] signal profile: %s\n", s->display_name.c_str());
+            }
         } else {
             std::fprintf(stderr, "[overlay] signal profile '%s' not found: %s\n",
                          opts.signal_id.c_str(), err.c_str());

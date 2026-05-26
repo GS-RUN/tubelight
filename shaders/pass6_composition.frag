@@ -101,15 +101,26 @@ void main() {
     // Monochrome phosphor: collapse to luminance, optionally posterize to
     // emulate the limited tonal range of text terminals (or true 1-bit Mac
     // Classic / Lisa), then re-color through the phosphor's chromaticity.
+    //
+    // col arrives in CRT-linear space (Pass 2 applied pow(u_gamma_crt)).
+    // We compute Y in linear, multiply by the phosphor's emission
+    // scaling (treated as a linear multiplier — P31 green is `(0.1, 1.3,
+    // 0.2)` meaning the green channel emits ~13x more than blue), and
+    // let the final display-gamma encode at the bottom of this shader
+    // turn it back into sRGB. Posterize is applied in perceptual space
+    // so the discrete steps match the eye, not the linear scale.
     if (u_monochrome == 1) {
-        float Y = dot(col, vec3(0.2126, 0.7152, 0.0722));
+        float Y_lin = max(dot(col, vec3(0.2126, 0.7152, 0.0722)), 0.0);
         if (u_posterize_levels > 1) {
+            // Quantise in sRGB space so the bands are visually even.
+            float Y_perc = pow(Y_lin, 1.0 / max(u_gamma_display, 1.0));
             float n = float(u_posterize_levels);
-            Y = floor(clamp(Y, 0.0, 1.0) * n) / max(n - 1.0, 1.0);
+            Y_perc = floor(clamp(Y_perc, 0.0, 1.0) * n) / max(n - 1.0, 1.0);
+            Y_lin = pow(Y_perc, u_gamma_display);
         }
         vec3 pcol = u_phosphor_color;
         if (max(pcol.r, max(pcol.g, pcol.b)) < 0.05) pcol = vec3(1.0);
-        col = Y * pcol;
+        col = Y_lin * pcol;
     }
 
     // Glass tint + aging amber drift. Pure 1.0 tint with age 0.0 is no-op.
@@ -141,8 +152,17 @@ void main() {
         col = col * brightness_curve * white_drift;
     }
 
+    // Soft highlight rolloff (pre-gamma tonemap). Pass 4 adds bloom +
+    // halation additively on top of the source, which can push values
+    // above 1.0 in bright regions. Knee starts at 0.92 (only kicks in
+    // for the genuinely bright pixels that would otherwise clip) and
+    // asymptotically maps anything brighter toward 1.0 — preserves
+    // highlight detail without compressing the normal range.
+    col = max(col, 0.0);
+    col = col / (1.0 + max(col - 0.92, 0.0));
+
     // Gamma encode
-    col = pow(max(col, 0.0), vec3(1.0 / u_gamma_display));
+    col = pow(col, vec3(1.0 / u_gamma_display));
 
     o_color = vec4(col, 1.0);
 }

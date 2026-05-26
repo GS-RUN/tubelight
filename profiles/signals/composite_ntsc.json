@@ -17,12 +17,12 @@
   },
 
   "artifacts": {
-    "dot_crawl_strength": 0.75,
+    "dot_crawl_strength": 0.30,
     "rainbow_banding": 0.50,
-    "ringing_amount": 0.35,
+    "ringing_amount": 0.12,
     "ghosting_offset_pixels": 0.0,
     "noise_type": "line",
-    "noise_strength": 0.08
+    "noise_strength": 0.05
   },
 
   "effective_tvl": 350,
