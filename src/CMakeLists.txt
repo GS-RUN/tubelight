@@ -19,7 +19,13 @@ add_library(tubelight_core STATIC
     ipc/ipc_unix.cpp
     ipc/ipc_win.cpp
     export/slangp_exporter.cpp
+    overlay/overlay_mode_win.cpp
+    overlay/overlay_mode_stub.cpp
 )
+
+if(WIN32)
+    target_link_libraries(tubelight_core PUBLIC d3d11 dxgi)
+endif()
 
 target_include_directories(tubelight_core
     PUBLIC

@@ -55,24 +55,28 @@ public:
     bool is_pass_enabled(int pass_index) const;
 
     // Master uniforms applied to every pass (each shader picks the ones it uses).
+    // Defaults are tuned conservatively for *desktop overlay* use — visible
+    // CRT character without overwhelming icons / UI. Retro emulation users
+    // who want the full PVM look should bump them up via the runtime menu
+    // (Ctrl+Alt+M) or by adjusting their CRTProfile JSON.
     struct GlobalParams {
         // Pass 2 (beam + scanlines)
-        float scanline_strength = 0.75f;
+        float scanline_strength = 0.35f;
         float beam_width        = 1.30f;
         float gamma_crt         = 2.5f;
 
         // Pass 3 (mask)
-        int   mask_type         = 1;     // 0=none 1=shadow 2=aperture 3=slot 4=diamond 5=cgwg 6=dottrio
-        float mask_strength     = 0.55f;
-        float mask_pitch_px     = 3.0f;  // approximate pixel pitch of the mask cell
+        int   mask_type         = 2;     // 0=none 1=shadow 2=aperture 3=slot 4=diamond 5=cgwg 6=dottrio
+        float mask_strength     = 0.22f;
+        float mask_pitch_px     = 3.0f;
 
         // Pass 4 (bloom + halation)
-        float bloom_strength    = 0.50f;
-        float halation_strength = 0.35f;
+        float bloom_strength    = 0.18f;
+        float halation_strength = 0.12f;
 
         // Pass 6 (composition)
-        float barrel_strength   = 0.06f;
-        float vignette_strength = 0.35f;
+        float barrel_strength   = 0.02f;
+        float vignette_strength = 0.12f;
         float gamma_display     = 2.2f;
     };
 

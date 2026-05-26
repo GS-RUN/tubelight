@@ -18,6 +18,7 @@
 #include "core/pipeline.h"
 #include "core/texture.h"
 #include "export/slangp_exporter.h"
+#include "overlay/overlay_mode.h"
 #include "profile/profile_loader.h"
 #include "profile/validator.h"
 
@@ -43,6 +44,8 @@ struct Args {
     std::string profile_id;
     std::string signal_id;
     std::string export_slangp_path;
+    bool overlay = false;
+    int  overlay_monitor = 0;
     bool unknown_flag = false;
     std::string unknown_flag_text;
 };
@@ -73,6 +76,10 @@ Args parse_args(int argc, char** argv) {
             if (i + 1 < argc) a.profile_id = argv[++i];
         } else if (arg == "--signal") {
             if (i + 1 < argc) a.signal_id = argv[++i];
+        } else if (arg == "--overlay") {
+            a.overlay = true;
+        } else if (arg == "--monitor") {
+            if (i + 1 < argc) a.overlay_monitor = std::atoi(argv[++i]);
         } else if (arg == "--export-slangp") {
             if (i + 1 < argc) {
                 a.export_slangp_path = argv[++i];
@@ -101,10 +108,15 @@ void print_help() {
         "Options:\n"
         "  --help, -h                   Print this help and exit\n"
         "  --version, -v                Print version and exit\n"
-        "  --shader-only <path>         Apply pipeline to a PNG and show in a window (F2)\n"
+        "  --overlay                    Real overlay: fullscreen borderless topmost\n"
+        "                               window that captures the desktop beneath via\n"
+        "                               DXGI Desktop Duplication and applies the CRT\n"
+        "                               pipeline live. Windows only today.\n"
+        "  --monitor <index>            Which display to overlay (default 0)\n"
+        "  --shader-only <path>         Apply pipeline to a PNG and show in a window\n"
         "  --target <pid|exe>           [F5+] Attach overlay to a process\n"
-        "  --profile <id>               [F3+] CRT profile id\n"
-        "  --signal <id>                [F3+] Signal profile id\n"
+        "  --profile <id>               CRT profile id\n"
+        "  --signal <id>                Signal profile id\n"
         "  --api <auto|dx11|dx12|opengl|vulkan>   [F5+] API hint for injection\n"
         "  --fallback <auto|always>     [F5+] Force DXGI/PipeWire fallback\n"
         "  --headless                   [F3+] Run without UI\n"
@@ -358,6 +370,14 @@ int main(int argc, char** argv) {
         std::printf("[tubelight] exported .slangp preset to %s\n",
                     args.export_slangp_path.c_str());
         return 0;
+    }
+    if (args.overlay) {
+        tubelight::overlay::Options o;
+        o.profile_id    = args.profile_id;
+        o.signal_id     = args.signal_id;
+        o.monitor_index = args.overlay_monitor;
+        o.fullscreen    = true;
+        return tubelight::overlay::run(o);
     }
     if (!args.shader_only_input.empty()) {
         return run_shader_only(args.shader_only_input, args.profile_id, args.signal_id);

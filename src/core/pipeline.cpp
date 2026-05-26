@@ -249,7 +249,10 @@ const char* pass_display_name(int pass_index) {
 }
 
 void Pipeline::apply_crt_profile(const CRTProfile& p) {
-    params_.scanline_strength = static_cast<float>(p.scanline_strength);
+    // For desktop overlay use we damp the per-profile aggressiveness so the
+    // shader is noticeable but not overpowering. Multiply by 0.55 against
+    // the profile's natural scanline strength.
+    params_.scanline_strength = static_cast<float>(p.scanline_strength) * 0.55f;
     params_.gamma_crt         = 2.5f;
 
     switch (p.mask_type) {
@@ -272,8 +275,7 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
         params_.mask_pitch_px = std::max(params_.mask_pitch_px, 1.5f);
     }
 
-    // Monochrome profiles dial mask down to none in practice (mask handled by
-    // glass + phosphor color, not a triad mask).
+    // Monochrome profiles dial mask down to none.
     if (p.phosphor_type == PhosphorType::P1 ||
         p.phosphor_type == PhosphorType::P3 ||
         p.phosphor_type == PhosphorType::P4 ||
@@ -281,14 +283,15 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
         params_.mask_type = 0;
         params_.mask_strength = 0.0f;
     } else {
-        params_.mask_strength = 0.55f;
+        params_.mask_strength = 0.22f;
     }
 
-    // Vignette ties to screen curvature.
+    // Vignette + barrel tied to screen curvature — conservative defaults so
+    // the desktop overlay doesn't crop visible content at the corners.
     switch (p.screen_curvature) {
-        case ScreenCurvature::Flat:       params_.barrel_strength = 0.02f; params_.vignette_strength = 0.20f; break;
-        case ScreenCurvature::Mild:       params_.barrel_strength = 0.06f; params_.vignette_strength = 0.35f; break;
-        case ScreenCurvature::Aggressive: params_.barrel_strength = 0.12f; params_.vignette_strength = 0.55f; break;
+        case ScreenCurvature::Flat:       params_.barrel_strength = 0.012f; params_.vignette_strength = 0.08f; break;
+        case ScreenCurvature::Mild:       params_.barrel_strength = 0.020f; params_.vignette_strength = 0.12f; break;
+        case ScreenCurvature::Aggressive: params_.barrel_strength = 0.040f; params_.vignette_strength = 0.20f; break;
     }
 }
 
