@@ -1,0 +1,56 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "mac-classic-white",
+  "display_name": "Apple Macintosh Classic / Plus (9\" 1-bit white monitor, 1984-1990)",
+  "era": "1984",
+
+  "tube": {
+    "mask_type": "none",
+    "dot_pitch_mm": null,
+    "screen_curvature": "mild",
+    "diagonal_inches": 9,
+    "aspect_native": "4:3",
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/Macintosh_Classic",
+      "retrieved_at": "2026-05-26",
+      "notes": "All Compact Macs (128K, 512K, Plus, SE, SE/30, Classic, Classic II) used the same 9\" CRT with a 1-bit (pure black/white) framebuffer at 512x342. Greys were created entirely through dithering — there were no analog grey levels. This profile mirrors that by setting posterize_levels=2 so a modern desktop captured by Tubelight gets quantised to literal black-or-white with the cool-white P4-class phosphor tint."
+    }
+  },
+
+  "phosphor": {
+    "type": "P4",
+    "decay_ms": { "r": 0.5, "g": 0.5, "b": 0.5 },
+    "chromaticity_smpte_c": {
+      "r": [0.295, 0.330],
+      "g": [0.295, 0.330],
+      "b": [0.295, 0.330]
+    },
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/Phosphor",
+      "retrieved_at": "2026-05-26",
+      "notes": "P4 white phosphor used in compact Macs. Cool-white tint, short persistence (~0.5 ms representative)."
+    }
+  },
+
+  "beam": {
+    "focus": 0.78,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.65,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.10,
+    "tint": [1.00, 1.00, 1.00],
+    "reflection_strength": 0.08
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 22.25,
+  "v_freq_hz": 60.15
+}

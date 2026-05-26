@@ -231,6 +231,30 @@ void validate_crt_profile(const json& j, ValidationResult& result, CRTProfile& o
         out.v_freq_hz = j.at("v_freq_hz").get<double>();
         if (out.v_freq_hz <= 0) errors.emplace_back("crt_profile.v_freq_hz must be > 0");
     }
+
+    // ---- glass (optional) ------------------------------------------------
+    // The "glass" block carries CRT-glass tint and age for the composition
+    // pass. Earlier revisions of the validator skipped it, which meant the
+    // monochrome / B&W profiles (tv-bw-p4, terminal-p3-amber, ...) never
+    // actually painted with their declared tint.
+    if (j.contains("glass") && j.at("glass").is_object()) {
+        const auto& g = j.at("glass");
+        if (g.contains("age") && g.at("age").is_number()) {
+            out.glass_age = g.at("age").get<double>();
+            if (out.glass_age < 0.0 || out.glass_age > 1.0) {
+                warnings.emplace_back("crt_profile.glass.age outside [0, 1]");
+            }
+        }
+        if (g.contains("tint") && g.at("tint").is_array() && g.at("tint").size() == 3) {
+            const auto& t = g.at("tint");
+            for (size_t i = 0; i < 3; ++i) {
+                if (t.at(i).is_number()) out.glass_tint[i] = t.at(i).get<double>();
+            }
+        }
+        if (g.contains("reflection_strength") && g.at("reflection_strength").is_number()) {
+            out.glass_reflection_strength = g.at("reflection_strength").get<double>();
+        }
+    }
 }
 
 // ---- SignalProfile validation -------------------------------------------

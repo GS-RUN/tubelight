@@ -119,8 +119,14 @@ void apply_uniforms_for_pass(ShaderProgram& sh,
             sh.set_float("u_vignette_strength", p.vignette_strength);
             sh.set_float("u_gamma_display",     p.gamma_display);
             sh.set_float("u_time",              time);
-            // Warm-up curve: linearly to 1.0 over 180s, then clamped.
             sh.set_float("u_warmup",            std::min(1.0f, time / 180.0f));
+            sh.set_int  ("u_monochrome",        p.monochrome);
+            sh.set_int  ("u_posterize_levels",  p.posterize_levels);
+            sh.set_vec3 ("u_phosphor_color",
+                          glm::vec3(p.phosphor_color_r, p.phosphor_color_g, p.phosphor_color_b));
+            sh.set_vec3 ("u_glass_tint",
+                          glm::vec3(p.glass_tint_r, p.glass_tint_g, p.glass_tint_b));
+            sh.set_float("u_glass_age",         p.glass_age);
             break;
         default:
             break;
@@ -249,10 +255,9 @@ const char* pass_display_name(int pass_index) {
 }
 
 void Pipeline::apply_crt_profile(const CRTProfile& p) {
-    // For desktop overlay use we damp the per-profile aggressiveness so the
-    // shader is noticeable but not overpowering. Multiply by 0.55 against
-    // the profile's natural scanline strength.
-    params_.scanline_strength = static_cast<float>(p.scanline_strength) * 0.55f;
+    // Use the profile's native scanline_strength at face value. The menu's
+    // intensity slider scales it further if the user wants something subtler.
+    params_.scanline_strength = static_cast<float>(p.scanline_strength);
     params_.gamma_crt         = 2.5f;
 
     switch (p.mask_type) {
@@ -265,33 +270,82 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
         case MaskType::DotTrio:        params_.mask_type = 6; break;
     }
 
-    // Map dot pitch (mm) to display pixel pitch. A 14-inch 4:3 tube has a
-    // horizontal viewable width of ~285 mm; with a 1280-pixel-wide output that
-    // gives ~4.5 px/mm. We approximate; this is refined in F7 with viewable
-    // area accounting for diagonal_inches and aspect.
+    // Map dot pitch (mm) to display pixel pitch.
     if (p.dot_pitch_mm.has_value()) {
         constexpr float kPixelsPerMm = 4.5f;
         params_.mask_pitch_px = static_cast<float>(p.dot_pitch_mm.value()) * kPixelsPerMm;
         params_.mask_pitch_px = std::max(params_.mask_pitch_px, 1.5f);
     }
 
-    // Monochrome profiles dial mask down to none.
-    if (p.phosphor_type == PhosphorType::P1 ||
-        p.phosphor_type == PhosphorType::P3 ||
-        p.phosphor_type == PhosphorType::P4 ||
-        p.phosphor_type == PhosphorType::P31) {
+    // Monochrome handling: no triad mask, instead colour the output using
+    // the phosphor's chromaticity (Pass 6 reads u_phosphor_color when
+    // u_monochrome is on).
+    const bool is_mono =
+        (p.phosphor_type == PhosphorType::P1 ||
+         p.phosphor_type == PhosphorType::P3 ||
+         p.phosphor_type == PhosphorType::P4 ||
+         p.phosphor_type == PhosphorType::P31);
+
+    params_.monochrome = is_mono ? 1 : 0;
+    // Mac-Classic-class profiles want literal 1-bit; detect by id prefix.
+    const bool is_mac_classic =
+        p.id.find("mac-classic") != std::string::npos ||
+        p.id.find("apple-lisa")  != std::string::npos;
+
+    if (is_mono) {
         params_.mask_type = 0;
         params_.mask_strength = 0.0f;
+        // Default posterize: text terminals quantised to 6 steps (less than
+        // analog TV, more than pure 1-bit). Profiles can override this
+        // through their JSON if they want a different look.
+        params_.posterize_levels = 6;
+        switch (p.phosphor_type) {
+            case PhosphorType::P31: // bright green (Apple II / VT100 class)
+                params_.phosphor_color_r = 0.10f;
+                params_.phosphor_color_g = 1.30f;
+                params_.phosphor_color_b = 0.20f;
+                break;
+            case PhosphorType::P3:  // amber (IBM 5151 / HP)
+                params_.phosphor_color_r = 1.40f;
+                params_.phosphor_color_g = 0.65f;
+                params_.phosphor_color_b = 0.05f;
+                break;
+            case PhosphorType::P1:  // deep green oscilloscope tube
+                params_.phosphor_color_r = 0.05f;
+                params_.phosphor_color_g = 1.30f;
+                params_.phosphor_color_b = 0.15f;
+                break;
+            case PhosphorType::P4:  // B&W: analog TV by default → no posterize.
+                params_.phosphor_color_r = 0.95f;
+                params_.phosphor_color_g = 1.00f;
+                params_.phosphor_color_b = 1.10f;
+                params_.posterize_levels = is_mac_classic ? 2 : 0;
+                break;
+            default: break;
+        }
     } else {
-        params_.mask_strength = 0.22f;
+        params_.mask_strength = 0.40f; // visible mask for colour CRTs
+        params_.phosphor_color_r = 1.0f;
+        params_.phosphor_color_g = 1.0f;
+        params_.phosphor_color_b = 1.0f;
     }
 
-    // Vignette + barrel tied to screen curvature — conservative defaults so
-    // the desktop overlay doesn't crop visible content at the corners.
+    // Glass tint / age — picks up the aged-yellow look of vintage B&W TVs etc.
+    if (p.glass_tint.size() == 3) {
+        params_.glass_tint_r = static_cast<float>(p.glass_tint[0]);
+        params_.glass_tint_g = static_cast<float>(p.glass_tint[1]);
+        params_.glass_tint_b = static_cast<float>(p.glass_tint[2]);
+    } else {
+        params_.glass_tint_r = params_.glass_tint_g = params_.glass_tint_b = 1.0f;
+    }
+    params_.glass_age = static_cast<float>(p.glass_age);
+
+    // Curvature → barrel + vignette. Conservative so corners aren't cut on
+    // a desktop overlay, but visibly different across profiles.
     switch (p.screen_curvature) {
-        case ScreenCurvature::Flat:       params_.barrel_strength = 0.012f; params_.vignette_strength = 0.08f; break;
-        case ScreenCurvature::Mild:       params_.barrel_strength = 0.020f; params_.vignette_strength = 0.12f; break;
-        case ScreenCurvature::Aggressive: params_.barrel_strength = 0.040f; params_.vignette_strength = 0.20f; break;
+        case ScreenCurvature::Flat:       params_.barrel_strength = 0.010f; params_.vignette_strength = 0.08f; break;
+        case ScreenCurvature::Mild:       params_.barrel_strength = 0.035f; params_.vignette_strength = 0.20f; break;
+        case ScreenCurvature::Aggressive: params_.barrel_strength = 0.080f; params_.vignette_strength = 0.40f; break;
     }
 }
 

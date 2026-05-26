@@ -14,6 +14,10 @@
     "stb",
     "nlohmann-json",
     {
+      "name": "imgui",
+      "features": ["glfw-binding", "opengl3-binding"]
+    },
+    {
       "name": "minhook",
       "platform": "windows"
     }

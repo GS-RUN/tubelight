@@ -27,6 +27,14 @@ uniform float u_gamma_display;       // ~2.2
 uniform float u_time;                // seconds since attach (for magnetic + warmup)
 uniform float u_warmup;              // 0=cold start, 1=fully warmed (180s curve)
 
+// Phosphor / glass tint (from CRTProfile via Pipeline::apply_crt_profile).
+uniform int   u_monochrome;          // 0 = color CRT, 1 = single-phosphor (P31/P3/P4...)
+uniform int   u_posterize_levels;    // 0 = no quantisation; 2 = pure 1-bit (Mac);
+                                     //                     4..8 = text-terminal feel
+uniform vec3  u_phosphor_color;      // colour of the monochrome phosphor
+uniform vec3  u_glass_tint;          // per-channel multiplier for glass colour
+uniform float u_glass_age;           // [0..1] adds amber drift on top of tint
+
 vec2 barrel(vec2 uv, float k) {
     vec2 c = uv - 0.5;
     float r2 = dot(c, c);
@@ -63,19 +71,48 @@ void main() {
 
     vec3 col = sample_with_convergence(uv);
 
+    // Monochrome phosphor: collapse to luminance, optionally posterize to
+    // emulate the limited tonal range of text terminals (or true 1-bit Mac
+    // Classic / Lisa), then re-color through the phosphor's chromaticity.
+    if (u_monochrome == 1) {
+        float Y = dot(col, vec3(0.2126, 0.7152, 0.0722));
+        if (u_posterize_levels > 1) {
+            float n = float(u_posterize_levels);
+            Y = floor(clamp(Y, 0.0, 1.0) * n) / max(n - 1.0, 1.0);
+        }
+        vec3 pcol = u_phosphor_color;
+        if (max(pcol.r, max(pcol.g, pcol.b)) < 0.05) pcol = vec3(1.0);
+        col = Y * pcol;
+    }
+
+    // Glass tint + aging amber drift. Pure 1.0 tint with age 0.0 is no-op.
+    // Safety: if the uniform somehow arrives as (0,0,0) (e.g. driver optimised
+    // it out), fall back to white so we never multiply the picture by zero.
+    vec3 tint = u_glass_tint;
+    if (max(tint.r, max(tint.g, tint.b)) < 0.05) tint = vec3(1.0);
+    if (u_glass_age > 0.0) {
+        vec3 aged = vec3(1.05, 1.00, 0.85);
+        tint = mix(tint, tint * aged, clamp(u_glass_age, 0.0, 1.0));
+    }
+    col *= tint;
+
     // Vignette
     vec2 c = uv - 0.5;
     float dist = length(c) * 1.4142135;
     float vignette = 1.0 - u_vignette_strength * smoothstep(0.5, 1.0, dist);
     col *= vignette;
 
-    // Warm-up: cold tubes start cooler in color temperature and dimmer.
-    // u_warmup in [0..1] linearly multiplies brightness and shifts white
-    // toward blue when cold.
-    float warmup = clamp(u_warmup, 0.0, 1.0);
-    float brightness_curve = mix(0.55, 1.0, warmup);
-    vec3 white_drift = mix(vec3(0.85, 0.95, 1.10), vec3(1.0), warmup);
-    col = col * brightness_curve * white_drift;
+    // Warm-up: cold tubes start dimmer and cooler. For colour CRTs we model
+    // 0.55..1.0 brightness over 180s and a cool→neutral white drift. For
+    // monochrome phosphors (terminals, vintage B&W TVs) the user expects the
+    // signature saturated colour from the first frame, so we skip the cold
+    // warmup curve entirely.
+    if (u_monochrome == 0) {
+        float warmup = clamp(u_warmup, 0.0, 1.0);
+        float brightness_curve = mix(0.55, 1.0, warmup);
+        vec3 white_drift = mix(vec3(0.85, 0.95, 1.10), vec3(1.0), warmup);
+        col = col * brightness_curve * white_drift;
+    }
 
     // Gamma encode
     col = pow(max(col, 0.0), vec3(1.0 / u_gamma_display));

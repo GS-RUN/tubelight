@@ -35,6 +35,7 @@
 #include "core/gl_common.h"
 #include "core/pipeline.h"
 #include "core/texture.h"
+#include "overlay/menu.h"
 #include "profile/profile_loader.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -68,21 +69,43 @@ std::atomic<bool> g_hk_quit{false};
 std::atomic<bool> g_hk_freeze_toggle{false};
 std::atomic<bool> g_hk_all_on{false};
 std::atomic<int>  g_hk_toggle_pass{-1};
+std::atomic<bool> g_hk_toggle_menu{false};
+
+// Track which interesting keys are currently held so we only fire on the
+// initial WM_KEYDOWN, never on the (potentially-many) auto-repeats that
+// would otherwise toggle the same hotkey several times per press.
+static bool s_key_held[256] = {};
 
 LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode == HC_ACTION && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)) {
-        const auto* kbd = reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam);
-        const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        const bool alt  = (GetAsyncKeyState(VK_MENU)    & 0x8000) != 0;
-        if (ctrl && alt) {
-            const DWORD vk = kbd->vkCode;
-            if (vk == 'Q')                            g_hk_quit = true;
-            else if (vk == 'F')                       g_hk_freeze_toggle = true;
-            else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
-            else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
-            else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
-                                                     g_hk_toggle_pass = static_cast<int>(vk - VK_NUMPAD1);
-        }
+    if (nCode != HC_ACTION) return CallNextHookEx(nullptr, nCode, wParam, lParam);
+    const auto* kbd = reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam);
+    const DWORD vk = kbd->vkCode;
+
+    if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
+        if (vk < 256) s_key_held[vk] = false;
+        return CallNextHookEx(nullptr, nCode, wParam, lParam);
+    }
+
+    if (wParam != WM_KEYDOWN && wParam != WM_SYSKEYDOWN) {
+        return CallNextHookEx(nullptr, nCode, wParam, lParam);
+    }
+
+    // Skip auto-repeats.
+    if (vk < 256 && s_key_held[vk]) {
+        return CallNextHookEx(nullptr, nCode, wParam, lParam);
+    }
+    if (vk < 256) s_key_held[vk] = true;
+
+    const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool alt  = (GetAsyncKeyState(VK_MENU)    & 0x8000) != 0;
+    if (ctrl && alt) {
+        if (vk == 'Q')                            g_hk_quit = true;
+        else if (vk == 'F')                       g_hk_freeze_toggle = true;
+        else if (vk == 'M')                       g_hk_toggle_menu = true;
+        else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
+        else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
+        else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
+                                                 g_hk_toggle_pass = static_cast<int>(vk - VK_NUMPAD1);
     }
     return CallNextHookEx(nullptr, nCode, wParam, lParam);
 }
@@ -423,6 +446,22 @@ int run(const Options& opts) {
     glfwSetWindowUserPointer(window, &state);
     glfwSetKeyCallback(window, key_cb);
 
+    // Menu state — selected profile/signal ids + a global intensity multiplier.
+    std::string current_profile_id = opts.profile_id;
+    std::string current_signal_id  = opts.signal_id;
+    float intensity_multiplier     = 1.0f;
+    Pipeline::GlobalParams base_params = pipeline.params();
+
+    Menu menu;
+    bool has_menu = menu.init(window);
+    std::fprintf(stderr, "[overlay] %s\n",
+                 has_menu ? "in-app menu ready (Ctrl+Alt+M to open)"
+                          : "built without imgui — menu disabled");
+
+    LONG_PTR base_ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    (void)base_ex_style;
+    bool menu_was_open = false;
+
     std::printf(
         "[overlay] %dx%d — capturing first desktop frame before showing window...\n",
         W, H);
@@ -572,14 +611,75 @@ int run(const Options& opts) {
         }
         ++frames_total;
 
-        // Until we have a real capture, paint clear black + a brief banner
-        // so the user knows the overlay is alive and not a black screen.
+        // Render the pipeline (or clear black if we don't have a frame yet).
         if (!have_initial) {
             glClearColor(0.02f, 0.0f, 0.02f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
         } else {
             pipeline.set_time(static_cast<float>(glfwGetTime() - t0));
             pipeline.render_to_screen(source.id());
+        }
+
+        // In-app menu (compiled-in optional).
+        if (has_menu) {
+            menu.begin_frame();
+            bool want_quit_from_menu = false;
+            std::string prev_profile = current_profile_id;
+            std::string prev_signal  = current_signal_id;
+            float       prev_intensity = intensity_multiplier;
+            menu.build_widgets(pipeline, current_profile_id, current_signal_id,
+                               intensity_multiplier, want_quit_from_menu);
+            menu.end_frame_to_screen();
+
+            if (want_quit_from_menu) glfwSetWindowShouldClose(window, GLFW_TRUE);
+
+            if (current_profile_id != prev_profile && !current_profile_id.empty()) {
+                std::string err;
+                auto p = tubelight::load_crt_profile_by_id(current_profile_id, err);
+                if (p) {
+                    pipeline.apply_crt_profile(*p);
+                    base_params = pipeline.params();
+                    intensity_multiplier = 1.0f;
+                    std::fprintf(stderr,
+                        "[overlay] applied CRT '%s': mono=%d phosphor=(%.2f,%.2f,%.2f) tint=(%.2f,%.2f,%.2f) age=%.2f mask=%d strength=%.2f\n",
+                        current_profile_id.c_str(),
+                        pipeline.params().monochrome,
+                        pipeline.params().phosphor_color_r,
+                        pipeline.params().phosphor_color_g,
+                        pipeline.params().phosphor_color_b,
+                        pipeline.params().glass_tint_r,
+                        pipeline.params().glass_tint_g,
+                        pipeline.params().glass_tint_b,
+                        pipeline.params().glass_age,
+                        pipeline.params().mask_type,
+                        pipeline.params().mask_strength);
+                } else {
+                    std::fprintf(stderr, "[overlay] could not load CRT '%s': %s\n",
+                                 current_profile_id.c_str(), err.c_str());
+                }
+            }
+            if (current_signal_id != prev_signal && !current_signal_id.empty()) {
+                std::string err;
+                auto s = tubelight::load_signal_profile_by_id(current_signal_id, err);
+                if (s) {
+                    pipeline.apply_signal_profile(*s);
+                    std::fprintf(stderr, "[overlay] applied signal '%s'\n",
+                                 current_signal_id.c_str());
+                } else {
+                    std::fprintf(stderr, "[overlay] could not load signal '%s': %s\n",
+                                 current_signal_id.c_str(), err.c_str());
+                }
+            }
+            if (intensity_multiplier != prev_intensity) {
+                auto& P = pipeline.params();
+                float k = intensity_multiplier;
+                P.scanline_strength = std::min(1.0f,  base_params.scanline_strength * k);
+                P.mask_strength     = std::min(1.0f,  base_params.mask_strength     * k);
+                P.bloom_strength    = std::min(1.0f,  base_params.bloom_strength    * k);
+                P.halation_strength = std::min(1.0f,  base_params.halation_strength * k);
+                P.barrel_strength   = std::min(0.20f, base_params.barrel_strength   * k);
+                P.vignette_strength = std::min(1.0f,  base_params.vignette_strength * k);
+            }
         }
 
         glfwSwapBuffers(window);
@@ -605,6 +705,26 @@ int run(const Options& opts) {
             std::printf("[overlay] %s: %s\n",
                         tubelight::pass_display_name(p), !cur ? "ON" : "OFF");
         }
+        if (g_hk_toggle_menu.exchange(false) && has_menu) {
+            menu.toggle();
+        }
+
+        // When the menu is open we need clicks to land on it, so we drop
+        // WS_EX_TRANSPARENT temporarily. Restore click-through on close.
+        bool menu_open_now = has_menu && menu.is_open();
+        if (menu_open_now != menu_was_open) {
+            LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            if (menu_open_now) {
+                ex &= ~WS_EX_TRANSPARENT;
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                SetForegroundWindow(hwnd);
+                SetFocus(hwnd);
+            } else {
+                ex |= WS_EX_TRANSPARENT;
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+            }
+            menu_was_open = menu_open_now;
+        }
 
         // Periodic health log.
         if ((frames_total % 300) == 0) {
@@ -616,6 +736,8 @@ int run(const Options& opts) {
     // Stop the hotkey thread.
     PostThreadMessage(hk_tid.load(), WM_QUIT, 0, 0);
     if (hotkey_thread.joinable()) hotkey_thread.join();
+
+    if (has_menu) menu.shutdown();
 
     capture.shutdown();
     glfwDestroyWindow(window);

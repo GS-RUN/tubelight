@@ -72,6 +72,14 @@ endif()
 # nlohmann-json
 find_package(nlohmann_json CONFIG REQUIRED)
 
+# Dear ImGui (optional — if present we build with the in-app menu).
+find_package(imgui CONFIG QUIET)
+if(imgui_FOUND)
+    message(STATUS "Dear ImGui found — in-app menu enabled")
+else()
+    message(STATUS "Dear ImGui NOT found — in-app menu will be disabled (hotkeys still work)")
+endif()
+
 # MinHook (Windows only) for DX11/DX12/OpenGL Present hook
 if(WIN32)
     find_package(minhook CONFIG QUIET)

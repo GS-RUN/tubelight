@@ -78,6 +78,23 @@ public:
         float barrel_strength   = 0.02f;
         float vignette_strength = 0.12f;
         float gamma_display     = 2.2f;
+
+        // Phosphor / glass tint (Pass 6 — from CRTProfile).
+        // monochrome=1 collapses input to luminance and recolours through
+        // phosphor_color (P31 green, P3 amber, P4 cool-white...). glass_tint
+        // is a per-channel multiplier; glass_age adds amber drift on top.
+        // posterize_levels > 1 quantises the monochrome luminance into N
+        // discrete steps — 2 = pure 1-bit (Mac Classic), 4..8 = early
+        // text-terminal feel, 0 = full analog (B&W TV).
+        int   monochrome        = 0;
+        int   posterize_levels  = 0;
+        float phosphor_color_r  = 1.0f;
+        float phosphor_color_g  = 1.0f;
+        float phosphor_color_b  = 1.0f;
+        float glass_tint_r      = 1.0f;
+        float glass_tint_g      = 1.0f;
+        float glass_tint_b      = 1.0f;
+        float glass_age         = 0.0f;
     };
 
     GlobalParams& params() { return params_; }

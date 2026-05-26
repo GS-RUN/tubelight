@@ -21,10 +21,16 @@ add_library(tubelight_core STATIC
     export/slangp_exporter.cpp
     overlay/overlay_mode_win.cpp
     overlay/overlay_mode_stub.cpp
+    overlay/menu.cpp
 )
 
 if(WIN32)
     target_link_libraries(tubelight_core PUBLIC d3d11 dxgi)
+endif()
+
+if(imgui_FOUND)
+    target_link_libraries(tubelight_core PUBLIC imgui::imgui)
+    target_compile_definitions(tubelight_core PUBLIC TUBELIGHT_HAS_IMGUI)
 endif()
 
 target_include_directories(tubelight_core
