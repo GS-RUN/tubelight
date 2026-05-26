@@ -1,0 +1,55 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "sony-fw900",
+  "display_name": "Sony GDM-FW900 (24\" widescreen Trinitron, 1998)",
+  "era": "1998",
+
+  "tube": {
+    "mask_type": "aperture_grille",
+    "dot_pitch_mm": 0.25,
+    "screen_curvature": "flat",
+    "diagonal_inches": 24,
+    "aspect_native": "16:9",
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/Sony_GDM-FW900",
+      "retrieved_at": "2026-05-26",
+      "notes": "Sony's flagship 16:9 widescreen Trinitron monitor; aperture-grille pitch advertised as 0.23-0.27 mm variable across the screen. 0.25 mm chosen as midpoint. Native resolution up to 2304×1440 at 80 Hz."
+    }
+  },
+
+  "phosphor": {
+    "type": "P22",
+    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "chromaticity_smpte_c": {
+      "r": [0.630, 0.340],
+      "g": [0.310, 0.595],
+      "b": [0.155, 0.070]
+    },
+    "source": {
+      "url": "https://crtdatabase.com/faq/phosphor-designations",
+      "retrieved_at": "2026-05-26"
+    }
+  },
+
+  "beam": {
+    "focus": 0.95,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.45,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.0,
+    "tint": [1.00, 1.00, 1.00],
+    "reflection_strength": 0.02
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 96.0,
+  "v_freq_hz": 85.0
+}

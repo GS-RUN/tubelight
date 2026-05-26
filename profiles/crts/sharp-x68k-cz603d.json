@@ -1,0 +1,55 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "sharp-x68k-cz603d",
+  "display_name": "Sharp X68000 CZ-603D (14\" Shadow Mask fine pitch, 1990)",
+  "era": "1990",
+
+  "tube": {
+    "mask_type": "shadow",
+    "dot_pitch_mm": 0.29,
+    "screen_curvature": "mild",
+    "diagonal_inches": 14,
+    "aspect_native": "4:3",
+    "source": {
+      "url": "https://gamesx.com/wiki/doku.php?id=x68000%3Ax68000_monitors",
+      "retrieved_at": "2026-05-26",
+      "notes": "Later X68k monitor series (CZ-603D/606D/608D) tightened the mask pitch from 0.39 mm to 0.28-0.31 mm and dropped 24 kHz support. 0.29 mm chosen as midpoint."
+    }
+  },
+
+  "phosphor": {
+    "type": "P22",
+    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "chromaticity_smpte_c": {
+      "r": [0.630, 0.340],
+      "g": [0.310, 0.595],
+      "b": [0.155, 0.070]
+    },
+    "source": {
+      "url": "https://crtdatabase.com/faq/phosphor-designations",
+      "retrieved_at": "2026-05-26"
+    }
+  },
+
+  "beam": {
+    "focus": 0.90,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.62,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.0,
+    "tint": [1.00, 1.00, 1.00],
+    "reflection_strength": 0.04
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 31.469,
+  "v_freq_hz": 60.0
+}

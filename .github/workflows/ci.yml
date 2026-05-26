@@ -97,7 +97,15 @@ jobs:
           echo "CRT profiles: $crt_count (M4 requires >= 10)"
           echo "Signal profiles: $sig_count (M5 requires == 7)"
           if [ "$crt_count" -lt 10 ]; then echo "::error::M4 violated ($crt_count < 10)"; exit 1; fi
-          if [ "$sig_count" -lt 7 ];  then echo "::error::M5 violated ($sig_count < 7)"; exit 1; fi
+          if [ "$sig_count" -lt 7 ];  then echo "::error::M5 violated ($sig_count < 7)";  exit 1; fi
+
+      - name: Smoke .slangp export
+        run: |
+          ./build/linux-ninja/tubelight --export-slangp /tmp/test.slangp \
+            --profile pvm-8220 --signal composite_ntsc
+          test -s /tmp/test.slangp
+          head -20 /tmp/test.slangp
+          grep -q "shaders = 8" /tmp/test.slangp
 
   linux-clang:
     name: Linux / clang-18

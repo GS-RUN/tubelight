@@ -118,6 +118,9 @@ void apply_uniforms_for_pass(ShaderProgram& sh,
             sh.set_float("u_barrel_strength",   p.barrel_strength);
             sh.set_float("u_vignette_strength", p.vignette_strength);
             sh.set_float("u_gamma_display",     p.gamma_display);
+            sh.set_float("u_time",              time);
+            // Warm-up curve: linearly to 1.0 over 180s, then clamped.
+            sh.set_float("u_warmup",            std::min(1.0f, time / 180.0f));
             break;
         default:
             break;

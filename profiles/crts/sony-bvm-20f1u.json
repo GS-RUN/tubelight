@@ -1,0 +1,55 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "sony-bvm-20f1u",
+  "display_name": "Sony BVM-20F1U (20\" Broadcast Trinitron, 1995)",
+  "era": "1995",
+
+  "tube": {
+    "mask_type": "aperture_grille",
+    "dot_pitch_mm": 0.30,
+    "screen_curvature": "flat",
+    "diagonal_inches": 20,
+    "aspect_native": "4:3",
+    "source": {
+      "url": "https://www.manualslib.com/manual/1037089/Sony-Trinitron-Bvm-A20f1u.html?page=124",
+      "retrieved_at": "2026-05-26",
+      "notes": "Broadcast-grade Trinitron with the finest aperture grille pitch (0.30 mm). Multistandard horizontal up to ~64 kHz. Linear field-rate, low geometry warp baseline."
+    }
+  },
+
+  "phosphor": {
+    "type": "P22",
+    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "chromaticity_smpte_c": {
+      "r": [0.630, 0.340],
+      "g": [0.310, 0.595],
+      "b": [0.155, 0.070]
+    },
+    "source": {
+      "url": "https://crtdatabase.com/faq/phosphor-designations",
+      "retrieved_at": "2026-05-26"
+    }
+  },
+
+  "beam": {
+    "focus": 0.97,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.72,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.0,
+    "tint": [1.00, 1.00, 1.00],
+    "reflection_strength": 0.02
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 15.734,
+  "v_freq_hz": 59.94
+}

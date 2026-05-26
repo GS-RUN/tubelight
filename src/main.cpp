@@ -17,6 +17,7 @@
 #include "core/gl_common.h"
 #include "core/pipeline.h"
 #include "core/texture.h"
+#include "export/slangp_exporter.h"
 #include "profile/profile_loader.h"
 #include "profile/validator.h"
 
@@ -41,6 +42,7 @@ struct Args {
     std::string validate_profile_path;
     std::string profile_id;
     std::string signal_id;
+    std::string export_slangp_path;
     bool unknown_flag = false;
     std::string unknown_flag_text;
 };
@@ -71,6 +73,13 @@ Args parse_args(int argc, char** argv) {
             if (i + 1 < argc) a.profile_id = argv[++i];
         } else if (arg == "--signal") {
             if (i + 1 < argc) a.signal_id = argv[++i];
+        } else if (arg == "--export-slangp") {
+            if (i + 1 < argc) {
+                a.export_slangp_path = argv[++i];
+            } else {
+                a.unknown_flag = true;
+                a.unknown_flag_text = "--export-slangp requires a path";
+            }
         } else if (arg.substr(0, 2) == "--") {
             // F3+ flags not implemented yet; treat as no-op for now so smoke
             // tests like --target X --profile Y don't crash F2.
@@ -321,6 +330,34 @@ int main(int argc, char** argv) {
     if (!args.validate_profile_path.empty()) {
         auto r = tubelight::validate_profile_file(args.validate_profile_path);
         return tubelight::print_validation_result(args.validate_profile_path, r);
+    }
+    if (!args.export_slangp_path.empty()) {
+        if (args.profile_id.empty() || args.signal_id.empty()) {
+            std::fprintf(stderr,
+                "--export-slangp requires both --profile <id> and --signal <id>.\n");
+            return 1;
+        }
+        std::string err;
+        auto crt = tubelight::load_crt_profile_by_id(args.profile_id, err);
+        if (!crt) {
+            std::fprintf(stderr, "CRT profile '%s' not found: %s\n",
+                         args.profile_id.c_str(), err.c_str());
+            return 2;
+        }
+        auto sig = tubelight::load_signal_profile_by_id(args.signal_id, err);
+        if (!sig) {
+            std::fprintf(stderr, "Signal profile '%s' not found: %s\n",
+                         args.signal_id.c_str(), err.c_str());
+            return 2;
+        }
+        if (!tubelight::exporter::export_slangp(crt.value(), sig.value(),
+                                                 args.export_slangp_path, err)) {
+            std::fprintf(stderr, "Export failed: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("[tubelight] exported .slangp preset to %s\n",
+                    args.export_slangp_path.c_str());
+        return 0;
     }
     if (!args.shader_only_input.empty()) {
         return run_shader_only(args.shader_only_input, args.profile_id, args.signal_id);

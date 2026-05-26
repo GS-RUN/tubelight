@@ -18,6 +18,7 @@ add_library(tubelight_core STATIC
     profile/profile_loader.cpp
     ipc/ipc_unix.cpp
     ipc/ipc_win.cpp
+    export/slangp_exporter.cpp
 )
 
 target_include_directories(tubelight_core
