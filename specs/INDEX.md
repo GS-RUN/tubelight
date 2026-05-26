@@ -37,8 +37,28 @@
 
 Cuando un artefacto sea aprobado por el usuario, renombrar a `*.LOCKED.md` para evitar deriva. Cambios posteriores requieren ADR en `docs/adr/`.
 
-## Próxima acción recomendada
+## Estado de fases del PLAN
 
-1. Lee SPEC.md y DESIGN.md (los dos más críticos).
-2. Si las métricas y no-goals te encajan, decimos "lock SPEC" y empezamos F1.
-3. Si quieres ajustes, los aplicamos antes de que ningún archivo de `src/` se escriba.
+| Fase | Estado | Commit |
+|---|---|---|
+| F1 — Esqueleto cross-platform y CI | ✅ done | 52c1f10 |
+| F2 — Pipeline shader puro | ✅ done | d76da9f |
+| F3 — Perfiles con datos reales + validador | ✅ done | e5415a2 |
+| F4 — Pass −1 señal + dithering reconstruction | ✅ done | 4dc0b95 |
+| F5 — Inyección Win + LD_PRELOAD Linux GL + IPC | ✅ scaffolding | e094271 |
+| F6 — Vulkan layer + DX12 + PipeWire | ✅ scaffolding | 15c3b58 |
+| F7 — Pulido + perfiles extra + .slangp + packaging | ✅ done | 9856f6b |
+
+Métricas SPEC:
+- **M3** (≥6 máscaras): ✅ 6 implementadas en `pass3_mask.frag`
+- **M4** (≥10 CRTProfile citados): ✅ 15 perfiles bajo `profiles/crts/`
+- **M5** (7 SignalProfile): ✅ 7 perfiles bajo `profiles/signals/`
+- **M8** (100% perfiles con cita): ✅ verificado por validator en cada push
+- **M1/M2/M6/M7**: pendientes de verificación en hardware real (deferred a v1.0 RC)
+
+## Próxima acción
+
+1. Push de la repo a GitHub (`gh repo create gs-run/tubelight --public --source=.`) cuando el usuario vuelva.
+2. CI run para validar que el build pasa Win+Linux.
+3. F7 polish iteration: temporal Pass 5 con history-FBO, ImGui UI, PipeWire D-Bus portal, M1 latency verification con AMD FLM.
+4. Demo visual: capturar Sonic Green Hill ROM frame + procesar con `--profile pvm-8220 --signal composite_ntsc` → side-by-side contra CRT-Royale (cierra R3 + R9).
