@@ -50,8 +50,19 @@ public:
     bool start(int width, int height, int fps, const std::string& out_dir,
                std::string& error_out);
 
-    // Pushes one frame from the current default framebuffer.
+    // Pushes one frame from the current default framebuffer (glReadPixels
+    // RGB at the recorder's resolution). Used for "overlay view" recording.
     bool push_frame();
+
+    // Pushes one frame from a CPU-side BGRA8 buffer of `src_w`×`src_h`,
+    // cropped to (`src_x`, `src_y`, width_, height_). Used to record a
+    // monitor sub-rect captured by DXGI directly — bypasses the GL
+    // pipeline so we can record areas of the desktop that aren't even
+    // visible inside the overlay window. Top-down BGRA8 input is converted
+    // to top-down RGB24 for ffmpeg (we pass `-vf vflip` already so the
+    // pipe sees what an upright video file should contain).
+    bool push_frame_from_bgra(const uint8_t* src, int src_w, int src_h,
+                              int src_x, int src_y);
 
     // Stops the recorder. Idempotent.
     void stop();

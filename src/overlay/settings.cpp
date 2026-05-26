@@ -59,6 +59,22 @@ Settings load_settings() {
         if (j.contains("crt_audio_volume") && j.at("crt_audio_volume").is_number()) {
             s.crt_audio_volume = j.at("crt_audio_volume").get<float>();
         }
+        if (j.contains("record_source") && j.at("record_source").is_number_integer()) {
+            s.record_source = j.at("record_source").get<int>();
+        }
+        if (j.contains("record_rect") && j.at("record_rect").is_array() &&
+            j.at("record_rect").size() == 4) {
+            s.record_rect_x = j.at("record_rect")[0].get<int>();
+            s.record_rect_y = j.at("record_rect")[1].get<int>();
+            s.record_rect_w = j.at("record_rect")[2].get<int>();
+            s.record_rect_h = j.at("record_rect")[3].get<int>();
+        }
+        if (j.contains("clickthrough_user") && j.at("clickthrough_user").is_boolean()) {
+            s.clickthrough_user = j.at("clickthrough_user").get<bool>();
+        }
+        if (j.contains("low_latency") && j.at("low_latency").is_boolean()) {
+            s.low_latency = j.at("low_latency").get<bool>();
+        }
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[overlay] settings parse error: %s\n", e.what());
     }
@@ -71,6 +87,11 @@ void save_settings(const Settings& s) {
     j["hud_visible"]       = s.hud_visible;
     j["crt_audio_enabled"] = s.crt_audio_enabled;
     j["crt_audio_volume"]  = s.crt_audio_volume;
+    j["record_source"]     = s.record_source;
+    j["record_rect"]       = { s.record_rect_x, s.record_rect_y,
+                               s.record_rect_w, s.record_rect_h };
+    j["clickthrough_user"] = s.clickthrough_user;
+    j["low_latency"]       = s.low_latency;
     std::ofstream out(settings_file_path());
     if (!out.is_open()) {
         std::fprintf(stderr, "[overlay] could not write %s\n", settings_file_path().c_str());

@@ -92,6 +92,7 @@ std::atomic<bool> g_hk_toggle_video{false};
 std::atomic<bool> g_hk_toggle_fullscreen{false};
 std::atomic<bool> g_hk_toggle_target{false};
 std::atomic<bool> g_hk_toggle_hud{false};
+std::atomic<bool> g_hk_toggle_clickthrough{false};
 
 // Track which interesting keys are currently held so we only fire on the
 // initial WM_KEYDOWN, never on the (potentially-many) auto-repeats that
@@ -129,6 +130,7 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
         else if (vk == VK_RETURN)                 g_hk_toggle_fullscreen = true;
         else if (vk == 'T')                       g_hk_toggle_target = true;
         else if (vk == 'H')                       g_hk_toggle_hud = true;
+        else if (vk == 'C')                       g_hk_toggle_clickthrough = true;
         else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
         else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
         else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
@@ -616,7 +618,10 @@ int run(const Options& opts) {
                          capture.origin_y() + (capture.height() - H) / 2);
     }
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);
+    // VSync interval will be set from settings.low_latency once
+    // settings are loaded further down. Default to OFF in the
+    // meantime so the first few startup frames already benefit.
+    glfwSwapInterval(0);
 
     HWND hwnd = glfwGetWin32Window(window);
 
@@ -701,6 +706,22 @@ int run(const Options& opts) {
                          opts.signal_id.c_str(), err.c_str());
         }
     }
+
+    // User-toggled click-through state for plain windowed mode. Independent
+    // from fullscreen / target / region (which manage click-through
+    // themselves). Toggle with Ctrl+Alt+C or the menu checkbox.
+    // Persists across runs via settings.json.
+    bool clickthrough_user = false;
+
+    auto apply_clickthrough_user = [&](bool on) {
+        clickthrough_user = on;
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if (on) ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+        else    ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        std::fprintf(stderr, "[overlay] click-through: %s\n", on ? "ON" : "OFF");
+    };
 
     // Lock GLFW's user-drag resize to match the current target aspect (if
     // any). target_aspect == 0 means "fill", so we release the constraint.
@@ -978,9 +999,23 @@ int run(const Options& opts) {
     std::string effective_capture_dir =
         settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
     std::string ui_capture_dir = settings.capture_dir;
-    bool hud_visible = settings.hud_visible;
+    bool hud_visible    = settings.hud_visible;
     bool  audio_enabled = settings.crt_audio_enabled;
     float audio_volume  = settings.crt_audio_volume;
+    bool  low_latency   = settings.low_latency;
+    glfwSwapInterval(low_latency ? 0 : 1);
+    int   rec_source    = settings.record_source;
+    int   rec_rx        = settings.record_rect_x;
+    int   rec_ry        = settings.record_rect_y;
+    int   rec_rw        = settings.record_rect_w;
+    int   rec_rh        = settings.record_rect_h;
+    // Apply persisted click-through at startup (windowed mode only).
+    bool startup_clickthrough = settings.clickthrough_user;
+    // Apply persisted windowed click-through now (settings just loaded;
+    // window is windowed if we got here without fullscreen/target/region).
+    if (startup_clickthrough && windowed_mode && !target_active && !region_active) {
+        apply_clickthrough_user(true);
+    }
 
     // CRT audio (XAudio2 flyback whine). Init best-effort: if it fails
     // for any reason (no audio device, driver issue, headless test env)
@@ -1109,9 +1144,9 @@ int run(const Options& opts) {
     std::printf(
         "[overlay] hotkeys: Ctrl+Alt+Q quit | Ctrl+Alt+M menu | "
         "Ctrl+Alt+F freeze | Ctrl+Alt+Enter fullscreen | "
-        "Ctrl+Alt+T track foreground | Ctrl+Alt+H toggle HUD | "
-        "Ctrl+Alt+S screenshot | Ctrl+Alt+V video | "
-        "Ctrl+Alt+0 all-on | Ctrl+Alt+1..8 toggle pass\n");
+        "Ctrl+Alt+T track foreground | Ctrl+Alt+C click-through | "
+        "Ctrl+Alt+H toggle HUD | Ctrl+Alt+S screenshot | "
+        "Ctrl+Alt+V video | Ctrl+Alt+0 all-on | Ctrl+Alt+1..8 toggle pass\n");
 
     double t0 = glfwGetTime();
     bool have_initial = true;
@@ -1304,22 +1339,49 @@ int run(const Options& opts) {
             wa.is_region_active   = region_active;
             bool hud_changed = false;
             bool audio_changed = false;
+            bool clickthrough_changed = false;
+            bool record_changed = false;
+            bool low_latency_changed = false;
+            Menu::SettingsIO sio{
+                hud_visible, hud_changed,
+                audio_enabled, audio_volume, audio_changed,
+                clickthrough_user, clickthrough_changed,
+                rec_source, rec_rx, rec_ry, rec_rw, rec_rh, record_changed,
+                low_latency, low_latency_changed,
+            };
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
                                intensity_multiplier, want_quit_from_menu,
-                               ui_capture_dir, cap_changed, wa,
-                               hud_visible, hud_changed,
-                               audio_enabled, audio_volume, audio_changed);
-            if (hud_changed) {
-                settings.hud_visible = hud_visible;
-                save_settings(settings);
-            }
+                               ui_capture_dir, cap_changed, wa, sio);
+            bool any_setting_changed = false;
+            if (hud_changed)            { settings.hud_visible       = hud_visible;       any_setting_changed = true; }
             if (audio_changed) {
                 settings.crt_audio_enabled = audio_enabled;
                 settings.crt_audio_volume  = audio_volume;
                 crt_audio.set_enabled(audio_enabled);
                 crt_audio.set_volume(audio_volume);
-                save_settings(settings);
+                any_setting_changed = true;
             }
+            if (clickthrough_changed) {
+                // The menu wrote directly to clickthrough_user; sync the
+                // window styles + persist.
+                apply_clickthrough_user(clickthrough_user);
+                settings.clickthrough_user = clickthrough_user;
+                any_setting_changed = true;
+            }
+            if (record_changed) {
+                settings.record_source = rec_source;
+                settings.record_rect_x = rec_rx;
+                settings.record_rect_y = rec_ry;
+                settings.record_rect_w = rec_rw;
+                settings.record_rect_h = rec_rh;
+                any_setting_changed = true;
+            }
+            if (low_latency_changed) {
+                settings.low_latency = low_latency;
+                glfwSwapInterval(low_latency ? 0 : 1);
+                any_setting_changed = true;
+            }
+            if (any_setting_changed) save_settings(settings);
             if (cap_changed) {
                 settings.capture_dir = ui_capture_dir;
                 effective_capture_dir =
@@ -1569,6 +1631,13 @@ int run(const Options& opts) {
             settings.hud_visible = hud_visible;
             save_settings(settings);
         }
+        if (g_hk_toggle_clickthrough.exchange(false)) {
+            // Only meaningful in plain windowed mode. Fullscreen / target /
+            // region already manage click-through themselves.
+            if (!initial_fullscreen && !fullscreen_active && !target_active && !region_active) {
+                apply_clickthrough_user(!clickthrough_user);
+            }
+        }
         // Screenshot: read the framebuffer AFTER the pipeline rendered but
         // BEFORE swap, so we capture exactly what the user sees. The PNG
         // zlib encode runs on a background thread (at 1920x1200 in
@@ -1602,7 +1671,18 @@ int run(const Options& opts) {
                 toast_time = std::chrono::steady_clock::now();
             } else {
                 std::string err;
-                if (video_recorder.start(win_w, win_h, 60,
+                int rw_rec, rh_rec;
+                if (rec_source == 1) {
+                    rw_rec = capture.width();
+                    rh_rec = capture.height();
+                } else if (rec_source == 2) {
+                    rw_rec = std::max(rec_rw, 16);
+                    rh_rec = std::max(rec_rh, 16);
+                } else {
+                    rw_rec = win_w;
+                    rh_rec = win_h;
+                }
+                if (video_recorder.start(rw_rec, rh_rec, 60,
                                          effective_capture_dir, err)) {
                     std::fprintf(stderr, "[overlay] video recording → %s\n",
                                   video_recorder.output_path().c_str());
@@ -1617,7 +1697,22 @@ int run(const Options& opts) {
             }
         }
         if (video_recorder.is_recording()) {
-            if (!video_recorder.push_frame()) {
+            bool pushed = false;
+            if (rec_source == 0) {
+                // Overlay view (CRT-effect, what you see on the back buffer).
+                pushed = video_recorder.push_frame();
+            } else if (rec_source == 1) {
+                // Full monitor: raw DXGI BGRA. No CRT effect on output.
+                pushed = video_recorder.push_frame_from_bgra(
+                    capture.pixels(), capture.width(), capture.height(),
+                    0, 0);
+            } else {
+                // Custom monitor-relative rect.
+                pushed = video_recorder.push_frame_from_bgra(
+                    capture.pixels(), capture.width(), capture.height(),
+                    rec_rx, rec_ry);
+            }
+            if (!pushed) {
                 // Pipe broken (ffmpeg crashed / disk full). Bail out and tell
                 // the user — we don't sit forever in zombie-recording mode.
                 video_recorder.stop();
@@ -1632,7 +1727,8 @@ int run(const Options& opts) {
         // (CLI fullscreen mode, or runtime target-tracking). For a plain
         // windowed overlay we never want TRANSPARENT, even after the menu
         // closes, otherwise the user can't drag the title bar any more.
-        const bool should_be_click_through = initial_fullscreen || target_active || region_active;
+        const bool should_be_click_through =
+            initial_fullscreen || target_active || region_active || clickthrough_user;
         bool menu_open_now = has_menu && menu.is_open();
         if (menu_open_now != menu_was_open) {
             LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);

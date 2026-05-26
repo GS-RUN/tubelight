@@ -129,14 +129,20 @@ vec3 sample_with_convergence(vec2 uv) {
 }
 
 void main() {
-    // Letterbox / pillarbox: if the window aspect differs from the CRT's
-    // native aspect, bezel (or black bars when bezel_style == 0) outside
-    // the picture rect. Compute the picture rect bounds first so we can
-    // either short-circuit to bezel rendering OR continue with the
-    // normal CRT pipeline for pixels inside the picture.
+    // Compute picture rect first so we can decide where to draw the bezel.
+    // Three cases:
+    //   (1) target_aspect > 0 and window matches: picture = whole window,
+    //       no letterbox, bezel only at the very edge (thin border).
+    //   (2) target_aspect > 0 and window doesn't match: letterbox /
+    //       pillarbox bars filled by bezel (or black if style == 0).
+    //   (3) target_aspect == 0 (Fill mode): if bezel is on, we still
+    //       want it visible — synthesise a thin border. If style == 0,
+    //       behave as before (picture = whole window, no bezel).
     vec2 uv = v_uv;
     vec2 picture_min = vec2(0.0);
     vec2 picture_max = vec2(1.0);
+    bool has_bezel = (u_bezel_style != 0);
+
     if (u_target_aspect > 0.0) {
         float win_aspect = u_resolution.x / max(u_resolution.y, 1.0);
         if (win_aspect > u_target_aspect + 0.001) {
@@ -145,11 +151,8 @@ void main() {
             picture_min.x = pad;
             picture_max.x = 1.0 - pad;
             if (uv.x < pad || uv.x > 1.0 - pad) {
-                if (u_bezel_style != 0) {
-                    o_color = vec4(bezel_color(v_uv, picture_min, picture_max, u_bezel_style), 1.0);
-                } else {
-                    o_color = vec4(0.0, 0.0, 0.0, 1.0);
-                }
+                if (has_bezel) o_color = vec4(bezel_color(v_uv, picture_min, picture_max, u_bezel_style), 1.0);
+                else           o_color = vec4(0.0, 0.0, 0.0, 1.0);
                 return;
             }
             uv.x = (uv.x - pad) / scale;
@@ -159,14 +162,28 @@ void main() {
             picture_min.y = pad;
             picture_max.y = 1.0 - pad;
             if (uv.y < pad || uv.y > 1.0 - pad) {
-                if (u_bezel_style != 0) {
-                    o_color = vec4(bezel_color(v_uv, picture_min, picture_max, u_bezel_style), 1.0);
-                } else {
-                    o_color = vec4(0.0, 0.0, 0.0, 1.0);
-                }
+                if (has_bezel) o_color = vec4(bezel_color(v_uv, picture_min, picture_max, u_bezel_style), 1.0);
+                else           o_color = vec4(0.0, 0.0, 0.0, 1.0);
                 return;
             }
             uv.y = (uv.y - pad) / scale;
+        }
+    }
+
+    // Thin border bezel: when there's no letterbox (Fill mode or matching
+    // aspect) but the user has a bezel style picked, draw a frame at the
+    // window edge so the bezel is still visible. Border is ~2 % of the
+    // shorter window dimension — enough to read as a frame without
+    // stealing real estate from the picture.
+    if (has_bezel) {
+        float border = 0.022;
+        bool at_edge = v_uv.x < border || v_uv.x > 1.0 - border ||
+                       v_uv.y < border || v_uv.y > 1.0 - border;
+        if (at_edge) {
+            vec2 pm = vec2(border);
+            vec2 pM = vec2(1.0 - border);
+            o_color = vec4(bezel_color(v_uv, pm, pM, u_bezel_style), 1.0);
+            return;
         }
     }
 

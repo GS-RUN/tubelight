@@ -16,8 +16,12 @@
 #include <vector>
 
 #ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
@@ -198,6 +202,45 @@ bool VideoRecorder::push_frame() {
     return ok && written == frame_buf_.size();
 }
 
+bool VideoRecorder::push_frame_from_bgra(const uint8_t* src, int src_w, int src_h,
+                                          int src_x, int src_y) {
+    if (!recording_ || !src) return false;
+    auto* pipe = static_cast<WinPipe*>(ffmpeg_handle_);
+    if (!pipe || !pipe->write_to_ffmpeg) return false;
+
+    // Convert + crop + vertical flip in one pass. DXGI delivers top-down
+    // BGRA8, the ffmpeg pipe (with `-vf vflip`) expects bottom-up RGB24.
+    const size_t row_bytes_dst = static_cast<size_t>(width_) * 3;
+    for (int y = 0; y < height_; ++y) {
+        int sy = src_y + y;
+        if (sy < 0 || sy >= src_h) {
+            // Out of source bounds → black row.
+            std::memset(frame_buf_.data() + (height_ - 1 - y) * row_bytes_dst,
+                        0, row_bytes_dst);
+            continue;
+        }
+        // Bottom-up destination row.
+        uint8_t* dst = frame_buf_.data() + (height_ - 1 - y) * row_bytes_dst;
+        for (int x = 0; x < width_; ++x) {
+            int sx = src_x + x;
+            if (sx < 0 || sx >= src_w) {
+                dst[x * 3 + 0] = dst[x * 3 + 1] = dst[x * 3 + 2] = 0;
+                continue;
+            }
+            const uint8_t* p = src + (static_cast<size_t>(sy) * src_w + sx) * 4;
+            // BGRA → RGB
+            dst[x * 3 + 0] = p[2];
+            dst[x * 3 + 1] = p[1];
+            dst[x * 3 + 2] = p[0];
+        }
+    }
+
+    DWORD written = 0;
+    BOOL ok = WriteFile(pipe->write_to_ffmpeg, frame_buf_.data(),
+                        static_cast<DWORD>(frame_buf_.size()), &written, nullptr);
+    return ok && written == frame_buf_.size();
+}
+
 void VideoRecorder::stop() {
     if (!recording_) return;
     auto* pipe = static_cast<WinPipe*>(ffmpeg_handle_);
@@ -223,6 +266,7 @@ bool VideoRecorder::start(int width, int height, int fps,
     return false;
 }
 bool VideoRecorder::push_frame() { return false; }
+bool VideoRecorder::push_frame_from_bgra(const uint8_t*, int, int, int, int) { return false; }
 void VideoRecorder::stop() {}
 
 #endif

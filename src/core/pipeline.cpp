@@ -350,10 +350,11 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
     if (is_mono) {
         params_.mask_type = 0;
         params_.mask_strength = 0.0f;
-        // Default posterize: text terminals quantised to 6 steps (less than
-        // analog TV, more than pure 1-bit). Profiles can override this
-        // through their JSON if they want a different look.
-        params_.posterize_levels = 6;
+        // Default posterize: OFF for terminals (real terminals had an
+        // analog continuous-tone phosphor, not discrete steps — banding
+        // was a previous-session bug that made gradients look digital).
+        // Mac-Classic-class profiles override to 2 below for true 1-bit.
+        params_.posterize_levels = 0;
 
         // Locked monochrome preset. Two flavours depending on what kind
         // of monochrome tube we're emulating:
@@ -411,24 +412,29 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
         for (int i = 0; i < kPassCount; ++i) set_pass_enabled(i, true);
         switch (p.phosphor_type) {
             case PhosphorType::P31: // bright green (Apple II / VT100 class)
-                params_.phosphor_color_r = 0.10f;
-                params_.phosphor_color_g = 1.30f;
-                params_.phosphor_color_b = 0.20f;
+                // P31 chromaticity ≈ (0.260, 0.530) — yellow-green.
+                // Previous (0.10, 1.30, 0.20) was too saturated and
+                // boosted green past unity. Softer values render
+                // closer to a real photo of the tube.
+                params_.phosphor_color_r = 0.30f;
+                params_.phosphor_color_g = 1.05f;
+                params_.phosphor_color_b = 0.40f;
                 break;
             case PhosphorType::P3:  // amber (IBM 5151 / HP)
-                params_.phosphor_color_r = 1.40f;
-                params_.phosphor_color_g = 0.65f;
-                params_.phosphor_color_b = 0.05f;
+                // P3 chromaticity ≈ (0.485, 0.490) — orange-amber.
+                params_.phosphor_color_r = 1.05f;
+                params_.phosphor_color_g = 0.70f;
+                params_.phosphor_color_b = 0.15f;
                 break;
             case PhosphorType::P1:  // deep green oscilloscope tube
-                params_.phosphor_color_r = 0.05f;
-                params_.phosphor_color_g = 1.30f;
-                params_.phosphor_color_b = 0.15f;
+                params_.phosphor_color_r = 0.15f;
+                params_.phosphor_color_g = 1.10f;
+                params_.phosphor_color_b = 0.25f;
                 break;
             case PhosphorType::P4:  // B&W: analog TV by default → no posterize.
                 params_.phosphor_color_r = 0.95f;
                 params_.phosphor_color_g = 1.00f;
-                params_.phosphor_color_b = 1.10f;
+                params_.phosphor_color_b = 1.05f;
                 params_.posterize_levels = is_mac_classic ? 2 : 0;
                 break;
             default: break;
@@ -493,6 +499,91 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
             case ScreenCurvature::Mild:       params_.barrel_strength = 0.035f; params_.vignette_strength = 0.20f; break;
             case ScreenCurvature::Aggressive: params_.barrel_strength = 0.080f; params_.vignette_strength = 0.40f; break;
         }
+
+        // Per-profile fine-tuning: each colour CRT has its own
+        // characteristic look. The JSON profile only configures a
+        // subset (scanline_strength, mask_type, glass tint), so we
+        // tune the rest here by id. Comments cite source-of-truth.
+        //   PVM/BVM   = pro broadcast, sharp scanlines, modest bloom
+        //   FW900     = HD widescreen, less scanline aggression
+        //   1084S     = consumer shadow mask, softer/warmer
+        //   X68K      = JP pro monitor, PVM-like
+        //   MultiSync = 1990s VGA, fine scanlines (350+ raster)
+        //   K7000     = arcade tube, gritty mask, strong bloom
+        const std::string& id = p.id;
+        if (id.find("bvm") != std::string::npos) {
+            // BVM is even sharper / cleaner than PVM.
+            params_.scanline_strength = 0.55f;
+            params_.beam_width        = 1.10f;
+            params_.mask_strength     = 0.30f;
+            params_.bloom_strength    = 0.10f;
+            params_.halation_strength = 0.08f;
+            params_.gamma_crt         = 2.5f;
+            params_.scanline_count    = 240.0f;
+            params_.persistence_strength = 0.28f;
+        } else if (id.find("fw900") != std::string::npos) {
+            params_.scanline_strength = 0.30f;  // HD doesn't need heavy lines
+            params_.beam_width        = 1.20f;
+            params_.mask_strength     = 0.25f;
+            params_.bloom_strength    = 0.14f;
+            params_.halation_strength = 0.10f;
+            params_.gamma_crt         = 2.4f;
+            params_.scanline_count    = 480.0f;  // higher native res
+            params_.persistence_strength = 0.25f;
+        } else if (id.find("pvm") != std::string::npos) {
+            params_.scanline_strength = 0.65f;  // PVM signature crisp lines
+            params_.beam_width        = 1.20f;
+            params_.mask_strength     = 0.42f;
+            params_.bloom_strength    = 0.14f;
+            params_.halation_strength = 0.10f;
+            params_.gamma_crt         = 2.5f;
+            params_.scanline_count    = 240.0f;
+            params_.persistence_strength = 0.32f;
+        } else if (id.find("commodore-1084") != std::string::npos) {
+            // Consumer shadow mask: softer, warmer, more bloom.
+            params_.scanline_strength = 0.50f;
+            params_.beam_width        = 1.45f;
+            params_.mask_strength     = 0.35f;
+            params_.bloom_strength    = 0.22f;
+            params_.halation_strength = 0.15f;
+            params_.gamma_crt         = 2.4f;
+            params_.scanline_count    = 288.0f;  // PAL
+            params_.persistence_strength = 0.38f;
+        } else if (id.find("sharp") != std::string::npos ||
+                   id.find("x68k")  != std::string::npos) {
+            // X68K monitors: JP pro, behaves PVM-class.
+            params_.scanline_strength = 0.60f;
+            params_.beam_width        = 1.25f;
+            params_.mask_strength     = 0.40f;
+            params_.bloom_strength    = 0.15f;
+            params_.halation_strength = 0.10f;
+            params_.gamma_crt         = 2.5f;
+            params_.scanline_count    = 256.0f;
+            params_.persistence_strength = 0.30f;
+        } else if (id.find("multisync") != std::string::npos ||
+                   id.find("nec")       != std::string::npos) {
+            // 1990s VGA-era monitors: dense raster, milder scanlines.
+            params_.scanline_strength = 0.35f;
+            params_.beam_width        = 1.30f;
+            params_.mask_strength     = 0.30f;
+            params_.bloom_strength    = 0.16f;
+            params_.halation_strength = 0.08f;
+            params_.gamma_crt         = 2.3f;
+            params_.scanline_count    = 480.0f;
+            params_.persistence_strength = 0.25f;
+        } else if (id.find("wells")   != std::string::npos ||
+                   id.find("k7000")   != std::string::npos) {
+            // Arcade tube: gritty look.
+            params_.scanline_strength = 0.75f;
+            params_.beam_width        = 1.50f;
+            params_.mask_strength     = 0.55f;
+            params_.bloom_strength    = 0.30f;
+            params_.halation_strength = 0.20f;
+            params_.gamma_crt         = 2.6f;
+            params_.scanline_count    = 240.0f;
+            params_.persistence_strength = 0.40f;
+        }
+        // Generic / unknown profiles keep the defaults set above.
     } else {
         // Clear any previously-loaded signal profile: monochrome CRTs were
         // RGB-direct (TTL or VGA), never composite. Pass −1 falls back to

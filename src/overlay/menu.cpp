@@ -156,14 +156,18 @@ void Menu::build_widgets(Pipeline& pipeline,
                          std::string& capture_dir,
                          bool& capture_dir_changed,
                          WindowActions& window_actions,
-                         bool& hud_visible,
-                         bool& hud_changed,
-                         bool& audio_enabled,
-                         float& audio_volume,
-                         bool& audio_changed) {
+                         SettingsIO& sio) {
     capture_dir_changed = false;
-    hud_changed = false;
-    audio_changed = false;
+    sio.hud_changed = false;
+    sio.audio_changed = false;
+    sio.clickthrough_changed = false;
+    sio.record_changed = false;
+    sio.low_latency_changed = false;
+    bool& hud_visible    = sio.hud_visible;
+    bool& audio_enabled  = sio.audio_enabled;
+    float& audio_volume  = sio.audio_volume;
+    bool& hud_changed    = sio.hud_changed;
+    bool& audio_changed  = sio.audio_changed;
     window_actions.snap_to_aspect_requested = false;
     window_actions.toggle_fullscreen_requested = false;
     window_actions.track_foreground_requested = false;
@@ -473,11 +477,40 @@ void Menu::build_widgets(Pipeline& pipeline,
         }
         ImGui::TextDisabled("Ctrl+Alt+S  screenshot  |  Ctrl+Alt+V  toggle video");
 
+        // Recording source: where the video frames come from.
+        // Independent of the overlay's own window — "Full monitor" and
+        // "Custom rect" capture from DXGI directly and bypass the CRT
+        // pipeline, so the recorded MP4 is exactly what's on the
+        // desktop (no CRT effect on the captured video).
+        ImGui::Separator();
+        const char* kRecSources[] = {
+            "Overlay view (CRT-effect, what you see)",
+            "Full monitor (raw desktop, no effect)",
+            "Custom rect (raw desktop, no effect)",
+        };
+        if (ImGui::Combo("Record source", &sio.record_source, kRecSources, 3)) {
+            sio.record_changed = true;
+        }
+        if (sio.record_source == 2) {
+            if (ImGui::InputInt("rec x", &sio.record_rect_x)) sio.record_changed = true;
+            if (ImGui::InputInt("rec y", &sio.record_rect_y)) sio.record_changed = true;
+            if (ImGui::InputInt("rec w", &sio.record_rect_w)) sio.record_changed = true;
+            if (ImGui::InputInt("rec h", &sio.record_rect_h)) sio.record_changed = true;
+            ImGui::TextDisabled("Monitor-relative pixels (no CRT effect on output)");
+        }
+
         ImGui::Separator();
         if (ImGui::Checkbox("Show status HUD (top-right) — Ctrl+Alt+H", &hud_visible)) {
             hud_changed = true;
         }
-        ImGui::TextDisabled("Persisted between launches");
+        if (ImGui::Checkbox("Click-through (windowed) — Ctrl+Alt+C",
+                            &sio.clickthrough_user)) {
+            sio.clickthrough_changed = true;
+        }
+        if (ImGui::Checkbox("Low-latency mode (vsync off)", &sio.low_latency)) {
+            sio.low_latency_changed = true;
+        }
+        ImGui::TextDisabled("All persist between launches");
     }
 
     ImGui::Separator();
@@ -498,11 +531,7 @@ void Menu::build_widgets(Pipeline& pipeline,
     (void)capture_dir;
     (void)capture_dir_changed;
     (void)window_actions;
-    (void)hud_visible;
-    (void)hud_changed;
-    (void)audio_enabled;
-    (void)audio_volume;
-    (void)audio_changed;
+    (void)sio;
 #endif
 }
 

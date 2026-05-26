@@ -66,6 +66,30 @@ public:
     // Builds the widgets (only if open). Reads + writes pipeline.params() and
     // the currently selected profile / signal ids — caller uses the changed
     // ids to call apply_crt_profile / apply_signal_profile on the pipeline.
+    // Settings-IO bundle so build_widgets doesn't grow past 15 params.
+    // Each `*_changed` flag is set when the menu mutates the matching
+    // field; the host saves once after dispatching all changes.
+    struct SettingsIO {
+        bool&  hud_visible;
+        bool&  hud_changed;
+        bool&  audio_enabled;
+        float& audio_volume;
+        bool&  audio_changed;
+        // Click-through for plain windowed mode.
+        bool&  clickthrough_user;
+        bool&  clickthrough_changed;
+        // Video recording source: 0=overlay 1=full monitor 2=custom rect.
+        int&   record_source;
+        int&   record_rect_x;
+        int&   record_rect_y;
+        int&   record_rect_w;
+        int&   record_rect_h;
+        bool&  record_changed;
+        // Low-latency mode (vsync off; off by default it already is).
+        bool&  low_latency;
+        bool&  low_latency_changed;
+    };
+
     void build_widgets(Pipeline& pipeline,
                        std::string& current_profile_id,
                        std::string& current_signal_id,
@@ -74,11 +98,7 @@ public:
                        std::string& capture_dir,
                        bool& capture_dir_changed,
                        WindowActions& window_actions,
-                       bool& hud_visible,
-                       bool& hud_changed,
-                       bool& audio_enabled,
-                       float& audio_volume,
-                       bool& audio_changed);
+                       SettingsIO& sio);
 
     // Renders the ImGui draw data on top of whatever the pipeline produced.
     void end_frame_to_screen();
