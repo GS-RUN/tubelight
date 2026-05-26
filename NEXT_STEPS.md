@@ -58,15 +58,20 @@ Every JSON has `source.url` per Constitution C2. Monochromes have correct satura
 
 ### Mid-priority polish
 
-- **HUD** — DONE. Top-right floating box shows profile + signal + mode. Ctrl+Alt+H toggle + menu checkbox + persist. Done sesión 3.
+- **HUD** — DONE. Top-right floating box shows profile + signal + mode (Windowed / Fullscreen / Region / Tracking "<title>"; appends "(click-through)" when Ctrl+Alt+C is on). Ctrl+Alt+H toggle + menu checkbox + persist. Done sesión 3.
 - **Save current as preset** — DONE. Inline menu form (id + display_name + Save button). Writes %APPDATA%\Tubelight\profiles\crts\<id>.json based on the current profile + live params. Done sesión 3.
-- Bezel overlay (textured PNG of a real CRT frame around the picture) — depends on aspect snap behaviour above. **Open.**
+- **Bezel** — DONE via programmatic SDF (5 styles selected automatically per profile category, overridable in menu, visible in Fill mode via a thin window-edge border). docs/BEZELS.md documents the photo-real PNG alternative for v1.1. Done sesión 3.
+- **Click-through toggle in windowed mode** — DONE. Ctrl+Alt+C + menu checkbox toggles WS_EX_TRANSPARENT so the user can interact with whatever's underneath while keeping the CRT effect on top. Persisted. Done sesión 3.
+- **Per-profile fine-tuning** — DONE. Each colour CRT id gets a tailored set of scanline / mask / bloom / halation / beam / persistence defaults (PVM crisp, BVM cleaner, FW900 milder + HD raster, 1084S warmer/softer, X68K PVM-class, MultiSync 1990s VGA, K7000 arcade gritty). Done sesión 3.
+- **Video recording sources** — DONE. Menu "Record source" combo selects between Overlay view (CRT-effect, glReadPixels), Full monitor (raw DXGI BGRA), or Custom monitor-relative rect. Lets the user record areas larger than the overlay window. Done sesión 3.
+- **Low-latency (vsync off)** — DONE. glfwSwapInterval(0) by default (saves ~16 ms at 60 Hz). Menu checkbox toggles back to vsync. Persisted. Done sesión 3.
 
 ### Optional / deferred for v1.1
 
-- PBO double-buffer in `glReadPixels` (during video recording).
+- PBO double-buffer in `glReadPixels` (during video recording) — eliminates the ~3-6 ms GPU stall per recorded frame.
 - Linux build local + cross-platform bit-comparable parity (M7).
-- Refactors: `Menu::build_widgets` 12-param signature → `MenuIO` struct; stringly-typed `aspect_native` → enum.
+- Photo-real bezel PNGs sourced from Wikimedia Commons (see docs/BEZELS.md for the per-profile coverage matrix + integration plan).
+- Refactors: stringly-typed `aspect_native` → enum on CRTProfile; full MenuIO struct replacing the remaining direct params.
 
 ## Build commands (Windows)
 
