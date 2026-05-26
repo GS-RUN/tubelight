@@ -83,7 +83,7 @@ Si tu antivirus pone el ejecutable en cuarentena (algunos AV reaccionan agresivo
 sudo apt update
 sudo apt install -y \
   build-essential cmake git pkg-config ninja-build \
-  libglfw3-dev libglm-dev \
+  libglfw3-dev libglm-dev libepoxy-dev libstb-dev \
   libvulkan-dev vulkan-validationlayers vulkan-tools \
   glslang-tools spirv-tools libspirv-cross-c-shared-dev \
   nlohmann-json3-dev \
@@ -98,7 +98,7 @@ sudo apt install -y \
 ```bash
 sudo dnf install -y \
   gcc-c++ cmake git pkgconf ninja-build \
-  glfw-devel glm-devel \
+  glfw-devel glm-devel libepoxy-devel stb_image-devel \
   vulkan-loader-devel vulkan-validation-layers vulkan-tools \
   glslang spirv-tools spirv-cross-devel \
   json-devel \
@@ -113,7 +113,7 @@ sudo dnf install -y \
 ```bash
 sudo pacman -S --needed \
   base-devel cmake git pkgconf ninja \
-  glfw glm \
+  glfw glm libepoxy stb \
   vulkan-headers vulkan-validation-layers vulkan-tools \
   glslang spirv-tools spirv-cross \
   nlohmann-json \
@@ -129,7 +129,7 @@ sudo pacman -S --needed \
 sudo zypper install -t pattern devel_C_C++
 sudo zypper install -y \
   cmake git pkgconf ninja \
-  glfw-devel glm-devel \
+  glfw-devel glm-devel libepoxy-devel stb-devel \
   vulkan-devel vulkan-validationlayers vulkan-tools \
   glslang-devel spirv-tools spirv-cross-devel \
   nlohmann_json-devel \

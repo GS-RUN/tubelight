@@ -36,6 +36,28 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Find dependencies
 find_package(glfw3 CONFIG REQUIRED)
+find_package(glm CONFIG QUIET)
+if(NOT glm_FOUND)
+    find_package(glm REQUIRED)
+endif()
+
+# libepoxy: GL function loader. On Linux use pkg-config; on Windows vcpkg ships a CMake config.
+include(FindPkgConfig OPTIONAL)
+if(WIN32)
+    find_package(unofficial-libepoxy CONFIG QUIET)
+    if(NOT unofficial-libepoxy_FOUND)
+        find_package(libepoxy CONFIG QUIET)
+    endif()
+endif()
+if(NOT WIN32 OR (NOT TARGET unofficial::libepoxy::libepoxy AND NOT TARGET epoxy::epoxy))
+    pkg_check_modules(EPOXY REQUIRED IMPORTED_TARGET epoxy)
+endif()
+
+# stb (header-only). System package provides <stb_image.h> on include path; on Windows vcpkg installs to include/.
+find_path(STB_INCLUDE_DIR NAMES stb_image.h PATH_SUFFIXES stb)
+if(NOT STB_INCLUDE_DIR)
+    message(FATAL_ERROR "stb_image.h not found. Install libstb-dev / stb_image-devel / stb / vcpkg stb.")
+endif()
 
 # Common include dir for in-tree code
 add_library(tubelight_warnings INTERFACE)

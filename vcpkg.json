@@ -7,15 +7,17 @@
   "license": "MIT",
   "supports": "(windows | linux) & x64",
   "dependencies": [
-    "glfw3"
+    "glfw3",
+    "libepoxy",
+    "glm",
+    "stb"
   ],
   "features": {
-    "shaders": {
-      "description": "Pipeline shader compilation (F2+)",
+    "shaders-advanced": {
+      "description": "GLSL→SPIR-V→HLSL cross-compilation for F6 (Vulkan + DX12)",
       "dependencies": [
         "glslang",
-        "spirv-cross",
-        "glm"
+        "spirv-cross"
       ]
     },
     "profiles": {
