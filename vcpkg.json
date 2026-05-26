@@ -6,6 +6,7 @@
   "homepage": "https://github.com/gs-run/tubelight",
   "license": "MIT",
   "supports": "(windows | linux) & x64",
+  "builtin-baseline": "7e99dc220963b470f61bd502e3fee50eda5c41ff",
   "dependencies": [
     "glfw3",
     "libepoxy",

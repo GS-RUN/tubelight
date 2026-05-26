@@ -41,16 +41,26 @@ if(NOT glm_FOUND)
     find_package(glm REQUIRED)
 endif()
 
-# libepoxy: GL function loader. On Linux use pkg-config; on Windows vcpkg ships a CMake config.
+# libepoxy: GL function loader.
+# Linux: pkg-config (libepoxy-dev installs pkgconfig file).
+# Windows: vcpkg installs only the .pc file (no CMake config), so we do a
+# manual find_library + find_path and create an IMPORTED target.
 include(FindPkgConfig OPTIONAL)
 if(WIN32)
-    find_package(unofficial-libepoxy CONFIG QUIET)
-    if(NOT unofficial-libepoxy_FOUND)
-        find_package(libepoxy CONFIG QUIET)
+    find_path(EPOXY_INCLUDE_DIR NAMES epoxy/gl.h)
+    find_library(EPOXY_LIBRARY NAMES epoxy)
+    if(NOT EPOXY_INCLUDE_DIR OR NOT EPOXY_LIBRARY)
+        message(FATAL_ERROR "libepoxy headers/library not found (vcpkg libepoxy should provide them).")
     endif()
-endif()
-if(NOT WIN32 OR (NOT TARGET unofficial::libepoxy::libepoxy AND NOT TARGET epoxy::epoxy))
+    add_library(tubelight_epoxy INTERFACE)
+    target_include_directories(tubelight_epoxy INTERFACE "${EPOXY_INCLUDE_DIR}")
+    target_link_libraries(tubelight_epoxy INTERFACE "${EPOXY_LIBRARY}")
+    add_library(epoxy::epoxy ALIAS tubelight_epoxy)
+else()
     pkg_check_modules(EPOXY REQUIRED IMPORTED_TARGET epoxy)
+    add_library(epoxy_alias INTERFACE)
+    target_link_libraries(epoxy_alias INTERFACE PkgConfig::EPOXY)
+    add_library(epoxy::epoxy ALIAS epoxy_alias)
 endif()
 
 # stb (header-only). System package provides <stb_image.h> on include path; on Windows vcpkg installs to include/.
@@ -95,17 +105,25 @@ endif()
 
 # PipeWire fallback (Linux only)
 if(UNIX AND NOT APPLE)
-    pkg_check_modules(PIPEWIRE IMPORTED_TARGET libpipewire-0.3 QUIET)
-    if(PIPEWIRE_FOUND)
-        add_subdirectory(src/capture)
-    else()
-        message(WARNING "PipeWire not found; capture fallback unavailable")
+    if(COMMAND pkg_check_modules)
+        pkg_check_modules(PIPEWIRE IMPORTED_TARGET libpipewire-0.3 QUIET)
+        if(PIPEWIRE_FOUND)
+            add_subdirectory(src/capture)
+        else()
+            message(WARNING "PipeWire not found; capture fallback unavailable")
+        endif()
     endif()
 endif()
 
 if(TUBELIGHT_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
+    # tests/CMakeLists.txt is added in v1.1 (golden harness in F7 follow-up).
+    # For now we silently skip if the file is missing.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt")
+        enable_testing()
+        add_subdirectory(tests)
+    else()
+        message(STATUS "tests/CMakeLists.txt not present yet — skipping test target.")
+    endif()
 endif()
 
 # Print summary

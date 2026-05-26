@@ -37,15 +37,32 @@ Listadas en `vcpkg.json` raíz. Se instalan automáticamente al hacer `cmake -B 
 
 ### Pasos
 
+#### Opción A: script one-shot (recomendado)
+
+```cmd
+git clone <repo-url> tubelight
+cd tubelight
+scripts\build_windows.bat
+```
+
+El script localiza vcvars64.bat (VS 2022 BuildTools por defecto) y vcpkg
+(C:\vcpkg por defecto) y construye Release con `/m`. Override con
+`VS_VCVARS` o `VCPKG_ROOT` si tu instalación está en otro sitio.
+
+El ejecutable queda en `build\windows-vcpkg\Release\tubelight.exe` junto a
+`glfw3.dll` y `epoxy-0.dll`.
+
+#### Opción B: CMake directo
+
 ```powershell
 git clone <repo-url> tubelight
 cd tubelight
-git submodule update --init --recursive
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="vcpkg\scripts\buildsystems\vcpkg.cmake"
-cmake --build build --config Release
+$env:VCPKG_ROOT = "C:\path\to\vcpkg"
+# Necesario abrir la "Developer Command Prompt for VS 2022" o llamar a
+# vcvars64.bat antes de cmake si el entorno no tiene MSVC en PATH.
+cmake --preset windows-vcpkg
+cmake --build build\windows-vcpkg --config Release
 ```
-
-El ejecutable queda en `build\Release\tubelight.exe`.
 
 ### Run
 

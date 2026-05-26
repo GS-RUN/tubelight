@@ -36,14 +36,8 @@ target_link_libraries(tubelight_core
         tubelight_warnings
 )
 
-# epoxy linkage (Windows vcpkg vs Linux pkg-config)
-if(TARGET unofficial::libepoxy::libepoxy)
-    target_link_libraries(tubelight_core PUBLIC unofficial::libepoxy::libepoxy)
-elseif(TARGET epoxy::epoxy)
-    target_link_libraries(tubelight_core PUBLIC epoxy::epoxy)
-elseif(TARGET PkgConfig::EPOXY)
-    target_link_libraries(tubelight_core PUBLIC PkgConfig::EPOXY)
-endif()
+# epoxy linkage (alias defined in top-level CMakeLists.txt)
+target_link_libraries(tubelight_core PUBLIC epoxy::epoxy)
 
 # Embed shader + profile source dirs into compiled binary so the runtime can
 # find shaders/ and profiles/ without relying on CWD.
