@@ -50,6 +50,9 @@ Settings load_settings() {
         if (j.contains("capture_dir") && j.at("capture_dir").is_string()) {
             s.capture_dir = j.at("capture_dir").get<std::string>();
         }
+        if (j.contains("hud_visible") && j.at("hud_visible").is_boolean()) {
+            s.hud_visible = j.at("hud_visible").get<bool>();
+        }
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[overlay] settings parse error: %s\n", e.what());
     }
@@ -59,6 +62,7 @@ Settings load_settings() {
 void save_settings(const Settings& s) {
     nlohmann::json j;
     j["capture_dir"] = s.capture_dir;
+    j["hud_visible"] = s.hud_visible;
     std::ofstream out(settings_file_path());
     if (!out.is_open()) {
         std::fprintf(stderr, "[overlay] could not write %s\n", settings_file_path().c_str());

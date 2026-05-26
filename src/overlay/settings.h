@@ -16,6 +16,7 @@ namespace tubelight::overlay {
 
 struct Settings {
     std::string capture_dir; // empty → default (default_capture_dir())
+    bool        hud_visible = false; // status HUD (Ctrl+Alt+H) initial state
 };
 
 // Reads settings.json if present. Missing fields keep their default values.

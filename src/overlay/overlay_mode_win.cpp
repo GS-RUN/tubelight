@@ -85,6 +85,7 @@ std::atomic<bool> g_hk_screenshot{false};
 std::atomic<bool> g_hk_toggle_video{false};
 std::atomic<bool> g_hk_toggle_fullscreen{false};
 std::atomic<bool> g_hk_toggle_target{false};
+std::atomic<bool> g_hk_toggle_hud{false};
 
 // Track which interesting keys are currently held so we only fire on the
 // initial WM_KEYDOWN, never on the (potentially-many) auto-repeats that
@@ -121,6 +122,7 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
         else if (vk == 'V')                       g_hk_toggle_video = true;
         else if (vk == VK_RETURN)                 g_hk_toggle_fullscreen = true;
         else if (vk == 'T')                       g_hk_toggle_target = true;
+        else if (vk == 'H')                       g_hk_toggle_hud = true;
         else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
         else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
         else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
@@ -918,6 +920,7 @@ int run(const Options& opts) {
     std::string effective_capture_dir =
         settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
     std::string ui_capture_dir = settings.capture_dir;
+    bool hud_visible = settings.hud_visible;
 
     VideoRecorder video_recorder;
     std::string toast_text;
@@ -1032,7 +1035,7 @@ int run(const Options& opts) {
     std::printf(
         "[overlay] hotkeys: Ctrl+Alt+Q quit | Ctrl+Alt+M menu | "
         "Ctrl+Alt+F freeze | Ctrl+Alt+Enter fullscreen | "
-        "Ctrl+Alt+T track foreground window | "
+        "Ctrl+Alt+T track foreground | Ctrl+Alt+H toggle HUD | "
         "Ctrl+Alt+S screenshot | Ctrl+Alt+V video | "
         "Ctrl+Alt+0 all-on | Ctrl+Alt+1..8 toggle pass\n");
 
@@ -1196,9 +1199,15 @@ int run(const Options& opts) {
             wa.is_fullscreen      = fullscreen_active;
             wa.is_tracking_target = target_active;
             wa.target_title       = target_title_cached;
+            bool hud_changed = false;
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
                                intensity_multiplier, want_quit_from_menu,
-                               ui_capture_dir, cap_changed, wa);
+                               ui_capture_dir, cap_changed, wa,
+                               hud_visible, hud_changed);
+            if (hud_changed) {
+                settings.hud_visible = hud_visible;
+                save_settings(settings);
+            }
             if (cap_changed) {
                 settings.capture_dir = ui_capture_dir;
                 effective_capture_dir =
@@ -1244,6 +1253,55 @@ int run(const Options& opts) {
                 fg->AddText(ImVec2(46.0f, 19.0f),
                             ImGui::GetColorU32(ImVec4(1.0f, 0.6f, 0.6f, 0.95f)),
                             "REC");
+            }
+
+            // ---- Status HUD (top-right) ----
+            // Tells the user at a glance what profile/signal/mode is
+            // active without having to open the menu. Especially useful
+            // while target-tracking (click-through) when the menu is
+            // hard to summon. Toggle: Ctrl+Alt+H or the menu checkbox.
+            if (hud_visible) {
+                std::string mode_line;
+                if (target_active) {
+                    mode_line = "Mode: Tracking";
+                    if (!target_title_cached.empty()) {
+                        std::string t = target_title_cached;
+                        if (t.size() > 32) t = t.substr(0, 29) + "...";
+                        mode_line += " \"" + t + "\"";
+                    }
+                } else if (fullscreen_active) {
+                    mode_line = "Mode: Fullscreen";
+                } else {
+                    mode_line = "Mode: Windowed";
+                }
+
+                std::string profile_line = "Profile: " +
+                    (current_profile_id.empty() ? std::string("(default)")
+                                                : current_profile_id);
+                bool mono_now = (pipeline.params().monochrome == 1);
+                std::string signal_line = mono_now
+                    ? std::string("Signal:  clean RGB (mono-locked)")
+                    : ("Signal:  " + (current_signal_id.empty()
+                                        ? std::string("(default)")
+                                        : current_signal_id));
+
+                ImVec2 sz_p = ImGui::CalcTextSize(profile_line.c_str());
+                ImVec2 sz_s = ImGui::CalcTextSize(signal_line.c_str());
+                ImVec2 sz_m = ImGui::CalcTextSize(mode_line.c_str());
+                float text_w = std::max({sz_p.x, sz_s.x, sz_m.x});
+                float text_h = sz_p.y + sz_s.y + sz_m.y;
+                const float pad = 10.0f;
+                ImVec2 box_max(static_cast<float>(win_w) - 16.0f, 16.0f + text_h + 2 * pad);
+                ImVec2 box_min(box_max.x - text_w - 2 * pad, 16.0f);
+
+                ImU32 col_bg   = ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.65f));
+                ImU32 col_text = ImGui::GetColorU32(ImVec4(0.85f, 1.0f, 0.85f, 0.95f));
+                fg->AddRectFilled(box_min, box_max, col_bg, 6.0f);
+
+                float y = box_min.y + pad;
+                fg->AddText(ImVec2(box_min.x + pad, y), col_text, profile_line.c_str()); y += sz_p.y;
+                fg->AddText(ImVec2(box_min.x + pad, y), col_text, signal_line.c_str()); y += sz_s.y;
+                fg->AddText(ImVec2(box_min.x + pad, y), col_text, mode_line.c_str());
             }
 #endif
 
@@ -1365,6 +1423,11 @@ int run(const Options& opts) {
                 std::fprintf(stderr,
                     "[overlay] Ctrl+Alt+T: no foreground window remembered yet\n");
             }
+        }
+        if (g_hk_toggle_hud.exchange(false)) {
+            hud_visible = !hud_visible;
+            settings.hud_visible = hud_visible;
+            save_settings(settings);
         }
         // Screenshot: read the framebuffer AFTER the pipeline rendered but
         // BEFORE swap, so we capture exactly what the user sees. The PNG

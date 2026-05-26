@@ -65,7 +65,9 @@ public:
                        bool& want_quit,
                        std::string& capture_dir,
                        bool& capture_dir_changed,
-                       WindowActions& window_actions);
+                       WindowActions& window_actions,
+                       bool& hud_visible,
+                       bool& hud_changed);
 
     // Renders the ImGui draw data on top of whatever the pipeline produced.
     void end_frame_to_screen();

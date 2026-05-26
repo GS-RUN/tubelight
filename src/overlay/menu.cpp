@@ -155,8 +155,11 @@ void Menu::build_widgets(Pipeline& pipeline,
                          bool& want_quit,
                          std::string& capture_dir,
                          bool& capture_dir_changed,
-                         WindowActions& window_actions) {
+                         WindowActions& window_actions,
+                         bool& hud_visible,
+                         bool& hud_changed) {
     capture_dir_changed = false;
+    hud_changed = false;
     window_actions.snap_to_aspect_requested = false;
     window_actions.toggle_fullscreen_requested = false;
     window_actions.track_foreground_requested = false;
@@ -392,6 +395,12 @@ void Menu::build_widgets(Pipeline& pipeline,
             capture_dir_changed = true;
         }
         ImGui::TextDisabled("Ctrl+Alt+S  screenshot  |  Ctrl+Alt+V  toggle video");
+
+        ImGui::Separator();
+        if (ImGui::Checkbox("Show status HUD (top-right) — Ctrl+Alt+H", &hud_visible)) {
+            hud_changed = true;
+        }
+        ImGui::TextDisabled("Persisted between launches");
     }
 
     ImGui::Separator();
@@ -412,6 +421,8 @@ void Menu::build_widgets(Pipeline& pipeline,
     (void)capture_dir;
     (void)capture_dir_changed;
     (void)window_actions;
+    (void)hud_visible;
+    (void)hud_changed;
 #endif
 }
 
