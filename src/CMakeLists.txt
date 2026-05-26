@@ -15,6 +15,7 @@ add_library(tubelight_core STATIC
     profile/crt_profile.cpp
     profile/signal_profile.cpp
     profile/validator.cpp
+    profile/profile_loader.cpp
 )
 
 target_include_directories(tubelight_core
@@ -41,10 +42,12 @@ elseif(TARGET PkgConfig::EPOXY)
     target_link_libraries(tubelight_core PUBLIC PkgConfig::EPOXY)
 endif()
 
-# Embed shader source dir into compiled binary so the runtime can find shaders/
+# Embed shader + profile source dirs into compiled binary so the runtime can
+# find shaders/ and profiles/ without relying on CWD.
 target_compile_definitions(tubelight_core
     PUBLIC
         TUBELIGHT_SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders"
+        TUBELIGHT_PROFILE_DIR="${CMAKE_SOURCE_DIR}/profiles"
 )
 
 # ---------------------------------------------------------------------------

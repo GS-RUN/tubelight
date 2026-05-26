@@ -3,6 +3,7 @@
 
 #include "core/pipeline.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -30,17 +31,75 @@ std::string shader_path(const std::string& filename) {
 #endif
 }
 
+int connection_to_int(Connection c) {
+    switch (c) {
+        case Connection::RF:        return 0;
+        case Connection::Composite: return 1;
+        case Connection::SVideo:    return 2;
+        case Connection::ScartRgb:  return 3;
+        case Connection::Component: return 4;
+        case Connection::RgbVga:    return 5;
+    }
+    return 5;
+}
+
+int noise_type_to_int(NoiseType n) {
+    switch (n) {
+        case NoiseType::Pixel: return 0;
+        case NoiseType::Line:  return 1;
+        case NoiseType::Rf:    return 2;
+        case NoiseType::None:  return 3;
+    }
+    return 3;
+}
+
 void apply_uniforms_for_pass(ShaderProgram& sh,
                              int pass_index,
                              const Pipeline::GlobalParams& p,
                              int src_width,
-                             int src_height) {
+                             int src_height,
+                             float time,
+                             const std::optional<SignalProfile>& signal) {
     // Common uniforms used by most shaders.
     sh.set_vec2("u_resolution",
                 glm::vec2(static_cast<float>(src_width), static_cast<float>(src_height)));
     sh.set_int("u_pass_index", pass_index);
 
     switch (pass_index) {
+        case 0: // Pass −1 — signal modeling
+            if (signal.has_value()) {
+                const auto& s = signal.value();
+                sh.set_float("u_luma_mhz",            static_cast<float>(s.luma_mhz));
+                sh.set_float("u_chroma_i_mhz",        static_cast<float>(s.chroma_i_mhz));
+                sh.set_float("u_chroma_q_mhz",        static_cast<float>(s.chroma_q_mhz));
+                sh.set_float("u_dot_crawl_strength",  static_cast<float>(s.dot_crawl_strength));
+                sh.set_float("u_rainbow_banding",     static_cast<float>(s.rainbow_banding));
+                sh.set_float("u_ringing_amount",      static_cast<float>(s.ringing_amount));
+                sh.set_float("u_ghosting_offset_px",  static_cast<float>(s.ghosting_offset_pixels));
+                sh.set_int  ("u_noise_type",          noise_type_to_int(s.noise_type));
+                sh.set_float("u_noise_strength",      static_cast<float>(s.noise_strength));
+                sh.set_int  ("u_signal_connection",   connection_to_int(s.connection));
+            } else {
+                // Default = clean RGB/VGA (Pass −1 becomes identity).
+                sh.set_float("u_luma_mhz", 25.0f);
+                sh.set_float("u_chroma_i_mhz", 25.0f);
+                sh.set_float("u_chroma_q_mhz", 25.0f);
+                sh.set_float("u_dot_crawl_strength", 0.0f);
+                sh.set_float("u_rainbow_banding", 0.0f);
+                sh.set_float("u_ringing_amount", 0.0f);
+                sh.set_float("u_ghosting_offset_px", 0.0f);
+                sh.set_int  ("u_noise_type", 3);
+                sh.set_float("u_noise_strength", 0.0f);
+                sh.set_int  ("u_signal_connection", 5);
+            }
+            sh.set_float("u_time", time);
+            break;
+        case 1: // Pass 0 — analysis
+            sh.set_float("u_dither_detect_threshold", 0.15f);
+            break;
+        case 2: // Pass 1 — dither reconstruct
+            sh.set_float("u_reconstruction_strength", 1.0f);
+            break;
         case 3: // Pass 2 — beam + scanlines
             sh.set_float("u_scanline_strength", p.scanline_strength);
             sh.set_float("u_beam_width",        p.beam_width);
@@ -162,7 +221,7 @@ bool Pipeline::render_to_screen(GLuint source_tex) {
         glClear(GL_COLOR_BUFFER_BIT);
 
         sh.use();
-        apply_uniforms_for_pass(sh, i, params_, output_width_, output_height_);
+        apply_uniforms_for_pass(sh, i, params_, output_width_, output_height_, time_, signal_snapshot_);
 
         // Bind input texture to unit 0 ("u_source")
         glActiveTexture(GL_TEXTURE0);
@@ -184,6 +243,54 @@ const char* pass_display_name(int pass_index) {
         return "unknown";
     }
     return kDisplayNames[pass_index];
+}
+
+void Pipeline::apply_crt_profile(const CRTProfile& p) {
+    params_.scanline_strength = static_cast<float>(p.scanline_strength);
+    params_.gamma_crt         = 2.5f;
+
+    switch (p.mask_type) {
+        case MaskType::None:           params_.mask_type = 0; break;
+        case MaskType::Shadow:         params_.mask_type = 1; break;
+        case MaskType::ApertureGrille: params_.mask_type = 2; break;
+        case MaskType::Slot:           params_.mask_type = 3; break;
+        case MaskType::Diamond:        params_.mask_type = 4; break;
+        case MaskType::CgwgMix:        params_.mask_type = 5; break;
+        case MaskType::DotTrio:        params_.mask_type = 6; break;
+    }
+
+    // Map dot pitch (mm) to display pixel pitch. A 14-inch 4:3 tube has a
+    // horizontal viewable width of ~285 mm; with a 1280-pixel-wide output that
+    // gives ~4.5 px/mm. We approximate; this is refined in F7 with viewable
+    // area accounting for diagonal_inches and aspect.
+    if (p.dot_pitch_mm.has_value()) {
+        constexpr float kPixelsPerMm = 4.5f;
+        params_.mask_pitch_px = static_cast<float>(p.dot_pitch_mm.value()) * kPixelsPerMm;
+        params_.mask_pitch_px = std::max(params_.mask_pitch_px, 1.5f);
+    }
+
+    // Monochrome profiles dial mask down to none in practice (mask handled by
+    // glass + phosphor color, not a triad mask).
+    if (p.phosphor_type == PhosphorType::P1 ||
+        p.phosphor_type == PhosphorType::P3 ||
+        p.phosphor_type == PhosphorType::P4 ||
+        p.phosphor_type == PhosphorType::P31) {
+        params_.mask_type = 0;
+        params_.mask_strength = 0.0f;
+    } else {
+        params_.mask_strength = 0.55f;
+    }
+
+    // Vignette ties to screen curvature.
+    switch (p.screen_curvature) {
+        case ScreenCurvature::Flat:       params_.barrel_strength = 0.02f; params_.vignette_strength = 0.20f; break;
+        case ScreenCurvature::Mild:       params_.barrel_strength = 0.06f; params_.vignette_strength = 0.35f; break;
+        case ScreenCurvature::Aggressive: params_.barrel_strength = 0.12f; params_.vignette_strength = 0.55f; break;
+    }
+}
+
+void Pipeline::apply_signal_profile(const SignalProfile& s) {
+    signal_snapshot_ = s;
 }
 
 } // namespace tubelight

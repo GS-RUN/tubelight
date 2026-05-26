@@ -17,6 +17,7 @@
 #include "core/gl_common.h"
 #include "core/pipeline.h"
 #include "core/texture.h"
+#include "profile/profile_loader.h"
 #include "profile/validator.h"
 
 #include <cstdio>
@@ -38,6 +39,8 @@ struct Args {
     bool show_version = false;
     std::string shader_only_input;
     std::string validate_profile_path;
+    std::string profile_id;
+    std::string signal_id;
     bool unknown_flag = false;
     std::string unknown_flag_text;
 };
@@ -64,6 +67,10 @@ Args parse_args(int argc, char** argv) {
                 a.unknown_flag = true;
                 a.unknown_flag_text = "--validate-profile requires a path";
             }
+        } else if (arg == "--profile") {
+            if (i + 1 < argc) a.profile_id = argv[++i];
+        } else if (arg == "--signal") {
+            if (i + 1 < argc) a.signal_id = argv[++i];
         } else if (arg.substr(0, 2) == "--") {
             // F3+ flags not implemented yet; treat as no-op for now so smoke
             // tests like --target X --profile Y don't crash F2.
@@ -161,7 +168,9 @@ void framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
 // ---------------------------------------------------------------------------
 // Application entry: open window + pipeline + main loop
 // ---------------------------------------------------------------------------
-int run_shader_only(const std::string& image_path) {
+int run_shader_only(const std::string& image_path,
+                    const std::string& profile_id,
+                    const std::string& signal_id) {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
         std::fprintf(stderr, "[tubelight] glfwInit failed\n");
@@ -210,11 +219,39 @@ int run_shader_only(const std::string& image_path) {
     glfwSetKeyCallback(window, key_callback);
     glfwSetFramebufferSizeCallback(window, framebuffer_resize_callback);
 
+    // Apply CRT profile if requested.
+    if (!profile_id.empty()) {
+        std::string err;
+        auto p = tubelight::load_crt_profile_by_id(profile_id, err);
+        if (!p.has_value()) {
+            std::fprintf(stderr, "[tubelight] CRT profile '%s' not loaded: %s\n",
+                         profile_id.c_str(), err.c_str());
+        } else {
+            pipeline.apply_crt_profile(p.value());
+            std::printf("[tubelight] CRT profile: %s\n", p->display_name.c_str());
+        }
+    }
+
+    // Apply signal profile if requested (defaults to pristine RGB if not).
+    if (!signal_id.empty()) {
+        std::string err;
+        auto s = tubelight::load_signal_profile_by_id(signal_id, err);
+        if (!s.has_value()) {
+            std::fprintf(stderr, "[tubelight] signal profile '%s' not loaded: %s\n",
+                         signal_id.c_str(), err.c_str());
+        } else {
+            pipeline.apply_signal_profile(s.value());
+            std::printf("[tubelight] signal profile: %s\n", s->display_name.c_str());
+        }
+    }
+
     std::printf("[tubelight] shader-only running on %s (%dx%d).\n",
                 image_path.c_str(), source_tex.width(), source_tex.height());
     std::printf("[tubelight] Keys: 1..8 toggle passes, 0 enable all, ESC quit.\n");
 
+    double t0 = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
+        pipeline.set_time(static_cast<float>(glfwGetTime() - t0));
         pipeline.render_to_screen(source_tex.id());
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -286,7 +323,7 @@ int main(int argc, char** argv) {
         return tubelight::print_validation_result(args.validate_profile_path, r);
     }
     if (!args.shader_only_input.empty()) {
-        return run_shader_only(args.shader_only_input);
+        return run_shader_only(args.shader_only_input, args.profile_id, args.signal_id);
     }
     return run_empty_window();
 }

@@ -6,8 +6,11 @@
 #include "core/fbo.h"
 #include "core/quad.h"
 #include "core/shader.h"
+#include "profile/crt_profile.h"
+#include "profile/signal_profile.h"
 
 #include <array>
+#include <optional>
 #include <string>
 
 namespace tubelight {
@@ -76,6 +79,19 @@ public:
     GlobalParams& params() { return params_; }
     const GlobalParams& params() const { return params_; }
 
+    // Profile-driven parameter application. Calling these overwrites the
+    // relevant subset of GlobalParams from the profile JSON values.
+    void apply_crt_profile(const CRTProfile& p);
+    void apply_signal_profile(const SignalProfile& p);
+
+    // Per-frame time uniform fed to Pass −1 noise.
+    void set_time(float t) { time_ = t; }
+    float time() const { return time_; }
+
+    // Optional signal profile snapshot used to feed Pass −1 uniforms.
+    void set_signal_profile_snapshot(const SignalProfile& s) { signal_snapshot_ = s; }
+    const std::optional<SignalProfile>& signal_profile_snapshot() const { return signal_snapshot_; }
+
     // Read-only access for introspection / tests.
     const FBO& fbo(int pass_index) const { return fbos_[static_cast<size_t>(pass_index)]; }
     const ShaderProgram& shader(int pass_index) const { return shaders_[static_cast<size_t>(pass_index)]; }
@@ -104,6 +120,8 @@ private:
 
     GlobalParams params_;
     FullscreenQuad quad_;
+    float time_ = 0.0f;
+    std::optional<SignalProfile> signal_snapshot_;
 };
 
 const char* pass_display_name(int pass_index);

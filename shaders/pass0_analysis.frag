@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 GS-RUN
 //
-// Pass 0 — Analysis: dithering detection + luminance averaging.
-// F2: identity (no analysis output consumed yet).
-// F4 introduces: dithering pattern detection via 2x2 / 2x1 / 1x2 kernel
-// comparing alternating pixels; mask is consumed by Pass 1.
-// Pass 5 (F7) will consume the luminance average for voltage bloom.
+// Pass 0 — Analysis: dithering detection + luminance read.
+//
+// We look at the current texel and its immediate neighbors to see if the
+// local pattern matches a 2-pixel-wide dithering convention common in
+// 8/16-bit consoles (alternating columns or rows):
+//
+//   . X . X . X     <- vertical stripes (Sonic Green Hill cascada)
+//
+// The detected mask is written to the alpha channel of the output texel
+// (1.0 = strongly dithered, 0.0 = not). Pass 1 reads alpha and chooses
+// between identity and average reconstruction.
+//
+// RGB is passed through unchanged so Pass 1 sees the same source.
 
 #version 450 core
 
@@ -13,7 +21,39 @@ in vec2 v_uv;
 out vec4 o_color;
 
 uniform sampler2D u_source;
+uniform vec2  u_resolution;
+uniform float u_dither_detect_threshold; // typical 0.15
+
+float relative_luminance(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
 
 void main() {
-    o_color = texture(u_source, v_uv);
+    vec2 px = 1.0 / u_resolution;
+    vec3 c   = texture(u_source, v_uv).rgb;
+    vec3 cL  = texture(u_source, v_uv - vec2(px.x, 0.0)).rgb;
+    vec3 cR  = texture(u_source, v_uv + vec2(px.x, 0.0)).rgb;
+    vec3 cU  = texture(u_source, v_uv - vec2(0.0, px.y)).rgb;
+    vec3 cD  = texture(u_source, v_uv + vec2(0.0, px.y)).rgb;
+    vec3 cLL = texture(u_source, v_uv - vec2(2.0 * px.x, 0.0)).rgb;
+    vec3 cRR = texture(u_source, v_uv + vec2(2.0 * px.x, 0.0)).rgb;
+
+    // Vertical stripe pattern (most common on Sega): same color as LL and RR,
+    // different from L and R.
+    float horiz_alt = step(u_dither_detect_threshold, distance(c,  cL))
+                    * step(u_dither_detect_threshold, distance(c,  cR))
+                    * (1.0 - step(u_dither_detect_threshold, distance(c, cLL)))
+                    * (1.0 - step(u_dither_detect_threshold, distance(c, cRR)));
+
+    // Horizontal stripe pattern (less common; some PS1 fog passes).
+    vec3 cUU = texture(u_source, v_uv - vec2(0.0, 2.0 * px.y)).rgb;
+    vec3 cDD = texture(u_source, v_uv + vec2(0.0, 2.0 * px.y)).rgb;
+    float vert_alt = step(u_dither_detect_threshold, distance(c, cU))
+                   * step(u_dither_detect_threshold, distance(c, cD))
+                   * (1.0 - step(u_dither_detect_threshold, distance(c, cUU)))
+                   * (1.0 - step(u_dither_detect_threshold, distance(c, cDD)));
+
+    float mask = max(horiz_alt, vert_alt);
+
+    o_color = vec4(c, mask);
 }
