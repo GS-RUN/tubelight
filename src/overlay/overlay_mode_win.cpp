@@ -545,8 +545,10 @@ int run(const Options& opts) {
     const bool initial_fullscreen = (opts.mode == OverlayMode::Fullscreen);
     const bool windowed_mode      = (opts.mode == OverlayMode::Windowed);
     const bool initial_target     = (opts.mode == OverlayMode::TargetWindow);
+    const bool initial_region     = (opts.mode == OverlayMode::Region);
     bool fullscreen_active        = initial_fullscreen;
     bool target_active            = initial_target;     // runtime-mutable
+    bool region_active            = initial_region;     // runtime-mutable
     const bool& target_mode       = target_active;      // alias for the readers below
 
     // Resolve the target HWND up-front so we can size our window to match
@@ -570,7 +572,7 @@ int run(const Options& opts) {
     }
 
     // Chrome (title bar / border / focus) is only for plain windowed mode.
-    // Fullscreen + TargetWindow are both borderless click-through overlays.
+    // Fullscreen + TargetWindow + Region are all borderless click-through.
     const bool chrome = windowed_mode;
 
     glfwWindowHint(GLFW_VISIBLE,   GLFW_FALSE);
@@ -585,9 +587,11 @@ int run(const Options& opts) {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 
     int W = target_mode      ? target_w
+          : region_active    ? opts.region_w
           : fullscreen_active ? capture.width()
                               : opts.init_w;
     int H = target_mode      ? target_h
+          : region_active    ? opts.region_h
           : fullscreen_active ? capture.height()
                               : opts.init_h;
     GLFWwindow* window = glfwCreateWindow(W, H, "Tubelight", nullptr, nullptr);
@@ -600,6 +604,9 @@ int run(const Options& opts) {
 
     if (target_mode) {
         glfwSetWindowPos(window, target_x, target_y);
+    } else if (region_active) {
+        glfwSetWindowPos(window, capture.origin_x() + opts.region_x,
+                                  capture.origin_y() + opts.region_y);
     } else if (fullscreen_active) {
         glfwSetWindowPos(window, capture.origin_x(), capture.origin_y());
     } else {
@@ -617,17 +624,19 @@ int run(const Options& opts) {
     // DXGI would otherwise include our own rendered output in its grab).
     SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
 
-    if (fullscreen_active || target_mode) {
-        // Click-through topmost so the user keeps interacting with whatever
-        // is underneath (the target window in TargetWindow mode, the whole
-        // desktop in Fullscreen). WDA_EXCLUDEFROMCAPTURE already prevents
-        // DXGI from feedback-looping our own output back in.
+    if (fullscreen_active || target_mode || region_active) {
+        // Click-through topmost. WDA_EXCLUDEFROMCAPTURE keeps DXGI from
+        // feedback-looping our own output back in.
         LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
         SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-        int sx = target_mode ? target_x : capture.origin_x();
-        int sy = target_mode ? target_y : capture.origin_y();
+        int sx = target_mode ? target_x
+              : region_active ? (capture.origin_x() + opts.region_x)
+                              : capture.origin_x();
+        int sy = target_mode ? target_y
+              : region_active ? (capture.origin_y() + opts.region_y)
+                              : capture.origin_y();
         SetWindowPos(hwnd, HWND_TOPMOST, sx, sy,
                      W, H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     } else {
@@ -854,6 +863,48 @@ int run(const Options& opts) {
         SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
         apply_aspect_lock();
         std::fprintf(stderr, "[overlay] target detached\n");
+    };
+
+    // Region attach/detach: pin the overlay to a fixed monitor-relative
+    // rect (no window tracking, no fullscreen) with click-through. Same
+    // visual semantics as target mode but the rect is static.
+    auto do_attach_region = [&](int rx, int ry, int rw, int rh) {
+        if (rw <= 0 || rh <= 0) return;
+        if (fullscreen_active) do_toggle_fullscreen();
+        if (target_active)     do_detach_target();
+        glfwGetWindowPos(window,  &saved_win_x, &saved_win_y);
+        glfwGetWindowSize(window, &saved_win_w, &saved_win_h);
+        glfwSetWindowAspectRatio(window, GLFW_DONT_CARE, GLFW_DONT_CARE);
+
+        region_active = true;
+
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        g_hide_nonclient = true;
+
+        SetWindowPos(hwnd, HWND_TOPMOST,
+                     capture.origin_x() + rx, capture.origin_y() + ry, rw, rh,
+                     SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        std::fprintf(stderr, "[overlay] region attached at (%d,%d) %dx%d\n",
+                     rx, ry, rw, rh);
+    };
+
+    auto do_detach_region = [&]() {
+        if (!region_active) return;
+        region_active = false;
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        g_hide_nonclient = false;
+        glfwSetWindowSize(window, saved_win_w, saved_win_h);
+        glfwSetWindowPos(window,  saved_win_x, saved_win_y);
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_aspect_lock();
+        std::fprintf(stderr, "[overlay] region detached\n");
     };
 
     // Track the last foreground window that wasn't our overlay, so
@@ -1250,6 +1301,7 @@ int run(const Options& opts) {
             wa.is_fullscreen      = fullscreen_active;
             wa.is_tracking_target = target_active;
             wa.target_title       = target_title_cached;
+            wa.is_region_active   = region_active;
             bool hud_changed = false;
             bool audio_changed = false;
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
@@ -1452,6 +1504,12 @@ int run(const Options& opts) {
                     toast_time = std::chrono::steady_clock::now();
                 }
             }
+            if (wa.region_attach_requested) {
+                do_attach_region(wa.region_x, wa.region_y, wa.region_w, wa.region_h);
+            }
+            if (wa.region_detach_requested) {
+                do_detach_region();
+            }
             if (wa.save_preset_requested) {
                 std::string err;
                 std::string base = current_profile_id.empty() ? "pvm-8220" : current_profile_id;
@@ -1574,7 +1632,7 @@ int run(const Options& opts) {
         // (CLI fullscreen mode, or runtime target-tracking). For a plain
         // windowed overlay we never want TRANSPARENT, even after the menu
         // closes, otherwise the user can't drag the title bar any more.
-        const bool should_be_click_through = initial_fullscreen || target_active;
+        const bool should_be_click_through = initial_fullscreen || target_active || region_active;
         bool menu_open_now = has_menu && menu.is_open();
         if (menu_open_now != menu_was_open) {
             LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);

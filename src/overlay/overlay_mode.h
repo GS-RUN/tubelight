@@ -30,6 +30,11 @@ struct Options {
     int  init_h = 960;
     std::string target_window;         // Window title substring for TargetWindow mode
     int  target_pid = 0;               // alternative: pid for TargetWindow mode
+    // Region mode: fixed monitor-relative rectangle (no window tracking).
+    int  region_x = 0;
+    int  region_y = 0;
+    int  region_w = 0;
+    int  region_h = 0;
 };
 
 // Runs the overlay until the user presses ESC. Returns CLI exit code:

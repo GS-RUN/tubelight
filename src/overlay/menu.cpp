@@ -170,6 +170,8 @@ void Menu::build_widgets(Pipeline& pipeline,
     window_actions.track_by_title_requested = false;
     window_actions.detach_target_requested = false;
     window_actions.save_preset_requested = false;
+    window_actions.region_attach_requested = false;
+    window_actions.region_detach_requested = false;
 #ifdef TUBELIGHT_HAS_IMGUI
     if (!open_) return;
 
@@ -271,6 +273,31 @@ void Menu::build_widgets(Pipeline& pipeline,
                 window_actions.track_foreground_requested = true;
             }
             ImGui::TextDisabled("Foreground = whatever window had focus before menu.");
+        }
+    }
+
+    // --- Region (fixed monitor-relative rect, click-through) --------
+    if (ImGui::CollapsingHeader("Region (fixed rect)")) {
+        if (window_actions.is_region_active) {
+            ImGui::TextDisabled("Pinned to a fixed monitor-relative rect.");
+            if (ImGui::Button("Detach region", ImVec2(-1, 0))) {
+                window_actions.region_detach_requested = true;
+            }
+        } else {
+            static int rx = 100, ry = 100, rw = 800, rh = 600;
+            ImGui::TextDisabled("Monitor-relative pixels (0,0 = top-left)");
+            ImGui::InputInt("x", &rx);
+            ImGui::InputInt("y", &ry);
+            ImGui::InputInt("w", &rw);
+            ImGui::InputInt("h", &rh);
+            if (ImGui::Button("Pin to this rect", ImVec2(-1, 0))) {
+                window_actions.region_x = rx;
+                window_actions.region_y = ry;
+                window_actions.region_w = std::max(rw, 16);
+                window_actions.region_h = std::max(rh, 16);
+                window_actions.region_attach_requested = true;
+            }
+            ImGui::TextDisabled("Click-through: input goes to whatever's underneath.");
         }
     }
 

@@ -51,6 +51,8 @@ struct Args {
     int  overlay_init_h = 960;
     std::string overlay_target_title;   // --overlay-target <title>
     int         overlay_target_pid = 0; // --overlay-target-pid <pid>
+    bool overlay_region = false;
+    int  region_x = 0, region_y = 0, region_w = 0, region_h = 0;
     bool unknown_flag = false;
     std::string unknown_flag_text;
 };
@@ -102,6 +104,25 @@ Args parse_args(int argc, char** argv) {
                 a.unknown_flag = true;
                 a.unknown_flag_text = "--overlay-target-pid requires a numeric pid";
             }
+        } else if (arg == "--overlay-region") {
+            if (i + 1 < argc) {
+                // x,y,w,h (comma separated, monitor-relative)
+                std::string spec = argv[++i];
+                int xv = 0, yv = 0, wv = 0, hv = 0;
+                if (std::sscanf(spec.c_str(), "%d,%d,%d,%d", &xv, &yv, &wv, &hv) == 4
+                    && wv > 0 && hv > 0) {
+                    a.overlay = true;
+                    a.overlay_region = true;
+                    a.region_x = xv; a.region_y = yv;
+                    a.region_w = wv; a.region_h = hv;
+                } else {
+                    a.unknown_flag = true;
+                    a.unknown_flag_text = "--overlay-region needs x,y,w,h (e.g. 100,100,800,600)";
+                }
+            } else {
+                a.unknown_flag = true;
+                a.unknown_flag_text = "--overlay-region requires x,y,w,h";
+            }
         } else if (arg == "--monitor") {
             if (i + 1 < argc) a.overlay_monitor = std::atoi(argv[++i]);
         } else if (arg == "--size") {
@@ -145,6 +166,8 @@ void print_help() {
         "                               Tubelight follows its position+size every frame;\n"
         "                               click-through so the underlying app stays usable.\n"
         "  --overlay-target-pid <pid>   Same but match by process id (more robust).\n"
+        "  --overlay-region x,y,w,h     Pin the overlay to a fixed monitor-relative\n"
+        "                               rectangle (no window tracking). Click-through.\n"
         "  --monitor <index>            Which display to capture from (default 0)\n"
         "  --size <w> <h>               Initial window size for windowed mode (1280x960)\n"
         "  --shader-only <path>         Apply pipeline to a PNG and show in a window\n"
@@ -417,6 +440,8 @@ int main(int argc, char** argv) {
     const bool has_target = !args.overlay_target_title.empty() || args.overlay_target_pid > 0;
     if (has_target) {
         o.mode = tubelight::overlay::OverlayMode::TargetWindow;
+    } else if (args.overlay_region) {
+        o.mode = tubelight::overlay::OverlayMode::Region;
     } else if (args.overlay_fullscreen) {
         o.mode = tubelight::overlay::OverlayMode::Fullscreen;
     } else {
@@ -426,5 +451,9 @@ int main(int argc, char** argv) {
     o.init_h = args.overlay_init_h;
     o.target_window = args.overlay_target_title;
     o.target_pid    = args.overlay_target_pid;
+    o.region_x = args.region_x;
+    o.region_y = args.region_y;
+    o.region_w = args.region_w;
+    o.region_h = args.region_h;
     return tubelight::overlay::run(o);
 }

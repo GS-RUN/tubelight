@@ -36,6 +36,11 @@ struct WindowActions {
     bool save_preset_requested       = false; // serialise current params → user dir
     std::string preset_new_id;                // file stem for new preset
     std::string preset_display_name;          // human label for new preset
+    // Region (fixed monitor-relative rect) mode.
+    bool is_region_active    = false;
+    bool region_attach_requested = false;
+    bool region_detach_requested = false;
+    int  region_x = 0, region_y = 0, region_w = 0, region_h = 0;
 };
 
 class Menu {
