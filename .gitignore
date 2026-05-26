@@ -1,0 +1,49 @@
+# Build artifacts
+build/
+out/
+install/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sln
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Compiled
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+*.o
+*.obj
+*.pdb
+*.ilk
+
+# vcpkg
+vcpkg_installed/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and tmp
+*.log
+*.tmp
+.cache/
+
+# Compiled shaders cache
+*.spv
+shaders/cache/

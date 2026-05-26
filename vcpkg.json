@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "tubelight",
+  "version": "0.1.0",
+  "description": "High-fidelity CRT overlay for Windows and Linux",
+  "homepage": "https://github.com/gs-run/tubelight",
+  "license": "MIT",
+  "supports": "(windows | linux) & x64",
+  "dependencies": [
+    "glfw3"
+  ],
+  "features": {
+    "shaders": {
+      "description": "Pipeline shader compilation (F2+)",
+      "dependencies": [
+        "glslang",
+        "spirv-cross",
+        "glm"
+      ]
+    },
+    "profiles": {
+      "description": "JSON profile loading (F3+)",
+      "dependencies": [
+        "nlohmann-json"
+      ]
+    },
+    "ui": {
+      "description": "Dear ImGui control panel (F3+)",
+      "dependencies": [
+        {
+          "name": "imgui",
+          "features": ["glfw-binding", "opengl3-binding"]
+        }
+      ]
+    },
+    "injection": {
+      "description": "DLL injection for Present() hook on Windows (F5+)",
+      "dependencies": [
+        {
+          "name": "minhook",
+          "platform": "windows"
+        }
+      ]
+    }
+  },
+  "default-features": []
+}

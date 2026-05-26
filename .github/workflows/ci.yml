@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 GS-RUN
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+
+jobs:
+  path-check:
+    name: C1 / no absolute personal paths
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run path check
+        run: bash tools/precommit_check_paths.sh
+
+  windows:
+    name: Windows / MSVC / vcpkg
+    runs-on: windows-2022
+    needs: path-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: '2024.07.12'
+
+      - name: Configure
+        run: cmake --preset windows-vcpkg
+        env:
+          VCPKG_ROOT: ${{ env.VCPKG_INSTALLATION_ROOT }}
+
+      - name: Build
+        run: cmake --build build/windows-vcpkg --config Release
+
+      - name: Smoke run --version
+        run: .\build\windows-vcpkg\Release\tubelight.exe --version
+
+      - name: Smoke run --help
+        run: .\build\windows-vcpkg\Release\tubelight.exe --help
+
+  linux-gcc:
+    name: Linux / gcc-13
+    runs-on: ubuntu-24.04
+    needs: path-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential cmake ninja-build pkg-config \
+            libglfw3-dev \
+            xvfb
+
+      - name: Configure
+        run: cmake --preset linux-ninja
+
+      - name: Build
+        run: cmake --build build/linux-ninja
+
+      - name: Smoke run --version
+        run: ./build/linux-ninja/tubelight --version
+
+      - name: Smoke run --help
+        run: ./build/linux-ninja/tubelight --help
+
+  linux-clang:
+    name: Linux / clang-18
+    runs-on: ubuntu-24.04
+    needs: path-check
+    env:
+      CC: clang-18
+      CXX: clang++-18
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            cmake ninja-build pkg-config \
+            clang-18 \
+            libglfw3-dev \
+            xvfb
+
+      - name: Configure
+        run: cmake --preset linux-ninja
+
+      - name: Build
+        run: cmake --build build/linux-ninja
+
+      - name: Smoke run --version
+        run: ./build/linux-ninja/tubelight --version
+
+      - name: Smoke run --help
+        run: ./build/linux-ninja/tubelight --help

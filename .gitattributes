@@ -1,0 +1,19 @@
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF
+*.bat eol=crlf
+*.ps1 eol=crlf
+*.cmd eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.ico binary
+*.spv binary
+*.bin binary
+
+# Documentation
+*.md text diff=markdown

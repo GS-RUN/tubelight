@@ -1,0 +1,77 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 26 },
+  "configurePresets": [
+    {
+      "name": "_base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "TUBELIGHT_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "windows-vcpkg",
+      "displayName": "Windows + MSVC + vcpkg",
+      "description": "Windows build using vcpkg toolchain ($env:VCPKG_ROOT must be set)",
+      "inherits": "_base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": { "value": "x64", "strategy": "set" },
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "linux-ninja",
+      "displayName": "Linux + Ninja + system pkgs",
+      "description": "Linux build using Ninja and system-installed dependencies",
+      "inherits": "_base",
+      "generator": "Ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-debug",
+      "displayName": "Linux Debug",
+      "inherits": "linux-ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-vcpkg",
+      "configurePreset": "windows-vcpkg",
+      "configuration": "Release"
+    },
+    {
+      "name": "linux-ninja",
+      "configurePreset": "linux-ninja"
+    },
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-ninja",
+      "configurePreset": "linux-ninja",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-vcpkg",
+      "configurePreset": "windows-vcpkg",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
