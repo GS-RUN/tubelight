@@ -19,6 +19,10 @@ namespace tubelight::backend {
 bool install_dx11_hook();
 void remove_dx11_hook();
 
+// Defined in dx12_hook.cpp
+bool install_dx12_hook();
+void remove_dx12_hook();
+
 } // namespace tubelight::backend
 
 namespace {
@@ -32,8 +36,13 @@ void log_attach() {
 
 DWORD WINAPI install_thread(LPVOID) {
     log_attach();
-    if (!tubelight::backend::install_dx11_hook()) {
-        std::fprintf(stderr, "[tubelight-backend] DX11 hook install failed\n");
+    bool dx11 = tubelight::backend::install_dx11_hook();
+    bool dx12 = tubelight::backend::install_dx12_hook();
+    if (!dx11 && !dx12) {
+        std::fprintf(stderr, "[tubelight-backend] both DX11 and DX12 hooks failed to install\n");
+    } else {
+        std::fprintf(stderr, "[tubelight-backend] hooks: DX11=%s DX12=%s\n",
+                     dx11 ? "ok" : "fail", dx12 ? "ok" : "fail");
     }
     return 0;
 }
@@ -49,6 +58,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID /*reserved*/) {
             ::CreateThread(nullptr, 0, install_thread, nullptr, 0, nullptr);
             break;
         case DLL_PROCESS_DETACH:
+            tubelight::backend::remove_dx12_hook();
             tubelight::backend::remove_dx11_hook();
             break;
         default:

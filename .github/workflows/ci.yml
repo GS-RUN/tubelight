@@ -63,6 +63,8 @@ jobs:
           sudo apt install -y \
             build-essential cmake ninja-build pkg-config \
             libglfw3-dev libglm-dev libepoxy-dev libstb-dev nlohmann-json3-dev \
+            libvulkan-dev vulkan-headers \
+            libpipewire-0.3-dev \
             xvfb
 
       - name: Configure

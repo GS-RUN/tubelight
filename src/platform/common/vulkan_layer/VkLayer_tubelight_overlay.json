@@ -1,0 +1,21 @@
+{
+    "file_format_version": "1.2.0",
+    "layer": {
+        "name": "VK_LAYER_tubelight_overlay",
+        "type": "GLOBAL",
+        "library_path": "./libVkLayer_tubelight_overlay.so",
+        "api_version": "1.2.198",
+        "implementation_version": "1",
+        "description": "Tubelight CRT shader overlay — hooks vkQueuePresentKHR",
+        "functions": {
+            "vkGetInstanceProcAddr": "tubelight_GetInstanceProcAddr",
+            "vkGetDeviceProcAddr":   "tubelight_GetDeviceProcAddr"
+        },
+        "enable_environment": {
+            "VK_INSTANCE_LAYERS": "VK_LAYER_tubelight_overlay"
+        },
+        "disable_environment": {
+            "DISABLE_VK_LAYER_TUBELIGHT_OVERLAY_1": "1"
+        }
+    }
+}

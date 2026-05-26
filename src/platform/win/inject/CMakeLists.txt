@@ -14,6 +14,7 @@
 add_library(tubelight_backend SHARED
     backend.cpp
     dx11_hook.cpp
+    dx12_hook.cpp
 )
 
 set_target_properties(tubelight_backend PROPERTIES
@@ -21,8 +22,8 @@ set_target_properties(tubelight_backend PROPERTIES
     OUTPUT_NAME "tubelight_backend"
 )
 
-# DX11 + DXGI come from the Windows SDK automatically with MSVC.
-target_link_libraries(tubelight_backend PRIVATE d3d11 dxgi)
+# DX11 + DX12 + DXGI come from the Windows SDK automatically with MSVC.
+target_link_libraries(tubelight_backend PRIVATE d3d11 d3d12 dxgi)
 
 if(TARGET minhook::minhook)
     target_link_libraries(tubelight_backend PRIVATE minhook::minhook)
