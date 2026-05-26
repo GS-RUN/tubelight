@@ -44,8 +44,12 @@
 #include <imgui.h>
 #endif
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -446,7 +450,8 @@ struct AppState {
 // are filled with black so the shader sees clean borders.
 void upload_subregion_to_source(class DxgiCapture& capture,
                                  tubelight::Texture2D& source,
-                                 int mon_x, int mon_y, int mon_w, int mon_h,
+                                 int mon_x, int mon_y,
+                                 int /*mon_w*/, int /*mon_h*/,
                                  int tex_w, int tex_h,
                                  std::vector<uint8_t>& tmp,
                                  bool fullscreen) {
