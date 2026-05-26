@@ -159,6 +159,9 @@ void Menu::build_widgets(Pipeline& pipeline,
     capture_dir_changed = false;
     window_actions.snap_to_aspect_requested = false;
     window_actions.toggle_fullscreen_requested = false;
+    window_actions.track_foreground_requested = false;
+    window_actions.track_by_title_requested = false;
+    window_actions.detach_target_requested = false;
 #ifdef TUBELIGHT_HAS_IMGUI
     if (!open_) return;
 
@@ -216,6 +219,34 @@ void Menu::build_widgets(Pipeline& pipeline,
             }
         } else {
             ImGui::TextDisabled("Signal: clean RGB (locked for monochrome)");
+        }
+    }
+
+    // --- Target window (track another app's window) -----------------
+    if (ImGui::CollapsingHeader("Target window")) {
+        if (window_actions.is_tracking_target) {
+            ImGui::Text("Tracking: %s",
+                        window_actions.target_title.empty()
+                            ? "(unknown title)"
+                            : window_actions.target_title.c_str());
+            ImGui::TextDisabled("Tubelight follows this window. Click-through is on,");
+            ImGui::TextDisabled("so the underlying app keeps full focus + input.");
+            if (ImGui::Button("Detach (Ctrl+Alt+T)", ImVec2(-1, 0))) {
+                window_actions.detach_target_requested = true;
+            }
+        } else {
+            static char title_buf[256];
+            ImGui::TextDisabled("Type a window title substring (case-insensitive)");
+            ImGui::InputText("##targettitle", title_buf, sizeof(title_buf));
+            if (ImGui::Button("Track by title", ImVec2(150, 0))) {
+                window_actions.title_to_track = title_buf;
+                window_actions.track_by_title_requested = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Track foreground (Ctrl+Alt+T)", ImVec2(-1, 0))) {
+                window_actions.track_foreground_requested = true;
+            }
+            ImGui::TextDisabled("Foreground = whatever window had focus before menu.");
         }
     }
 

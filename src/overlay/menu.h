@@ -23,10 +23,16 @@ namespace tubelight::overlay {
 // Input fields are read by the menu to label / disable controls correctly.
 struct WindowActions {
     // Input from host:
-    bool is_fullscreen = false;        // true when overlay is currently borderless fullscreen
+    bool is_fullscreen        = false; // overlay is currently borderless fullscreen
+    bool is_tracking_target   = false; // overlay is currently following another window
+    std::string target_title;          // human-readable title of the current target
     // Output to host:
-    bool snap_to_aspect_requested = false;     // resize window to match target_aspect now
-    bool toggle_fullscreen_requested = false;  // flip windowed <-> fullscreen
+    bool snap_to_aspect_requested    = false; // resize window to match target_aspect
+    bool toggle_fullscreen_requested = false; // flip windowed <-> fullscreen
+    bool track_foreground_requested  = false; // attach to whatever has OS focus
+    bool track_by_title_requested    = false; // attach to a title-matching window
+    bool detach_target_requested     = false; // stop following the current target
+    std::string title_to_track;               // input from the text field
 };
 
 class Menu {

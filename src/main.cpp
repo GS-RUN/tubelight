@@ -49,6 +49,8 @@ struct Args {
     int  overlay_monitor = 0;
     int  overlay_init_w = 1280;
     int  overlay_init_h = 960;
+    std::string overlay_target_title;   // --overlay-target <title>
+    int         overlay_target_pid = 0; // --overlay-target-pid <pid>
     bool unknown_flag = false;
     std::string unknown_flag_text;
 };
@@ -84,6 +86,22 @@ Args parse_args(int argc, char** argv) {
         } else if (arg == "--overlay-fullscreen") {
             a.overlay = true;
             a.overlay_fullscreen = true;
+        } else if (arg == "--overlay-target") {
+            if (i + 1 < argc) {
+                a.overlay = true;
+                a.overlay_target_title = argv[++i];
+            } else {
+                a.unknown_flag = true;
+                a.unknown_flag_text = "--overlay-target requires a window title substring";
+            }
+        } else if (arg == "--overlay-target-pid") {
+            if (i + 1 < argc) {
+                a.overlay = true;
+                a.overlay_target_pid = std::atoi(argv[++i]);
+            } else {
+                a.unknown_flag = true;
+                a.unknown_flag_text = "--overlay-target-pid requires a numeric pid";
+            }
         } else if (arg == "--monitor") {
             if (i + 1 < argc) a.overlay_monitor = std::atoi(argv[++i]);
         } else if (arg == "--size") {
@@ -123,6 +141,10 @@ void print_help() {
         "                               window whose content is the area underneath,\n"
         "                               processed through the 8-pass CRT pipeline live.\n"
         "  --overlay-fullscreen         Same but borderless fullscreen topmost.\n"
+        "  --overlay-target <title>     Track a specific window by title substring.\n"
+        "                               Tubelight follows its position+size every frame;\n"
+        "                               click-through so the underlying app stays usable.\n"
+        "  --overlay-target-pid <pid>   Same but match by process id (more robust).\n"
         "  --monitor <index>            Which display to capture from (default 0)\n"
         "  --size <w> <h>               Initial window size for windowed mode (1280x960)\n"
         "  --shader-only <path>         Apply pipeline to a PNG and show in a window\n"
@@ -392,10 +414,17 @@ int main(int argc, char** argv) {
     o.profile_id    = args.profile_id.empty() ? std::string("pvm-8220")     : args.profile_id;
     o.signal_id     = args.signal_id.empty()  ? std::string("composite_ntsc"): args.signal_id;
     o.monitor_index = args.overlay_monitor;
-    o.mode = args.overlay_fullscreen
-                ? tubelight::overlay::OverlayMode::Fullscreen
-                : tubelight::overlay::OverlayMode::Windowed;
+    const bool has_target = !args.overlay_target_title.empty() || args.overlay_target_pid > 0;
+    if (has_target) {
+        o.mode = tubelight::overlay::OverlayMode::TargetWindow;
+    } else if (args.overlay_fullscreen) {
+        o.mode = tubelight::overlay::OverlayMode::Fullscreen;
+    } else {
+        o.mode = tubelight::overlay::OverlayMode::Windowed;
+    }
     o.init_w = args.overlay_init_w;
     o.init_h = args.overlay_init_h;
+    o.target_window = args.overlay_target_title;
+    o.target_pid    = args.overlay_target_pid;
     return tubelight::overlay::run(o);
 }

@@ -57,11 +57,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -82,6 +84,7 @@ std::atomic<bool> g_hk_toggle_menu{false};
 std::atomic<bool> g_hk_screenshot{false};
 std::atomic<bool> g_hk_toggle_video{false};
 std::atomic<bool> g_hk_toggle_fullscreen{false};
+std::atomic<bool> g_hk_toggle_target{false};
 
 // Track which interesting keys are currently held so we only fire on the
 // initial WM_KEYDOWN, never on the (potentially-many) auto-repeats that
@@ -117,6 +120,7 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
         else if (vk == 'S')                       g_hk_screenshot = true;
         else if (vk == 'V')                       g_hk_toggle_video = true;
         else if (vk == VK_RETURN)                 g_hk_toggle_fullscreen = true;
+        else if (vk == 'T')                       g_hk_toggle_target = true;
         else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
         else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
         else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
@@ -136,6 +140,74 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
 
 constexpr UINT_PTR kModalRenderTimerId = 0xCAFEU;
 const wchar_t* const kFrameRenderProp  = L"TubelightFrameRenderer";
+
+// Lookup the HWND of a target window by title substring (case-insensitive)
+// or by process id. Returns nullptr if nothing matched. We skip invisible
+// and zero-size windows, plus our own HWND (passed in so we don't return
+// the overlay itself if its title happens to contain the search string).
+struct TargetFindCtx {
+    std::string title_lower;  // already lowercased
+    DWORD       pid;          // 0 = ignore pid filter
+    HWND        self;         // exclude from results
+    HWND        found;
+};
+
+BOOL CALLBACK target_enum_proc(HWND hwnd, LPARAM lp) {
+    auto* c = reinterpret_cast<TargetFindCtx*>(lp);
+    if (hwnd == c->self) return TRUE;
+    if (!IsWindowVisible(hwnd)) return TRUE;
+    RECT r;
+    if (!GetWindowRect(hwnd, &r)) return TRUE;
+    if (r.right - r.left <= 0 || r.bottom - r.top <= 0) return TRUE;
+
+    if (c->pid != 0) {
+        DWORD wpid = 0;
+        GetWindowThreadProcessId(hwnd, &wpid);
+        if (wpid != c->pid) return TRUE;
+    }
+    if (!c->title_lower.empty()) {
+        char buf[512] = {};
+        GetWindowTextA(hwnd, buf, sizeof(buf) - 1);
+        std::string title(buf);
+        std::transform(title.begin(), title.end(), title.begin(),
+                       [](unsigned char ch) { return std::tolower(ch); });
+        if (title.find(c->title_lower) == std::string::npos) return TRUE;
+    }
+    c->found = hwnd;
+    return FALSE;  // stop enumeration
+}
+
+HWND find_target_hwnd(const std::string& title, int pid, HWND self) {
+    std::string title_lower = title;
+    std::transform(title_lower.begin(), title_lower.end(), title_lower.begin(),
+                   [](unsigned char ch) { return std::tolower(ch); });
+    TargetFindCtx ctx{title_lower, static_cast<DWORD>(pid), self, nullptr};
+    EnumWindows(&target_enum_proc, reinterpret_cast<LPARAM>(&ctx));
+    return ctx.found;
+}
+
+// Returns the client-area rect of `target` mapped to screen coordinates.
+// Falls back to GetWindowRect if the client query fails.
+bool get_target_screen_rect(HWND target, int& x, int& y, int& w, int& h) {
+    if (!target || !IsWindow(target)) return false;
+    POINT tl{0, 0};
+    RECT cr{};
+    if (ClientToScreen(target, &tl) && GetClientRect(target, &cr)) {
+        int cw = cr.right - cr.left;
+        int ch = cr.bottom - cr.top;
+        if (cw > 0 && ch > 0) {
+            x = tl.x; y = tl.y; w = cw; h = ch;
+            return true;
+        }
+    }
+    RECT wr;
+    if (GetWindowRect(target, &wr)) {
+        x = wr.left; y = wr.top;
+        w = wr.right - wr.left; h = wr.bottom - wr.top;
+        return (w > 0 && h > 0);
+    }
+    return false;
+}
 
 struct FrameRenderState {
     std::function<void()> render_one;
@@ -463,21 +535,52 @@ int run(const Options& opts) {
     // can still drive the menu without leaving fullscreen.
     const bool initial_fullscreen = (opts.mode == OverlayMode::Fullscreen);
     const bool windowed_mode      = (opts.mode == OverlayMode::Windowed);
+    const bool initial_target     = (opts.mode == OverlayMode::TargetWindow);
     bool fullscreen_active        = initial_fullscreen;
+    bool target_active            = initial_target;     // runtime-mutable
+    const bool& target_mode       = target_active;      // alias for the readers below
+
+    // Resolve the target HWND up-front so we can size our window to match
+    // the target before showing it (no flash of wrong size on launch).
+    HWND target_hwnd = nullptr;
+    int  target_x = 0, target_y = 0, target_w = 0, target_h = 0;
+    if (target_mode) {
+        target_hwnd = find_target_hwnd(opts.target_window, opts.target_pid, nullptr);
+        if (!target_hwnd) {
+            std::fprintf(stderr,
+                "[overlay] target window not found (title='%s' pid=%d)\n",
+                opts.target_window.c_str(), opts.target_pid);
+            capture.shutdown();
+            glfwTerminate();
+            return 1;
+        }
+        get_target_screen_rect(target_hwnd, target_x, target_y, target_w, target_h);
+        std::fprintf(stderr,
+            "[overlay] tracking target HWND 0x%p at (%d,%d) %dx%d\n",
+            static_cast<void*>(target_hwnd), target_x, target_y, target_w, target_h);
+    }
+
+    // Chrome (title bar / border / focus) is only for plain windowed mode.
+    // Fullscreen + TargetWindow are both borderless click-through overlays.
+    const bool chrome = windowed_mode;
 
     glfwWindowHint(GLFW_VISIBLE,   GLFW_FALSE);
-    glfwWindowHint(GLFW_DECORATED, windowed_mode ? GLFW_TRUE  : GLFW_FALSE);
-    glfwWindowHint(GLFW_FLOATING,  windowed_mode ? GLFW_FALSE : GLFW_TRUE);
-    glfwWindowHint(GLFW_RESIZABLE, windowed_mode ? GLFW_TRUE  : GLFW_FALSE);
-    glfwWindowHint(GLFW_FOCUSED,   windowed_mode ? GLFW_TRUE  : GLFW_FALSE);
-    glfwWindowHint(GLFW_FOCUS_ON_SHOW, windowed_mode ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_DECORATED, chrome ? GLFW_TRUE  : GLFW_FALSE);
+    glfwWindowHint(GLFW_FLOATING,  chrome ? GLFW_FALSE : GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, chrome ? GLFW_TRUE  : GLFW_FALSE);
+    glfwWindowHint(GLFW_FOCUSED,   chrome ? GLFW_TRUE  : GLFW_FALSE);
+    glfwWindowHint(GLFW_FOCUS_ON_SHOW, chrome ? GLFW_TRUE : GLFW_FALSE);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 
-    int W = fullscreen_active ? capture.width()  : opts.init_w;
-    int H = fullscreen_active ? capture.height() : opts.init_h;
+    int W = target_mode      ? target_w
+          : fullscreen_active ? capture.width()
+                              : opts.init_w;
+    int H = target_mode      ? target_h
+          : fullscreen_active ? capture.height()
+                              : opts.init_h;
     GLFWwindow* window = glfwCreateWindow(W, H, "Tubelight", nullptr, nullptr);
     if (!window) {
         std::fprintf(stderr, "[overlay] glfwCreateWindow failed\n");
@@ -486,7 +589,9 @@ int run(const Options& opts) {
         return 1;
     }
 
-    if (fullscreen_active) {
+    if (target_mode) {
+        glfwSetWindowPos(window, target_x, target_y);
+    } else if (fullscreen_active) {
         glfwSetWindowPos(window, capture.origin_x(), capture.origin_y());
     } else {
         // Centre on the chosen monitor.
@@ -503,14 +608,18 @@ int run(const Options& opts) {
     // DXGI would otherwise include our own rendered output in its grab).
     SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
 
-    if (fullscreen_active) {
-        // Fullscreen overlay: click-through topmost so the user keeps
-        // interacting with whatever is underneath.
+    if (fullscreen_active || target_mode) {
+        // Click-through topmost so the user keeps interacting with whatever
+        // is underneath (the target window in TargetWindow mode, the whole
+        // desktop in Fullscreen). WDA_EXCLUDEFROMCAPTURE already prevents
+        // DXGI from feedback-looping our own output back in.
         LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
         SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-        SetWindowPos(hwnd, HWND_TOPMOST, capture.origin_x(), capture.origin_y(),
+        int sx = target_mode ? target_x : capture.origin_x();
+        int sy = target_mode ? target_y : capture.origin_y();
+        SetWindowPos(hwnd, HWND_TOPMOST, sx, sy,
                      W, H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     } else {
         // Windowed overlay: a normal Win32 window the user can move + resize.
@@ -667,6 +776,81 @@ int run(const Options& opts) {
             std::fprintf(stderr, "[overlay] fullscreen ON (borderless, IF-safe)\n");
         }
     };
+
+    // Cached title of the active target window (for the menu UI).
+    std::string target_title_cached;
+    if (initial_target && target_hwnd) {
+        char buf[256] = {};
+        GetWindowTextA(target_hwnd, buf, sizeof(buf) - 1);
+        target_title_cached = buf;
+    }
+
+    // Attach to a target window at runtime: shrink+follow it, enable
+    // click-through. Same path as the CLI --overlay-target mode but
+    // triggered from the menu / hotkey. Save the windowed geometry first
+    // so detach() can come back to it.
+    auto do_attach_target = [&](HWND target) {
+        if (!target || target == hwnd) return;
+        // If currently fullscreen, exit fullscreen first to keep state sane.
+        if (fullscreen_active) do_toggle_fullscreen();
+        glfwGetWindowPos(window,  &saved_win_x, &saved_win_y);
+        glfwGetWindowSize(window, &saved_win_w, &saved_win_h);
+        glfwSetWindowAspectRatio(window, GLFW_DONT_CARE, GLFW_DONT_CARE);
+
+        target_hwnd   = target;
+        target_active = true;
+
+        // Click-through + don't steal focus on clicks.
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+
+        // Collapse the title bar (NCCALCSIZE returns 0) so only the
+        // client area is visible over the target window.
+        g_hide_nonclient = true;
+
+        int tx, ty, tw, th;
+        if (get_target_screen_rect(target, tx, ty, tw, th)) {
+            target_x = tx; target_y = ty; target_w = tw; target_h = th;
+            SetWindowPos(hwnd, HWND_TOPMOST, tx, ty, tw, th,
+                         SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+
+        char buf[256] = {};
+        GetWindowTextA(target, buf, sizeof(buf) - 1);
+        target_title_cached = buf;
+        std::fprintf(stderr, "[overlay] target attached: '%s' HWND %p\n",
+                     buf, static_cast<void*>(target));
+    };
+
+    // Detach from the currently-tracked target: drop click-through, show
+    // chrome again, restore the saved windowed geometry.
+    auto do_detach_target = [&]() {
+        if (!target_active) return;
+        target_active = false;
+        target_hwnd = nullptr;
+        target_title_cached.clear();
+
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+
+        g_hide_nonclient = false;
+
+        glfwSetWindowSize(window, saved_win_w, saved_win_h);
+        glfwSetWindowPos(window,  saved_win_x, saved_win_y);
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_aspect_lock();
+        std::fprintf(stderr, "[overlay] target detached\n");
+    };
+
+    // Track the last foreground window that wasn't our overlay, so
+    // "Track foreground" (button or Ctrl+Alt+T) can attach to whatever
+    // the user was looking at before the menu / hotkey grabbed focus.
+    HWND last_external_foreground = nullptr;
 
     // Helper: read the window's client rect in monitor-local pixel coords.
     auto read_window_rect_on_monitor = [&](int& out_x, int& out_y, int& out_w, int& out_h) {
@@ -848,6 +1032,7 @@ int run(const Options& opts) {
     std::printf(
         "[overlay] hotkeys: Ctrl+Alt+Q quit | Ctrl+Alt+M menu | "
         "Ctrl+Alt+F freeze | Ctrl+Alt+Enter fullscreen | "
+        "Ctrl+Alt+T track foreground window | "
         "Ctrl+Alt+S screenshot | Ctrl+Alt+V video | "
         "Ctrl+Alt+0 all-on | Ctrl+Alt+1..8 toggle pass\n");
 
@@ -890,7 +1075,65 @@ int run(const Options& opts) {
     g_orig_wndproc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
         hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&tubelight_subclass_proc)));
 
+    // Track when the target window last had a non-degenerate rect, so we
+    // can detach gracefully if it's been gone for a few frames in a row
+    // rather than exit on the first transient.
+    int target_lost_frames = 0;
+
     while (!glfwWindowShouldClose(window)) {
+        // Target-window mode: each frame, query the target's screen-space
+        // client rect and snap our overlay to match. If the target has
+        // moved / resized, the framebuffer-size callback fires and the
+        // pipeline + source texture follow on the next apply_pending_resize.
+        if (target_active) {
+            int tx, ty, tw, th;
+            if (target_hwnd && IsWindow(target_hwnd) &&
+                !IsIconic(target_hwnd) &&
+                get_target_screen_rect(target_hwnd, tx, ty, tw, th)) {
+                target_lost_frames = 0;
+                int cx = 0, cy = 0, cw = 0, ch = 0;
+                glfwGetWindowPos(window, &cx, &cy);
+                glfwGetWindowSize(window, &cw, &ch);
+                if (cx != tx || cy != ty || cw != tw || ch != th) {
+                    SetWindowPos(hwnd, HWND_TOPMOST, tx, ty, tw, th,
+                                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                }
+            } else {
+                // Window vanished, was destroyed, or is minimised. Hide
+                // so we don't render against stale geometry. For CLI
+                // `--overlay-target` launches: exit after 2s gone. For
+                // runtime attach: detach quietly back to windowed mode
+                // so the user can pick a different target.
+                ShowWindow(hwnd, SW_HIDE);
+                if (++target_lost_frames > 120) {
+                    if (initial_target) {
+                        std::fprintf(stderr,
+                            "[overlay] target window gone for 2s, exiting\n");
+                        break;
+                    } else {
+                        std::fprintf(stderr,
+                            "[overlay] target window gone, detaching\n");
+                        do_detach_target();
+                        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                        target_lost_frames = 0;
+                    }
+                } else {
+                    glfwPollEvents();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                    continue;
+                }
+            }
+            // Make sure we're visible again after a transient minimise.
+            if (target_active && !IsWindowVisible(hwnd)) {
+                ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+        } else {
+            // Track which non-tubelight window currently has OS focus so
+            // "Track foreground" (button or Ctrl+Alt+T) can attach to it.
+            HWND fg = GetForegroundWindow();
+            if (fg && fg != hwnd) last_external_foreground = fg;
+        }
+
         apply_pending_resize();
         bool new_frame = false;
         if (!state.freeze) {
@@ -950,7 +1193,9 @@ int run(const Options& opts) {
             float       prev_intensity = intensity_multiplier;
             bool cap_changed = false;
             WindowActions wa;
-            wa.is_fullscreen = fullscreen_active;
+            wa.is_fullscreen      = fullscreen_active;
+            wa.is_tracking_target = target_active;
+            wa.target_title       = target_title_cached;
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
                                intensity_multiplier, want_quit_from_menu,
                                ui_capture_dir, cap_changed, wa);
@@ -1067,6 +1312,19 @@ int run(const Options& opts) {
 
             if (wa.snap_to_aspect_requested)    do_snap_to_aspect();
             if (wa.toggle_fullscreen_requested) do_toggle_fullscreen();
+            if (wa.detach_target_requested)     do_detach_target();
+            if (wa.track_foreground_requested && last_external_foreground) {
+                do_attach_target(last_external_foreground);
+            }
+            if (wa.track_by_title_requested && !wa.title_to_track.empty()) {
+                HWND found = find_target_hwnd(wa.title_to_track, 0, hwnd);
+                if (found) {
+                    do_attach_target(found);
+                } else {
+                    toast_text = "No window found matching '" + wa.title_to_track + "'";
+                    toast_time = std::chrono::steady_clock::now();
+                }
+            }
         }
 
         glfwSwapBuffers(window);
@@ -1097,6 +1355,16 @@ int run(const Options& opts) {
         }
         if (g_hk_toggle_fullscreen.exchange(false)) {
             do_toggle_fullscreen();
+        }
+        if (g_hk_toggle_target.exchange(false)) {
+            if (target_active) {
+                do_detach_target();
+            } else if (last_external_foreground) {
+                do_attach_target(last_external_foreground);
+            } else {
+                std::fprintf(stderr,
+                    "[overlay] Ctrl+Alt+T: no foreground window remembered yet\n");
+            }
         }
         // Screenshot: read the framebuffer AFTER the pipeline rendered but
         // BEFORE swap, so we capture exactly what the user sees. The PNG
@@ -1156,7 +1424,12 @@ int run(const Options& opts) {
         }
 
         // When the menu is open we need clicks to land on it, so we drop
-        // WS_EX_TRANSPARENT temporarily. Restore click-through on close.
+        // WS_EX_TRANSPARENT temporarily. Restore click-through on close —
+        // but ONLY if the overlay is supposed to be click-through right now
+        // (CLI fullscreen mode, or runtime target-tracking). For a plain
+        // windowed overlay we never want TRANSPARENT, even after the menu
+        // closes, otherwise the user can't drag the title bar any more.
+        const bool should_be_click_through = initial_fullscreen || target_active;
         bool menu_open_now = has_menu && menu.is_open();
         if (menu_open_now != menu_was_open) {
             LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -1165,7 +1438,7 @@ int run(const Options& opts) {
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 SetForegroundWindow(hwnd);
                 SetFocus(hwnd);
-            } else {
+            } else if (should_be_click_through) {
                 ex |= WS_EX_TRANSPARENT;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
             }
