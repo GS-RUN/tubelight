@@ -1,68 +1,48 @@
-# Next Steps — for the user when they're back
+# Next Steps — for the user
 
-The repo is live at **https://github.com/GS-RUN/tubelight** (public, tagged
-`v0.1.0-alpha`).
+Repo: **https://github.com/GS-RUN/tubelight** — tagged `v0.1.0-alpha`, HEAD on `main` builds & runs on Windows.
 
-## ⚠️ One manual step before CI runs
+## ✅ Validated on real hardware (2026-05-26)
 
-The OAuth token used by `gh` did not have `workflow` scope, so
-`.github/workflows/ci.yml` is **on disk locally but not yet pushed**. To
-fix in 30 seconds:
+The full pipeline was built and executed locally with the testcard:
 
-```bash
-cd D:/AgentWorkspace/Tubelight
-gh auth refresh -s workflow
-git add .github/workflows/ci.yml
-git commit -m "ci: add cross-platform build + path-check + profile-validate + slangp-smoke workflow"
-git push
-```
+- **Toolchain**: VS 2022 BuildTools 17.0 + MSVC 19.44.35222 + vcpkg HEAD `7e99dc22` + CMake 4.2.3.
+- **Build**: `scripts\build_windows.bat` configures + compiles in ~1.6 min cold (vcpkg dep install) and seconds incremental.
+- **Smoke**: `tubelight.exe --version`, `--help`, `--validate-profile profiles/**/*.json` (22 OK), `--export-slangp` all pass.
+- **Visual**: `--shader-only testcard.png --profile pvm-8220 --signal composite_ntsc` opens a GLFW 4.5 window with:
+  - Pass 6 barrel + vignette (rounded corners with black drop-off).
+  - Pass 3 aperture-grille vertical lines from the PVM-8220 Trinitron mask.
+  - Pass −1 composite-NTSC chroma smearing on color transitions.
+- 4 profiles warn `NEEDS-MEASUREMENT` for `dot_pitch_mm` exactly as intended for the source-still-unconfirmed entries.
 
-After that, GitHub Actions will run on every push (Windows MSVC + vcpkg,
-Linux gcc-13, Linux clang-18). The path-check job validates Constitution
-C1, the profile-validate step verifies M4 + M5 + M8, the slangp smoke
-exports a real preset.
+## What works out of the box
 
-## What was built autonomously (2026-05-26)
+- `--validate-profile <path>`
+- `--export-slangp <out> --profile <id> --signal <id>`
+- `--shader-only <PNG> --profile <id> --signal <id>` (GLFW preview window, keys 1..8 toggle passes, 0 enables all, ESC quits)
+- All 15 CRT profiles + 7 signal profiles bundled and citable.
 
-- **Specs locked**: `specs/SPEC.LOCKED.md`, `specs/PLAN.LOCKED.md`,
-  `specs/CONSTITUTION.LOCKED.md`. 5 NEEDS-INPUT items (NI-1..NI-5) all
-  resolved per your decisions.
-- **F1**..**F7**: every phase of `PLAN.LOCKED.md` has a commit (see
-  `specs/INDEX.md` for the table). 8 commits total, tagged `v0.1.0-alpha`.
-- **15 CRTProfile + 7 SignalProfile**: all bundled in `profiles/`, every
-  number has `source.url` per Constitution C2.
-- **8-pass shader pipeline**: passes 2, 3, 4, 6 are quality
-  implementations; Pass −1 is the full signal modeling shader; Pass 0/1
-  do dithering detection + reconstruction (Sonic cascade demo path).
-- **Injection scaffolding**: LD_PRELOAD .so for Linux, MinHook DX11+DX12
-  backend.dll + injector.exe for Windows, cross-platform Vulkan layer.
-  IPC via named pipe (Win) and Unix socket (Linux).
-- **PipeWire fallback**: API surface in place, D-Bus portal implementation
-  deferred (see CHANGELOG "Known limitations").
-- **`.slangp` export**: `tubelight --export-slangp out.slangp --profile X
-  --signal Y` produces a RetroArch preset.
+## Pendings honest list (deferred to v1.1)
 
-## What still needs hardware verification
+- **Pass 5 temporal** (history-FBO ping-pong for per-channel phosphor decay + voltage bloom). Currently identity.
+- **PipeWire portal D-Bus** session creation in `src/capture/`. Currently returns the documented "not yet implemented" error.
+- **ImGui control panel**. CLI is sufficient for v0.1 but the UI is the canonical user-facing surface.
+- **M1 latency verification** (<2 ms) with AMD FLM on a real RetroArch/mednafen target. Hook bodies are passthrough today — no perf measurement done.
+- **Cross-platform parity (M7)**: Windows build verified; Linux build not yet run.
+- **Aspect-ratio handling** in `run_shader_only`: the testcard renders stretched to the 1280×960 window; we should letterbox to the source PAR.
+- **Less aggressive default barrel** so corners don't crop visibly until the user opts in.
+- **AppImage / NSIS installer** build + smoke test in CI.
 
-These are the metrics from SPEC that can't be validated without running on
-a real target machine + a real emulator:
+## Suggested next sessions
 
-- **M1** (<2 ms hook latency) — needs AMD FLM or equivalent on Windows,
-  Linux equivalent on a GPU machine.
-- **M2** (≤16.7 ms fallback) — needs DXGI / PipeWire fallback validation.
-- **M6** (60 fps at 4K) — needs perf bench on the target GPU.
-- **M7** (Win/Linux parity ε≤2/255) — needs golden frame comparison run on
-  identical GPU on both OSes.
+1. **Verify on Linux**: `cmake --preset linux-ninja && cmake --build build/linux-ninja`. CI will already do this on push, but a local run confirms M7 baseline.
+2. **Capture a Sonic Green Hill cascade frame** (300×224 RGB extracted from a Mega Drive ROM), run `--shader-only frame.png --profile generic-pvm --signal composite_ntsc`. Confirm the waterfall fuses into water (closes risks R3 + R9 in `specs/RISKS.md`).
+3. **Implement Pass 5 history-FBO** (`Pipeline::history_fbo_ping_pong()`), wire `pass5_temporal.frag` to sample the previous frame's Pass 5 output with per-channel decay constants from `CRTProfile::decay_ms_{r,g,b}`.
+4. **Cap barrel + add letterboxing** so the default look is conservative (only enable strong barrel when the user explicitly increases `params().barrel_strength`).
+5. **Wire ImGui** for live A/B between profiles without restarting.
 
-## Suggested follow-ups (no specific order)
+## Build references
 
-1. Push `ci.yml` (above).
-2. Build locally — install vcpkg + Visual Studio + Vulkan SDK on Windows,
-   or apt deps on Linux per `docs/USER_GUIDE.md`. Confirm `tubelight
-   --shader-only test.png --profile pvm-8220 --signal composite_ntsc` runs.
-3. Capture a Sonic Green Hill frame, run through composite_ntsc, see the
-   cascade fuse — that closes the R3 + R9 demo risks in `specs/RISKS.md`.
-4. v1.1 polish: Pass 5 history-FBO temporal model, PipeWire D-Bus portal,
-   ImGui control panel, M1 latency benchmark on real target.
-5. Compare side-by-side against CRT-Royale / Guest-Advanced on the same
-   inputs to validate R3 (calidad shader).
+- Windows: `scripts\build_windows.bat` (auto-locates vcvars + vcpkg).
+- Linux: `cmake --preset linux-ninja && cmake --build build/linux-ninja` after the apt/dnf/pacman deps in `docs/USER_GUIDE.md`.
+- CI (`.github/workflows/ci.yml`): Windows MSVC + vcpkg, Linux gcc-13, Linux clang-18; every push runs path-check, builds, smoke-tests, validates profiles and exports a `.slangp`.
