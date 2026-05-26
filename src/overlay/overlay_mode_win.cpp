@@ -37,6 +37,7 @@
 #include "core/texture.h"
 #include "overlay/capture_to_disk.h"
 #include "overlay/menu.h"
+#include "overlay/preset_saver.h"
 #include "overlay/settings.h"
 #include "profile/profile_loader.h"
 
@@ -1385,6 +1386,19 @@ int run(const Options& opts) {
                     do_attach_target(found);
                 } else {
                     toast_text = "No window found matching '" + wa.title_to_track + "'";
+                    toast_time = std::chrono::steady_clock::now();
+                }
+            }
+            if (wa.save_preset_requested) {
+                std::string err;
+                std::string base = current_profile_id.empty() ? "pvm-8220" : current_profile_id;
+                if (save_crt_preset(base, wa.preset_new_id, wa.preset_display_name,
+                                    pipeline.params(), err)) {
+                    menu.invalidate_profile_cache();  // refresh combo on next open
+                    toast_text = "Preset saved: " + wa.preset_new_id;
+                    toast_time = std::chrono::steady_clock::now();
+                } else {
+                    toast_text = "Preset save failed: " + err;
                     toast_time = std::chrono::steady_clock::now();
                 }
             }

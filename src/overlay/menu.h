@@ -33,6 +33,9 @@ struct WindowActions {
     bool track_by_title_requested    = false; // attach to a title-matching window
     bool detach_target_requested     = false; // stop following the current target
     std::string title_to_track;               // input from the text field
+    bool save_preset_requested       = false; // serialise current params → user dir
+    std::string preset_new_id;                // file stem for new preset
+    std::string preset_display_name;          // human label for new preset
 };
 
 class Menu {
@@ -73,6 +76,11 @@ public:
     void end_frame_to_screen();
 
     bool has_imgui() const;
+
+    // Forget the cached profile lists so the next build_widgets() call
+    // re-scans the profile dirs (used after writing a new user preset
+    // so the combo picks it up immediately).
+    void invalidate_profile_cache() { profiles_loaded_ = false; crt_ids_.clear(); crt_names_.clear(); sig_ids_.clear(); sig_names_.clear(); }
 
 private:
     bool open_ = false;

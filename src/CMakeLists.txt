@@ -25,6 +25,7 @@ add_library(tubelight_core STATIC
     overlay/capture_to_disk.cpp
     overlay/settings.cpp
     overlay/folder_picker.cpp
+    overlay/preset_saver.cpp
 )
 
 if(WIN32)

@@ -165,6 +165,7 @@ void Menu::build_widgets(Pipeline& pipeline,
     window_actions.track_foreground_requested = false;
     window_actions.track_by_title_requested = false;
     window_actions.detach_target_requested = false;
+    window_actions.save_preset_requested = false;
 #ifdef TUBELIGHT_HAS_IMGUI
     if (!open_) return;
 
@@ -222,6 +223,22 @@ void Menu::build_widgets(Pipeline& pipeline,
             }
         } else {
             ImGui::TextDisabled("Signal: clean RGB (locked for monochrome)");
+        }
+
+        // ---- Save current settings as a new preset --------------------
+        if (ImGui::TreeNode("Save current as preset…")) {
+            static char id_buf[128];
+            static char name_buf[256];
+            ImGui::TextDisabled("Writes %%APPDATA%%\\Tubelight\\profiles\\crts\\<id>.json");
+            ImGui::InputText("id (filename)",  id_buf,  sizeof(id_buf));
+            ImGui::InputText("display name",   name_buf, sizeof(name_buf));
+            if (ImGui::Button("Save preset", ImVec2(-1, 0))) {
+                window_actions.preset_new_id        = id_buf;
+                window_actions.preset_display_name  = name_buf;
+                window_actions.save_preset_requested = true;
+                id_buf[0] = 0; name_buf[0] = 0; // clear for next time
+            }
+            ImGui::TreePop();
         }
     }
 
