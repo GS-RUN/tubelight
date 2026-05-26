@@ -115,6 +115,14 @@ void apply_uniforms_for_pass(ShaderProgram& sh,
             sh.set_float("u_bloom_strength",    p.bloom_strength);
             sh.set_float("u_halation_strength", p.halation_strength);
             break;
+        case 6: // Pass 5 — temporal phosphor persistence
+            sh.set_vec3 ("u_persistence",
+                          glm::vec3(p.persistence_strength * p.persistence_ratio_r,
+                                    p.persistence_strength * p.persistence_ratio_g,
+                                    p.persistence_strength * p.persistence_ratio_b));
+            // u_history_valid is set by the caller in render_to_screen()
+            // because it depends on pipeline state, not just params.
+            break;
         case 7: // Pass 6 — composition
             sh.set_float("u_barrel_strength",   p.barrel_strength);
             sh.set_float("u_vignette_strength", p.vignette_strength);
@@ -154,6 +162,14 @@ bool Pipeline::create(int output_width, int output_height) {
         }
     }
 
+    // History FBO for Pass 5's temporal persistence. Same size + format as
+    // the pass FBOs so glCopyTexSubImage2D from pass 5's bound FBO works.
+    if (!history_fbo_.create(output_width, output_height, GL_RGBA16F)) {
+        std::fprintf(stderr, "[tubelight] history FBO create failed\n");
+        return false;
+    }
+    history_valid_ = false;
+
     return reload_all_shaders();
 }
 
@@ -186,6 +202,9 @@ void Pipeline::resize(int width, int height) {
     for (auto& fbo : fbos_) {
         fbo.resize(width, height);
     }
+    history_fbo_.resize(width, height);
+    // Resized texture contains garbage / old size — don't blend with it.
+    history_valid_ = false;
 }
 
 void Pipeline::set_pass_enabled(int pass_index, bool enabled) {
@@ -213,6 +232,9 @@ bool Pipeline::render_to_screen(GLuint source_tex) {
             // Identity pass: the next pass reads from current_input directly.
             // We still bind the FBO to keep state consistent in case a later
             // disabled→enabled toggle expects a known texture.
+            // For pass 5 specifically, also invalidate history so an enable
+            // after a disable doesn't blend in completely stale content.
+            if (i == 6) history_valid_ = false;
             continue;
         }
 
@@ -239,7 +261,29 @@ bool Pipeline::render_to_screen(GLuint source_tex) {
         glBindTexture(GL_TEXTURE_2D, current_input);
         sh.set_int("u_source", 0);
 
+        // Pass 5 also samples the previous frame's output as `u_prev_frame`
+        // on texture unit 1, so the shader can blend with exponential decay
+        // to fake the phosphor's afterglow.
+        if (i == 6) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, history_fbo_.texture());
+            sh.set_int("u_prev_frame", 1);
+            sh.set_int("u_history_valid", history_valid_ ? 1 : 0);
+            glActiveTexture(GL_TEXTURE0);
+        }
+
         quad_.draw();
+
+        // After pass 5 has rendered into fbos_[6], snapshot it into
+        // history_fbo_ so the NEXT frame's pass 5 can sample it as
+        // u_prev_frame. glCopyTexSubImage2D reads from whatever framebuffer
+        // is currently bound — fbos_[6] is still bound at this point.
+        if (i == 6) {
+            glBindTexture(GL_TEXTURE_2D, history_fbo_.texture());
+            glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0,
+                                 output_width_, output_height_);
+            history_valid_ = true;
+        }
 
         if (!is_last) {
             current_input = fbo.texture();
@@ -333,6 +377,12 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
             params_.halation_strength = 0.0f;
             params_.barrel_strength   = 0.035f; // mild TV curvature
             params_.vignette_strength = 0.22f;
+            // B&W TV phosphor (P4) has longer perceived persistence than
+            // a terminal — that "glow trail" when something moves on screen.
+            params_.persistence_strength = 0.40f;
+            params_.persistence_ratio_r  = 1.0f;
+            params_.persistence_ratio_g  = 1.0f;
+            params_.persistence_ratio_b  = 1.0f;
         } else {
             params_.scanline_strength = 0.18f; // soft terminal lines
             params_.scanline_count    = 350.0f; // text-terminal raster
@@ -343,6 +393,14 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
             params_.halation_strength = 0.0f;
             params_.barrel_strength   = 0.018f;
             params_.vignette_strength = 0.10f;
+            // P31 / P3 terminals have a moderate phosphor decay — visible
+            // afterglow but not as long as a B&W TV. Mac Classic / Lisa
+            // intentionally inherit this so 1-bit graphics still streak
+            // a touch under fast scrolling.
+            params_.persistence_strength = 0.28f;
+            params_.persistence_ratio_r  = 1.0f;
+            params_.persistence_ratio_g  = 1.0f;
+            params_.persistence_ratio_b  = 1.0f;
         }
 
         // Force every pass on so any earlier user toggling doesn't leave
@@ -377,6 +435,15 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
         params_.phosphor_color_r = 1.0f;
         params_.phosphor_color_g = 1.0f;
         params_.phosphor_color_b = 1.0f;
+        // Colour CRTs (P22): red phosphor lingers much longer than green
+        // and blue — that's what produces the "warm trail" on bright
+        // moving objects (the signature look of arcade CRTs). Ratios
+        // mirror the per-channel decay_ms in the profile (R ~1.0 ms,
+        // G/B ~0.08 ms → ratio 1.0 : 0.5 : 0.5 perceptually).
+        params_.persistence_strength = 0.30f;
+        params_.persistence_ratio_r  = 1.0f;
+        params_.persistence_ratio_g  = 0.5f;
+        params_.persistence_ratio_b  = 0.5f;
     }
 
     // Glass tint / age — picks up the aged-yellow look of vintage B&W TVs etc.

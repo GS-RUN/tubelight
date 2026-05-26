@@ -256,6 +256,14 @@ void Menu::build_widgets(Pipeline& pipeline,
         ImGui::SliderFloat("Halation", &P.halation_strength, 0.0f, 1.0f, "%.2f");
     }
 
+    if (!mono_locked && ImGui::CollapsingHeader("Phosphor persistence")) {
+        ImGui::SliderFloat("Strength",  &P.persistence_strength, 0.0f, 0.95f, "%.2f");
+        ImGui::SliderFloat("R ratio",   &P.persistence_ratio_r,  0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("G ratio",   &P.persistence_ratio_g,  0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("B ratio",   &P.persistence_ratio_b,  0.0f, 1.0f, "%.2f");
+        ImGui::TextDisabled("P22 colour CRT: R~1.0, G~0.5, B~0.5 (warm trail)");
+    }
+
     if (ImGui::CollapsingHeader("Composition")) {
         if (!mono_locked) {
             ImGui::SliderFloat("Barrel",        &P.barrel_strength,   0.0f, 0.20f, "%.3f");

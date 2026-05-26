@@ -92,6 +92,17 @@ public:
         // differs, the shader letterboxes / pillarboxes with black bars.
         float target_aspect     = 0.0f;
 
+        // Pass 5 (temporal phosphor persistence)
+        // Per-channel exponential decay. persistence_strength is a global
+        // 0..1 dial; per-channel ratios modulate it (P22 colour CRTs have
+        // a slower red than green/blue → ratio_r=1.0, ratio_g=ratio_b=0.5
+        // gives the classic warm trail on bright moving content).
+        // Effective per-channel decay = strength * ratio, clamped to [0..1).
+        float persistence_strength = 0.0f;
+        float persistence_ratio_r  = 1.0f;
+        float persistence_ratio_g  = 0.5f;
+        float persistence_ratio_b  = 0.5f;
+
         // Phosphor / glass tint (Pass 6 — from CRTProfile).
         // monochrome=1 collapses input to luminance and recolours through
         // phosphor_color (P31 green, P3 amber, P4 cool-white...). glass_tint
@@ -156,6 +167,12 @@ private:
     FullscreenQuad quad_;
     float time_ = 0.0f;
     std::optional<SignalProfile> signal_snapshot_;
+
+    // Pass 5 history: previous frame's pass-5 output, sampled by the next
+    // frame's temporal shader for phosphor persistence. Marked invalid on
+    // resize / first frame so we don't blend with stale or garbage memory.
+    FBO  history_fbo_;
+    bool history_valid_ = false;
 };
 
 const char* pass_display_name(int pass_index);
