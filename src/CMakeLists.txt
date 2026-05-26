@@ -16,6 +16,8 @@ add_library(tubelight_core STATIC
     profile/signal_profile.cpp
     profile/validator.cpp
     profile/profile_loader.cpp
+    ipc/ipc_unix.cpp
+    ipc/ipc_win.cpp
 )
 
 target_include_directories(tubelight_core

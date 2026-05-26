@@ -11,7 +11,11 @@
     "libepoxy",
     "glm",
     "stb",
-    "nlohmann-json"
+    "nlohmann-json",
+    {
+      "name": "minhook",
+      "platform": "windows"
+    }
   ],
   "features": {
     "shaders-advanced": {

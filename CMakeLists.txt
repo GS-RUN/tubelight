@@ -62,12 +62,28 @@ endif()
 # nlohmann-json
 find_package(nlohmann_json CONFIG REQUIRED)
 
+# MinHook (Windows only) for DX11/DX12/OpenGL Present hook
+if(WIN32)
+    find_package(minhook CONFIG QUIET)
+    if(NOT minhook_FOUND)
+        find_package(unofficial-minhook CONFIG QUIET)
+    endif()
+endif()
+
 # Common include dir for in-tree code
 add_library(tubelight_warnings INTERFACE)
 target_compile_features(tubelight_warnings INTERFACE cxx_std_20)
 
 # Subdirectories
 add_subdirectory(src)
+
+# Platform-specific injection / preload modules
+if(UNIX AND NOT APPLE)
+    add_subdirectory(src/platform/linux/preload)
+endif()
+if(WIN32)
+    add_subdirectory(src/platform/win/inject)
+endif()
 
 if(TUBELIGHT_BUILD_TESTS)
     enable_testing()
