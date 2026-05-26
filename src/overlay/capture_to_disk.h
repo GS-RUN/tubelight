@@ -20,6 +20,17 @@ std::string save_screenshot_png(int width, int height,
                                  const std::string& out_dir,
                                  std::string& error_out);
 
+// Same as save_screenshot_png but the (slow) PNG zlib encode runs on a
+// detached background thread, so the caller's main loop stays responsive.
+// glReadPixels still runs synchronously on the current GL thread (it has
+// to — only that thread owns the context). Returns the destination path
+// immediately so the caller can toast / log it; the actual write may not
+// be finished yet by the time this returns. Errors are logged to stderr
+// by the worker thread.
+std::string save_screenshot_png_async(int width, int height,
+                                       const std::string& out_dir,
+                                       std::string& error_out);
+
 // Returns the user's default capture directory for this platform
 // (Pictures\Tubelight on Windows, ~/Pictures/Tubelight on Linux).
 std::string default_capture_dir();

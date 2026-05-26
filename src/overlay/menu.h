@@ -18,6 +18,17 @@ struct GLFWwindow;
 
 namespace tubelight::overlay {
 
+// Output flags the menu uses to request window-level actions the host loop
+// has to perform (resizing the GLFW window, swapping decoration styles, etc.).
+// Input fields are read by the menu to label / disable controls correctly.
+struct WindowActions {
+    // Input from host:
+    bool is_fullscreen = false;        // true when overlay is currently borderless fullscreen
+    // Output to host:
+    bool snap_to_aspect_requested = false;     // resize window to match target_aspect now
+    bool toggle_fullscreen_requested = false;  // flip windowed <-> fullscreen
+};
+
 class Menu {
 public:
     Menu() = default;
@@ -47,7 +58,8 @@ public:
                        float& intensity_multiplier,
                        bool& want_quit,
                        std::string& capture_dir,
-                       bool& capture_dir_changed);
+                       bool& capture_dir_changed,
+                       WindowActions& window_actions);
 
     // Renders the ImGui draw data on top of whatever the pipeline produced.
     void end_frame_to_screen();

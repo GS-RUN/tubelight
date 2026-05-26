@@ -43,10 +43,9 @@ Every JSON has `source.url` per Constitution C2. Monochromes have correct satura
 
 ### Top of next session (the user asked for it explicitly today)
 
-- **Auto-resize the overlay window to match the chosen aspect ratio**. Right now, choosing 4:3 in the menu draws black bars when the window is 16:9. The user wants a button (or implicit behaviour) to snap the window itself to the target aspect — so the picture fills the window edge to edge, no bars. Probably:
-  - "Snap window to aspect" button in Composition section that resizes the window keeping center.
-  - Optionally, automatic snap whenever the user picks a non-Fill option.
-  - Optionally, GLFW `glfwSetWindowAspectRatio()` to enforce live resizing.
+- **Auto-resize the overlay window to match the chosen aspect ratio** — DONE 2026-05-26 sesión 3. Picking a non-Fill aspect in the menu now (a) snaps the window to that ratio keeping center + area, and (b) locks GLFW user-drag-resize to that ratio via `glfwSetWindowAspectRatio`. A "Snap window to aspect" button in the Composition section forces a re-snap on demand.
+- **Runtime fullscreen toggle preserving aspect** — DONE 2026-05-26 sesión 3. Menu button "Go fullscreen (Ctrl+Alt+Enter)" + the Ctrl+Alt+Enter hotkey flip between windowed and borderless monitor-filling fullscreen at runtime. Fullscreen keeps the current `target_aspect` (letterboxes via the Pass 6 shader); leaving fullscreen restores the saved windowed pos/size. Unlike `--overlay-fullscreen` (CLI), the runtime fullscreen stays focusable so the menu still works.
+- **Live rendering during window move / resize** — DONE 2026-05-26 sesión 3. WndProc subclass installs a ~16 ms WM_TIMER between WM_ENTERSIZEMOVE / WM_EXITSIZEMOVE that drives the same per-frame DXGI grab + pipeline + swap the main loop runs. The picture under the window now follows in (near) real time while you drag the title bar, instead of freezing on the last frame.
 
 ### Big items still open (planned earlier, not done)
 
@@ -64,7 +63,6 @@ Every JSON has `source.url` per Constitution C2. Monochromes have correct satura
 
 ### Mid-priority polish
 
-- Aspect ratio "Snap window" button (see top).
 - HUD overlay showing currently-active profile + signal in a corner during normal use (toggleable).
 - Per-profile preset save: "Save current as new preset..." button → writes a JSON in `%APPDATA%\Tubelight\profiles\crts\`.
 - Bezel overlay (textured PNG of a real CRT frame around the picture) — depends on aspect snap behaviour above.

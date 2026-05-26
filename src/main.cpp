@@ -383,20 +383,19 @@ int main(int argc, char** argv) {
                     args.export_slangp_path.c_str());
         return 0;
     }
-    if (args.overlay) {
-        tubelight::overlay::Options o;
-        o.profile_id    = args.profile_id;
-        o.signal_id     = args.signal_id;
-        o.monitor_index = args.overlay_monitor;
-        o.mode = args.overlay_fullscreen
-                    ? tubelight::overlay::OverlayMode::Fullscreen
-                    : tubelight::overlay::OverlayMode::Windowed;
-        o.init_w = args.overlay_init_w;
-        o.init_h = args.overlay_init_h;
-        return tubelight::overlay::run(o);
-    }
     if (!args.shader_only_input.empty()) {
         return run_shader_only(args.shader_only_input, args.profile_id, args.signal_id);
     }
-    return run_empty_window();
+    // Default action (no flags, or just --overlay / --overlay-fullscreen):
+    // launch the real overlay. Double-clicking the exe should "just work".
+    tubelight::overlay::Options o;
+    o.profile_id    = args.profile_id.empty() ? std::string("pvm-8220")     : args.profile_id;
+    o.signal_id     = args.signal_id.empty()  ? std::string("composite_ntsc"): args.signal_id;
+    o.monitor_index = args.overlay_monitor;
+    o.mode = args.overlay_fullscreen
+                ? tubelight::overlay::OverlayMode::Fullscreen
+                : tubelight::overlay::OverlayMode::Windowed;
+    o.init_w = args.overlay_init_w;
+    o.init_h = args.overlay_init_h;
+    return tubelight::overlay::run(o);
 }

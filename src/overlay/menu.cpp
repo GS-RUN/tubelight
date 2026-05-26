@@ -154,8 +154,11 @@ void Menu::build_widgets(Pipeline& pipeline,
                          float& intensity_multiplier,
                          bool& want_quit,
                          std::string& capture_dir,
-                         bool& capture_dir_changed) {
+                         bool& capture_dir_changed,
+                         WindowActions& window_actions) {
     capture_dir_changed = false;
+    window_actions.snap_to_aspect_requested = false;
+    window_actions.toggle_fullscreen_requested = false;
 #ifdef TUBELIGHT_HAS_IMGUI
     if (!open_) return;
 
@@ -261,8 +264,31 @@ void Menu::build_widgets(Pipeline& pipeline,
         for (int i = 0; i < n_aspects; ++i) labels.push_back(kAspects[i].label);
         if (ImGui::Combo("Aspect ratio", &idx, labels.data(), n_aspects)) {
             P.target_aspect = kAspects[idx].ar;
+            // Picking a non-Fill aspect implicitly asks the host to snap the
+            // window to that shape so the picture fills it edge to edge
+            // (no letterbox bars) — matches the user's mental model.
+            if (P.target_aspect > 0.0f) {
+                window_actions.snap_to_aspect_requested = true;
+            }
         }
         ImGui::TextDisabled("Default comes from CRT profile (aspect_native)");
+
+        // Window-level actions: snap window to the chosen aspect, and toggle
+        // borderless fullscreen on the current monitor. Fullscreen keeps the
+        // same target_aspect (no stretching — black bars handle the rest).
+        if (ImGui::Button("Snap window to aspect", ImVec2(180, 0))) {
+            if (P.target_aspect > 0.0f) {
+                window_actions.snap_to_aspect_requested = true;
+            }
+        }
+        ImGui::SameLine();
+        const char* fs_label = window_actions.is_fullscreen
+                                ? "Exit fullscreen (Ctrl+Alt+Enter)"
+                                : "Go fullscreen (Ctrl+Alt+Enter)";
+        if (ImGui::Button(fs_label, ImVec2(-1, 0))) {
+            window_actions.toggle_fullscreen_requested = true;
+        }
+        ImGui::TextDisabled("Fullscreen preserves aspect ratio (letterbox)");
     }
 
     if (ImGui::CollapsingHeader("Pass toggles")) {
@@ -325,6 +351,7 @@ void Menu::build_widgets(Pipeline& pipeline,
     (void)want_quit;
     (void)capture_dir;
     (void)capture_dir_changed;
+    (void)window_actions;
 #endif
 }
 

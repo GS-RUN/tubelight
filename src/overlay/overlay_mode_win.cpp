@@ -55,10 +55,13 @@
 #include <dxgi1_2.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <thread>
 #include <vector>
 
@@ -78,6 +81,7 @@ std::atomic<int>  g_hk_toggle_pass{-1};
 std::atomic<bool> g_hk_toggle_menu{false};
 std::atomic<bool> g_hk_screenshot{false};
 std::atomic<bool> g_hk_toggle_video{false};
+std::atomic<bool> g_hk_toggle_fullscreen{false};
 
 // Track which interesting keys are currently held so we only fire on the
 // initial WM_KEYDOWN, never on the (potentially-many) auto-repeats that
@@ -112,12 +116,70 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
         else if (vk == 'M')                       g_hk_toggle_menu = true;
         else if (vk == 'S')                       g_hk_screenshot = true;
         else if (vk == 'V')                       g_hk_toggle_video = true;
+        else if (vk == VK_RETURN)                 g_hk_toggle_fullscreen = true;
         else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
         else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
         else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
                                                  g_hk_toggle_pass = static_cast<int>(vk - VK_NUMPAD1);
     }
     return CallNextHookEx(nullptr, nCode, wParam, lParam);
+}
+
+// ---------------------------------------------------------------------------
+// WndProc subclass so the overlay keeps rendering DURING a window
+// move / resize. Without it, the modal sizing loop Windows enters when the
+// user grabs the title bar runs entirely inside DefWindowProc — glfwPollEvents
+// never returns — so the captured frame freezes until the user releases the
+// mouse. WM_ENTERSIZEMOVE → start a ~16 ms WM_TIMER that drives one render
+// per tick; WM_EXITSIZEMOVE kills it again.
+// ---------------------------------------------------------------------------
+
+constexpr UINT_PTR kModalRenderTimerId = 0xCAFEU;
+const wchar_t* const kFrameRenderProp  = L"TubelightFrameRenderer";
+
+struct FrameRenderState {
+    std::function<void()> render_one;
+};
+
+WNDPROC g_orig_wndproc = nullptr;
+
+// Flag for the subclass proc to suppress the non-client area entirely
+// (title bar + borders → 0 pixels). Used by the runtime fullscreen toggle
+// to go borderless WITHOUT touching GWL_STYLE / WS_EX_LAYERED — those style
+// swaps drop WDA_EXCLUDEFROMCAPTURE on this hardware (NVIDIA + Win11), which
+// in turn breaks DXGI Desktop Duplication's exclusion of our own overlay
+// and produces the recursive feedback ghost effect.
+std::atomic<bool> g_hide_nonclient{false};
+
+LRESULT CALLBACK tubelight_subclass_proc(HWND hwnd, UINT msg,
+                                         WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_NCCALCSIZE:
+        // wp == TRUE means lp points to NCCALCSIZE_PARAMS and we're asked
+        // for the *new* client rect. Returning 0 with rgrc[0] left at the
+        // proposed full window rect tells Windows: client == window, no
+        // non-client area. The window keeps WS_OVERLAPPEDWINDOW + caption
+        // styles, but they render as zero-height.
+        if (wp == TRUE && g_hide_nonclient.load()) {
+            return 0;
+        }
+        break;
+    case WM_ENTERSIZEMOVE:
+        SetTimer(hwnd, kModalRenderTimerId, USER_TIMER_MINIMUM, nullptr);
+        break;
+    case WM_EXITSIZEMOVE:
+        KillTimer(hwnd, kModalRenderTimerId);
+        break;
+    case WM_TIMER:
+        if (wp == kModalRenderTimerId) {
+            auto* fr = reinterpret_cast<FrameRenderState*>(
+                GetPropW(hwnd, kFrameRenderProp));
+            if (fr && fr->render_one) fr->render_one();
+            return 0;
+        }
+        break;
+    }
+    return CallWindowProcW(g_orig_wndproc, hwnd, msg, wp, lp);
 }
 
 // ---------------------------------------------------------------------------
@@ -392,8 +454,16 @@ int run(const Options& opts) {
     // title bar; Fullscreen = borderless topmost covering the whole monitor;
     // Region / TargetWindow = positioned + sized to track a user rectangle
     // or another application's window.
-    const bool fullscreen_mode  = (opts.mode == OverlayMode::Fullscreen);
-    const bool windowed_mode    = (opts.mode == OverlayMode::Windowed);
+    //
+    // `initial_fullscreen` captures the launch-time CLI mode and never
+    // changes; it gates the click-through (WS_EX_TRANSPARENT) behaviour the
+    // standalone --overlay-fullscreen mode needs. `fullscreen_active`
+    // mirrors it on startup but the in-app menu / Ctrl+Alt+Enter can flip
+    // it at runtime — that runtime fullscreen is *focusable* so the user
+    // can still drive the menu without leaving fullscreen.
+    const bool initial_fullscreen = (opts.mode == OverlayMode::Fullscreen);
+    const bool windowed_mode      = (opts.mode == OverlayMode::Windowed);
+    bool fullscreen_active        = initial_fullscreen;
 
     glfwWindowHint(GLFW_VISIBLE,   GLFW_FALSE);
     glfwWindowHint(GLFW_DECORATED, windowed_mode ? GLFW_TRUE  : GLFW_FALSE);
@@ -406,8 +476,8 @@ int run(const Options& opts) {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 
-    int W = fullscreen_mode ? capture.width()  : opts.init_w;
-    int H = fullscreen_mode ? capture.height() : opts.init_h;
+    int W = fullscreen_active ? capture.width()  : opts.init_w;
+    int H = fullscreen_active ? capture.height() : opts.init_h;
     GLFWwindow* window = glfwCreateWindow(W, H, "Tubelight", nullptr, nullptr);
     if (!window) {
         std::fprintf(stderr, "[overlay] glfwCreateWindow failed\n");
@@ -416,7 +486,7 @@ int run(const Options& opts) {
         return 1;
     }
 
-    if (fullscreen_mode) {
+    if (fullscreen_active) {
         glfwSetWindowPos(window, capture.origin_x(), capture.origin_y());
     } else {
         // Centre on the chosen monitor.
@@ -433,7 +503,7 @@ int run(const Options& opts) {
     // DXGI would otherwise include our own rendered output in its grab).
     SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
 
-    if (fullscreen_mode) {
+    if (fullscreen_active) {
         // Fullscreen overlay: click-through topmost so the user keeps
         // interacting with whatever is underneath.
         LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -499,6 +569,99 @@ int run(const Options& opts) {
                          opts.signal_id.c_str(), err.c_str());
         }
     }
+
+    // Lock GLFW's user-drag resize to match the current target aspect (if
+    // any). target_aspect == 0 means "fill", so we release the constraint.
+    auto apply_aspect_lock = [&]() {
+        if (windowed_mode && !fullscreen_active && pipeline.params().target_aspect > 0.0f) {
+            // GLFW expects a rational ratio — scaling by 10000 keeps two
+            // decimals of precision which is plenty for the standard CRT
+            // aspects (4:3, 5:4, 16:10, 16:9, 21:9).
+            int num = static_cast<int>(pipeline.params().target_aspect * 10000.0f);
+            int den = 10000;
+            glfwSetWindowAspectRatio(window, num, den);
+        } else {
+            glfwSetWindowAspectRatio(window, GLFW_DONT_CARE, GLFW_DONT_CARE);
+        }
+    };
+    apply_aspect_lock();
+
+    // Saved windowed pos/size — restored when leaving runtime fullscreen.
+    int saved_win_x = 0, saved_win_y = 0;
+    int saved_win_w = opts.init_w, saved_win_h = opts.init_h;
+    glfwGetWindowPos(window, &saved_win_x, &saved_win_y);
+
+    // Resize the window to match pipeline.params().target_aspect, keeping
+    // the same center on the monitor and roughly the same on-screen area.
+    // No-op for target_aspect == 0 (fill mode) or while fullscreen.
+    auto do_snap_to_aspect = [&]() {
+        if (fullscreen_active) return;
+        float ar = pipeline.params().target_aspect;
+        if (ar <= 0.0f) return;
+        int cur_w = 0, cur_h = 0;
+        glfwGetWindowSize(window, &cur_w, &cur_h);
+        if (cur_w <= 0 || cur_h <= 0) return;
+        double area = static_cast<double>(cur_w) * static_cast<double>(cur_h);
+        int new_w = static_cast<int>(std::sqrt(area * ar) + 0.5);
+        int new_h = static_cast<int>(std::sqrt(area / ar) + 0.5);
+        // Clamp to the monitor so we never spill off-screen.
+        new_w = std::min(new_w, capture.width());
+        new_h = std::min(new_h, capture.height());
+        int cur_x = 0, cur_y = 0;
+        glfwGetWindowPos(window, &cur_x, &cur_y);
+        int center_x = cur_x + cur_w / 2;
+        int center_y = cur_y + cur_h / 2;
+        // Relock aspect *before* resizing so GLFW doesn't fight us.
+        apply_aspect_lock();
+        glfwSetWindowSize(window, new_w, new_h);
+        glfwSetWindowPos(window, center_x - new_w / 2, center_y - new_h / 2);
+    };
+
+    // Flip between the runtime fullscreen mode and the saved windowed mode.
+    //
+    // Key constraints on this hardware (NVIDIA + Win11 26200):
+    //   1) GWL_STYLE / GWL_EXSTYLE swaps on a live OpenGL window drop
+    //      WDA_EXCLUDEFROMCAPTURE → DXGI captures our overlay → recursive
+    //      feedback ghost. So we use WM_NCCALCSIZE in our subclass to
+    //      collapse the non-client area to 0 pixels instead.
+    //   2) A topmost window that covers the *entire* monitor gets
+    //      promoted by Win11 to Independent Flip / direct scanout, which
+    //      bypasses DWM compositing → WDA stops applying → same ghost.
+    //      We leave 1 pixel uncovered at the bottom edge to keep us in
+    //      the composited path. It's barely visible and harmless.
+    auto do_toggle_fullscreen = [&]() {
+        if (fullscreen_active) {
+            // Exit: drop the NCCALCSIZE override, then restore the saved
+            // client-area geometry through GLFW (which knows the correct
+            // outer-vs-client math for the current styles). The extra
+            // SetWindowPos with SWP_FRAMECHANGED triggers NCCALCSIZE
+            // re-evaluation so the title bar comes back this frame.
+            g_hide_nonclient = false;
+            glfwSetWindowSize(window, saved_win_w, saved_win_h);
+            glfwSetWindowPos(window,  saved_win_x, saved_win_y);
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE |
+                         SWP_NOACTIVATE);
+            fullscreen_active = false;
+            apply_aspect_lock();
+            std::fprintf(stderr, "[overlay] fullscreen OFF\n");
+        } else {
+            glfwGetWindowPos(window,  &saved_win_x, &saved_win_y);
+            glfwGetWindowSize(window, &saved_win_w, &saved_win_h);
+            // Release any aspect lock so the window can be the full monitor.
+            glfwSetWindowAspectRatio(window, GLFW_DONT_CARE, GLFW_DONT_CARE);
+
+            // Hide non-client (NCCALCSIZE→0) + size to monitor minus 1px
+            // at the bottom to dodge Win11 Independent-Flip promotion.
+            g_hide_nonclient = true;
+            SetWindowPos(hwnd, HWND_TOPMOST,
+                         capture.origin_x(), capture.origin_y(),
+                         capture.width(),    capture.height() - 1,
+                         SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            fullscreen_active = true;
+            std::fprintf(stderr, "[overlay] fullscreen ON (borderless, IF-safe)\n");
+        }
+    };
 
     // Helper: read the window's client rect in monitor-local pixel coords.
     auto read_window_rect_on_monitor = [&](int& out_x, int& out_y, int& out_w, int& out_h) {
@@ -648,7 +811,7 @@ int run(const Options& opts) {
                 read_window_rect_on_monitor(wx, wy, ww, wh);
                 upload_subregion_to_source(capture, source, wx, wy, ww, wh,
                                             win_w, win_h, sub_buffer,
-                                            fullscreen_mode);
+                                            fullscreen_active);
                 got = true;
             } else {
                 // Force the desktop to repaint so DXGI has something to deliver.
@@ -669,7 +832,7 @@ int run(const Options& opts) {
     pipeline.render_to_screen(source.id());
     glfwSwapBuffers(window);
     glfwShowWindow(window);
-    if (fullscreen_mode) {
+    if (fullscreen_active) {
         SetWindowPos(hwnd, HWND_TOPMOST, capture.origin_x(), capture.origin_y(),
                      W, H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     } else {
@@ -678,7 +841,9 @@ int run(const Options& opts) {
     }
 
     std::printf(
-        "[overlay] hotkeys: Ctrl+Alt+Q quit | Ctrl+Alt+F freeze | "
+        "[overlay] hotkeys: Ctrl+Alt+Q quit | Ctrl+Alt+M menu | "
+        "Ctrl+Alt+F freeze | Ctrl+Alt+Enter fullscreen | "
+        "Ctrl+Alt+S screenshot | Ctrl+Alt+V video | "
         "Ctrl+Alt+0 all-on | Ctrl+Alt+1..8 toggle pass\n");
 
     double t0 = glfwGetTime();
@@ -686,6 +851,39 @@ int run(const Options& opts) {
     unsigned long long frames_total = 0, frames_new = 0;
     bool kicked_repaint = false;
     auto loop_started = std::chrono::steady_clock::now();
+
+    // ---------------------------------------------------------------------
+    // Subclass the window so the overlay keeps rendering DURING a user
+    // move / resize. Without this, the image freezes the moment the user
+    // grabs the title bar — Windows enters a modal loop inside
+    // DefWindowProc that blocks glfwPollEvents. Our WndProc installs a
+    // ~16ms WM_TIMER between WM_ENTERSIZEMOVE/WM_EXITSIZEMOVE and ticks
+    // the same per-frame work the main loop would otherwise do.
+    // ---------------------------------------------------------------------
+    FrameRenderState frame_state;
+    frame_state.render_one = [&]() {
+        apply_pending_resize();
+        bool new_frame = false;
+        if (!state.freeze) {
+            // Non-blocking grab: if the desktop hasn't changed we just
+            // re-use the previous capture rather than stall the modal
+            // loop waiting on DXGI.
+            (void)capture.grab(new_frame, 0);
+        }
+        if (new_frame) {
+            int wx, wy, ww, wh;
+            read_window_rect_on_monitor(wx, wy, ww, wh);
+            upload_subregion_to_source(capture, source, wx, wy, ww, wh,
+                                        win_w, win_h, sub_buffer,
+                                        fullscreen_active);
+        }
+        pipeline.set_time(static_cast<float>(glfwGetTime() - t0));
+        pipeline.render_to_screen(source.id());
+        glfwSwapBuffers(window);
+    };
+    SetPropW(hwnd, kFrameRenderProp, reinterpret_cast<HANDLE>(&frame_state));
+    g_orig_wndproc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
+        hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&tubelight_subclass_proc)));
 
     while (!glfwWindowShouldClose(window)) {
         apply_pending_resize();
@@ -723,7 +921,7 @@ int run(const Options& opts) {
             read_window_rect_on_monitor(wx, wy, ww, wh);
             upload_subregion_to_source(capture, source, wx, wy, ww, wh,
                                         win_w, win_h, sub_buffer,
-                                        fullscreen_mode);
+                                        fullscreen_active);
             have_initial = true;
             ++frames_new;
         }
@@ -746,9 +944,11 @@ int run(const Options& opts) {
             std::string prev_signal  = current_signal_id;
             float       prev_intensity = intensity_multiplier;
             bool cap_changed = false;
+            WindowActions wa;
+            wa.is_fullscreen = fullscreen_active;
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
                                intensity_multiplier, want_quit_from_menu,
-                               ui_capture_dir, cap_changed);
+                               ui_capture_dir, cap_changed, wa);
             if (cap_changed) {
                 settings.capture_dir = ui_capture_dir;
                 effective_capture_dir =
@@ -854,6 +1054,14 @@ int run(const Options& opts) {
                 P.barrel_strength   = std::min(0.20f, base_params.barrel_strength   * k);
                 P.vignette_strength = std::min(1.0f,  base_params.vignette_strength * k);
             }
+
+            // Re-apply aspect lock if the CRT profile changed (its
+            // aspect_native field updates target_aspect) or the user
+            // picked a new aspect via the combo.
+            apply_aspect_lock();
+
+            if (wa.snap_to_aspect_requested)    do_snap_to_aspect();
+            if (wa.toggle_fullscreen_requested) do_toggle_fullscreen();
         }
 
         glfwSwapBuffers(window);
@@ -882,18 +1090,22 @@ int run(const Options& opts) {
         if (g_hk_toggle_menu.exchange(false) && has_menu) {
             menu.toggle();
         }
+        if (g_hk_toggle_fullscreen.exchange(false)) {
+            do_toggle_fullscreen();
+        }
         // Screenshot: read the framebuffer AFTER the pipeline rendered but
-        // BEFORE swap, so we capture exactly what the user sees.
+        // BEFORE swap, so we capture exactly what the user sees. The PNG
+        // zlib encode runs on a background thread (at 1920x1200 in
+        // fullscreen it would otherwise block the main loop for ~1-2 s,
+        // which the user perceives as a freeze).
         if (g_hk_screenshot.exchange(false)) {
             std::string err;
-            std::string out = save_screenshot_png(win_w, win_h,
-                                                    effective_capture_dir, err);
+            std::string out = save_screenshot_png_async(win_w, win_h,
+                                                         effective_capture_dir, err);
             if (!out.empty()) {
-                std::fprintf(stderr, "[overlay] screenshot saved: %s\n", out.c_str());
-                // Trim path to just the filename for the toast.
                 auto slash = out.find_last_of("/\\");
                 std::string fname = (slash == std::string::npos) ? out : out.substr(slash + 1);
-                toast_text = "Screenshot saved: " + fname;
+                toast_text = "Screenshot saving: " + fname;
                 toast_time = std::chrono::steady_clock::now();
             } else {
                 std::fprintf(stderr, "[overlay] screenshot failed: %s\n", err.c_str());
@@ -975,6 +1187,16 @@ int run(const Options& opts) {
     glfwSetFramebufferSizeCallback(window, nullptr);
     glfwSetKeyCallback(window, nullptr);
     glfwSetWindowUserPointer(window, nullptr);
+
+    // Restore the original WndProc and drop the per-window render-state
+    // pointer before the GLFW window is destroyed.
+    if (g_orig_wndproc) {
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC,
+                          reinterpret_cast<LONG_PTR>(g_orig_wndproc));
+        g_orig_wndproc = nullptr;
+    }
+    KillTimer(hwnd, kModalRenderTimerId);
+    RemovePropW(hwnd, kFrameRenderProp);
 
     capture.shutdown();
     glfwDestroyWindow(window);

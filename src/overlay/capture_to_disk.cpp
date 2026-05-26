@@ -11,6 +11,8 @@
 #include <ctime>
 #include <filesystem>
 #include <sstream>
+#include <thread>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -78,6 +80,38 @@ std::string save_screenshot_png(int width, int height,
     if (!save_png(path, pixels.data(), width, height, 3, error_out, true)) {
         return {};
     }
+    return path;
+}
+
+std::string save_screenshot_png_async(int width, int height,
+                                       const std::string& out_dir,
+                                       std::string& error_out) {
+    if (width <= 0 || height <= 0) {
+        error_out = "invalid framebuffer size";
+        return {};
+    }
+    // Synchronous read from the GL back buffer — only this thread owns the
+    // context, so it has to happen here. The zlib encode + file write,
+    // however, can happily run on a worker thread.
+    std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 3);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+
+    std::error_code ec;
+    fs::create_directories(out_dir, ec);
+    std::string path = (fs::path(out_dir) / ("tubelight-" + timestamp_now() + ".png")).string();
+
+    std::thread([pixels = std::move(pixels), path, w = width, h = height]() mutable {
+        std::string err;
+        if (!save_png(path, pixels.data(), w, h, 3, err, true)) {
+            std::fprintf(stderr, "[overlay] async screenshot save failed: %s\n",
+                         err.c_str());
+        } else {
+            std::fprintf(stderr, "[overlay] async screenshot saved: %s\n",
+                         path.c_str());
+        }
+    }).detach();
+
     return path;
 }
 
