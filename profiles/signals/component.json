@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schemas/signal_profile.schema.json",
+  "id": "component",
+  "display_name": "Component YPbPr (DVD / GameCube / PS2 / Xbox)",
+  "connection": "component",
+  "standard": "ntsc_m",
+
+  "bandwidth": {
+    "luma_mhz": 6.0,
+    "chroma_i_mhz": 3.0,
+    "chroma_q_mhz": 3.0,
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/Component_video",
+      "retrieved_at": "2026-05-26",
+      "notes": "Component YPbPr carries luma (Y) and two color-difference signals (Pb, Pr) on separate conductors without subcarrier modulation. Bandwidth set by source / cable; consumer values: Y ~6 MHz, Pb/Pr ~3 MHz. Supports 480p/720p/1080i in consumer hardware."
+    }
+  },
+
+  "artifacts": {
+    "dot_crawl_strength": 0.0,
+    "rainbow_banding": 0.0,
+    "ringing_amount": 0.05,
+    "ghosting_offset_pixels": 0.0,
+    "noise_type": "none",
+    "noise_strength": 0.01
+  },
+
+  "effective_tvl": 720,
+  "subcarrier_mhz": 0.0,
+  "h_freq_khz": 31.469
+}

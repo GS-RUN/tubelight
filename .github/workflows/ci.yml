@@ -62,7 +62,7 @@ jobs:
           sudo apt update
           sudo apt install -y \
             build-essential cmake ninja-build pkg-config \
-            libglfw3-dev libglm-dev libepoxy-dev libstb-dev \
+            libglfw3-dev libglm-dev libepoxy-dev libstb-dev nlohmann-json3-dev \
             xvfb
 
       - name: Configure
@@ -76,6 +76,26 @@ jobs:
 
       - name: Smoke run --help
         run: ./build/linux-ninja/tubelight --help
+
+      - name: Validate all bundled profiles (M4 + M5 + M8 gate)
+        run: |
+          set -e
+          fail=0
+          for f in profiles/crts/*.json profiles/signals/*.json; do
+            if ! ./build/linux-ninja/tubelight --validate-profile "$f"; then
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::At least one profile failed validation"
+            exit 1
+          fi
+          crt_count=$(ls profiles/crts/*.json | wc -l)
+          sig_count=$(ls profiles/signals/*.json | wc -l)
+          echo "CRT profiles: $crt_count (M4 requires >= 10)"
+          echo "Signal profiles: $sig_count (M5 requires == 7)"
+          if [ "$crt_count" -lt 10 ]; then echo "::error::M4 violated ($crt_count < 10)"; exit 1; fi
+          if [ "$sig_count" -lt 7 ];  then echo "::error::M5 violated ($sig_count < 7)"; exit 1; fi
 
   linux-clang:
     name: Linux / clang-18

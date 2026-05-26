@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/gs-run/tubelight/schemas/crt_profile.schema.json",
+  "title": "Tubelight CRTProfile",
+  "description": "Specifies a historical CRT device with cited physical parameters.",
+  "type": "object",
+  "required": ["id", "display_name", "era", "tube", "phosphor", "beam", "h_freq_khz", "v_freq_hz"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema":      { "type": "string" },
+    "id":           { "type": "string", "pattern": "^[a-z0-9-]+$" },
+    "display_name": { "type": "string", "minLength": 1 },
+    "era":          { "type": "string" },
+
+    "tube": {
+      "type": "object",
+      "required": ["mask_type", "dot_pitch_mm", "screen_curvature", "diagonal_inches", "aspect_native", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "mask_type":         { "enum": ["shadow", "aperture_grille", "slot", "diamond", "cgwg_mix", "dot_trio", "none"] },
+        "dot_pitch_mm":      { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "screen_curvature":  { "enum": ["flat", "mild", "aggressive"] },
+        "diagonal_inches":   { "type": "number", "exclusiveMinimum": 0 },
+        "aspect_native":     { "enum": ["4:3", "5:4", "16:9"] },
+        "source":            { "$ref": "#/definitions/source" }
+      }
+    },
+
+    "phosphor": {
+      "type": "object",
+      "required": ["type", "decay_ms", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "type":              { "enum": ["P1", "P3", "P4", "P22", "P31", "custom"] },
+        "decay_ms": {
+          "type": "object",
+          "required": ["r", "g", "b"],
+          "additionalProperties": false,
+          "properties": {
+            "r": { "type": "number", "minimum": 0 },
+            "g": { "type": "number", "minimum": 0 },
+            "b": { "type": "number", "minimum": 0 }
+          }
+        },
+        "chromaticity_smpte_c": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "r": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+            "g": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+            "b": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+          }
+        },
+        "source": { "$ref": "#/definitions/source" }
+      }
+    },
+
+    "beam": {
+      "type": "object",
+      "required": ["focus", "intensity_curve", "scanline_strength", "interlace_mode"],
+      "additionalProperties": false,
+      "properties": {
+        "focus":              { "type": "number", "minimum": 0, "maximum": 1 },
+        "intensity_curve":    { "enum": ["linear", "gauss", "sigmoid"] },
+        "scanline_strength":  { "type": "number", "minimum": 0, "maximum": 1 },
+        "interlace_mode":     { "enum": ["off", "2to1", "rf"] }
+      }
+    },
+
+    "glass": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "age":                { "type": "number", "minimum": 0, "maximum": 1 },
+        "tint":               { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "reflection_strength":{ "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+
+    "ageing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "phosphor_burn_in":   { "type": "number", "minimum": 0, "maximum": 1 },
+        "purity_drift":       { "type": "number", "minimum": 0, "maximum": 1 },
+        "geometry_warp":      { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+
+    "h_freq_khz": { "type": "number", "exclusiveMinimum": 0 },
+    "v_freq_hz":  { "type": "number", "exclusiveMinimum": 0 }
+  },
+
+  "definitions": {
+    "source": {
+      "type": "object",
+      "required": ["url", "retrieved_at"],
+      "additionalProperties": false,
+      "properties": {
+        "url":           { "type": "string", "format": "uri", "minLength": 5 },
+        "retrieved_at":  { "type": "string", "format": "date" },
+        "notes":         { "type": "string" }
+      }
+    }
+  }
+}

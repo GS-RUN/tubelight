@@ -1,0 +1,55 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "sharp-x68k-cz602d",
+  "display_name": "Sharp X68000 CZ-602D (14\" Shadow Mask tri-sync, 1987)",
+  "era": "1987",
+
+  "tube": {
+    "mask_type": "shadow",
+    "dot_pitch_mm": 0.39,
+    "screen_curvature": "mild",
+    "diagonal_inches": 14,
+    "aspect_native": "4:3",
+    "source": {
+      "url": "https://gamesx.com/wiki/doku.php?id=x68000%3Ax68000_monitors",
+      "retrieved_at": "2026-05-26",
+      "notes": "Original CZ-600D/601D/602D specs the same 0.39 mm shadow mask with tri-sync 15/24/31 kHz horizontal. The CZ-603D/606D/608D later models use a finer 0.28-0.31 mm mask."
+    }
+  },
+
+  "phosphor": {
+    "type": "P22",
+    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "chromaticity_smpte_c": {
+      "r": [0.630, 0.340],
+      "g": [0.310, 0.595],
+      "b": [0.155, 0.070]
+    },
+    "source": {
+      "url": "https://crtdatabase.com/faq/phosphor-designations",
+      "retrieved_at": "2026-05-26"
+    }
+  },
+
+  "beam": {
+    "focus": 0.85,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.68,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.0,
+    "tint": [1.00, 1.00, 1.00],
+    "reflection_strength": 0.04
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 24.838,
+  "v_freq_hz": 55.46
+}

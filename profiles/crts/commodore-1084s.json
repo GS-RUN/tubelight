@@ -1,0 +1,55 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "commodore-1084s",
+  "display_name": "Commodore 1084S (14\" Shadow Mask, 1986)",
+  "era": "1986",
+
+  "tube": {
+    "mask_type": "shadow",
+    "dot_pitch_mm": 0.42,
+    "screen_curvature": "mild",
+    "diagonal_inches": 14,
+    "aspect_native": "4:3",
+    "source": {
+      "url": "https://www.manualslib.com/manual/1100625/Commodore-1084s.html?page=12",
+      "retrieved_at": "2026-05-26",
+      "notes": "Commodore service manual specifies slotted-triplet shadow mask with 0.42 mm pitch, 90 degrees deflection, 640x400 max interlaced. Cross-reference: https://bigbookofamigahardware.com/bboah/product.aspx?id=850"
+    }
+  },
+
+  "phosphor": {
+    "type": "P22",
+    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "chromaticity_smpte_c": {
+      "r": [0.630, 0.340],
+      "g": [0.310, 0.595],
+      "b": [0.155, 0.070]
+    },
+    "source": {
+      "url": "https://crtdatabase.com/faq/phosphor-designations",
+      "retrieved_at": "2026-05-26"
+    }
+  },
+
+  "beam": {
+    "focus": 0.82,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.65,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.0,
+    "tint": [1.00, 1.00, 1.00],
+    "reflection_strength": 0.05
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 15.625,
+  "v_freq_hz": 50.0
+}

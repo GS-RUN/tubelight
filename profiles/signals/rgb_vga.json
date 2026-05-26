@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schemas/signal_profile.schema.json",
+  "id": "rgb_vga",
+  "display_name": "VGA RGBHV / pure RGB",
+  "connection": "rgb_vga",
+  "standard": "none",
+
+  "bandwidth": {
+    "luma_mhz": 25.0,
+    "chroma_i_mhz": 25.0,
+    "chroma_q_mhz": 25.0,
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/VGA_connector",
+      "retrieved_at": "2026-05-26",
+      "notes": "VGA carries R, G, B on independent analog channels with separate H/V sync. Bandwidth determined by RAMDAC + cable; standard VGA mode (640x480 60 Hz) uses ~25.175 MHz pixel clock per channel. Higher modes (XGA, UXGA) scale up."
+    }
+  },
+
+  "artifacts": {
+    "dot_crawl_strength": 0.0,
+    "rainbow_banding": 0.0,
+    "ringing_amount": 0.02,
+    "ghosting_offset_pixels": 0.0,
+    "noise_type": "none",
+    "noise_strength": 0.005
+  },
+
+  "effective_tvl": 800,
+  "subcarrier_mhz": 0.0,
+  "h_freq_khz": 31.469
+}

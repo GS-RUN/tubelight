@@ -59,6 +59,9 @@ if(NOT STB_INCLUDE_DIR)
     message(FATAL_ERROR "stb_image.h not found. Install libstb-dev / stb_image-devel / stb / vcpkg stb.")
 endif()
 
+# nlohmann-json
+find_package(nlohmann_json CONFIG REQUIRED)
+
 # Common include dir for in-tree code
 add_library(tubelight_warnings INTERFACE)
 target_compile_features(tubelight_warnings INTERFACE cxx_std_20)

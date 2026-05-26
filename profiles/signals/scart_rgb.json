@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schemas/signal_profile.schema.json",
+  "id": "scart_rgb",
+  "display_name": "SCART RGB / Euroconector (European retro standard)",
+  "connection": "scart_rgb",
+  "standard": "pal_bg",
+
+  "bandwidth": {
+    "luma_mhz": 6.0,
+    "chroma_i_mhz": 6.0,
+    "chroma_q_mhz": 6.0,
+    "source": {
+      "url": "https://retrorgb.com/rgbintro.html",
+      "retrieved_at": "2026-05-26",
+      "notes": "SCART RGB carries R, G, B as independent unmodulated channels — each gets the full luma-equivalent bandwidth determined by source and cable quality. 6 MHz per channel is a typical clean consumer value."
+    }
+  },
+
+  "artifacts": {
+    "dot_crawl_strength": 0.0,
+    "rainbow_banding": 0.0,
+    "ringing_amount": 0.05,
+    "ghosting_offset_pixels": 0.0,
+    "noise_type": "none",
+    "noise_strength": 0.01
+  },
+
+  "effective_tvl": 576,
+  "subcarrier_mhz": 0.0,
+  "h_freq_khz": 15.625
+}

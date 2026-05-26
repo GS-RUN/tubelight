@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schemas/signal_profile.schema.json",
+  "id": "rf",
+  "display_name": "RF antenna (channel 3/4 modulator)",
+  "connection": "rf",
+  "standard": "ntsc_m",
+
+  "bandwidth": {
+    "luma_mhz": 2.5,
+    "chroma_i_mhz": 0.4,
+    "chroma_q_mhz": 0.4,
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/Composite_video",
+      "retrieved_at": "2026-05-26",
+      "notes": "RF modulation further degrades composite by VHF channel filtering: effective luma BW collapses to ~2.5 MHz from 4.2 MHz baseband; chroma below 0.5 MHz."
+    }
+  },
+
+  "artifacts": {
+    "dot_crawl_strength": 0.95,
+    "rainbow_banding": 0.80,
+    "ringing_amount": 0.55,
+    "ghosting_offset_pixels": 3.0,
+    "noise_type": "rf",
+    "noise_strength": 0.30
+  },
+
+  "effective_tvl": 220,
+  "subcarrier_mhz": 3.579545,
+  "h_freq_khz": 15.734
+}

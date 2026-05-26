@@ -1,0 +1,56 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "terminal-p3-amber",
+  "display_name": "Monochrome Terminal — P3 amber (IBM 5151 / HP class)",
+  "era": "1983",
+
+  "tube": {
+    "mask_type": "none",
+    "dot_pitch_mm": null,
+    "screen_curvature": "mild",
+    "diagonal_inches": 12,
+    "aspect_native": "4:3",
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/Phosphor",
+      "retrieved_at": "2026-05-26",
+      "notes": "Amber monochrome CRT (P3 phosphor); typical of IBM 5151, HP, and Wyse terminals 1982-1990. dot_pitch_mm is N/A for monochrome."
+    }
+  },
+
+  "phosphor": {
+    "type": "P3",
+    "decay_ms": { "r": 13.0, "g": 13.0, "b": 13.0 },
+    "chromaticity_smpte_c": {
+      "r": [0.560, 0.430],
+      "g": [0.560, 0.430],
+      "b": [0.560, 0.430]
+    },
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/Phosphor",
+      "retrieved_at": "2026-05-26",
+      "notes": "P3 amber: emission at approx 602 nm, decay ~13 ms — medium persistence. Single chromaticity point used for monochrome (warm amber/orange)."
+    }
+  },
+
+  "beam": {
+    "focus": 0.70,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.75,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.10,
+    "tint": [1.00, 0.95, 0.85],
+    "reflection_strength": 0.08
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 15.72,
+  "v_freq_hz": 60.0
+}

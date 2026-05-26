@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schemas/signal_profile.schema.json",
+  "id": "composite_ntsc",
+  "display_name": "Composite NTSC (consumer RCA, average cable)",
+  "connection": "composite",
+  "standard": "ntsc_m",
+
+  "bandwidth": {
+    "luma_mhz": 4.2,
+    "chroma_i_mhz": 0.5,
+    "chroma_q_mhz": 0.5,
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/NTSC",
+      "retrieved_at": "2026-05-26",
+      "notes": "NTSC-M luma BW 4.2 MHz; consumer receivers commonly demodulate chroma at ~0.5 MHz practical (theoretical I 1.3-1.5 MHz, Q 0.4-0.6 MHz)."
+    }
+  },
+
+  "artifacts": {
+    "dot_crawl_strength": 0.75,
+    "rainbow_banding": 0.50,
+    "ringing_amount": 0.35,
+    "ghosting_offset_pixels": 0.0,
+    "noise_type": "line",
+    "noise_strength": 0.08
+  },
+
+  "effective_tvl": 350,
+  "subcarrier_mhz": 3.579545,
+  "h_freq_khz": 15.734
+}

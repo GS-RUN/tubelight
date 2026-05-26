@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/gs-run/tubelight/schemas/signal_profile.schema.json",
+  "title": "Tubelight SignalProfile",
+  "description": "Specifies an analog signal path (connection + standard) with cited bandwidth and artifact parameters.",
+  "type": "object",
+  "required": ["id", "display_name", "connection", "standard", "bandwidth", "artifacts"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema":      { "type": "string" },
+    "id":           { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "display_name": { "type": "string", "minLength": 1 },
+    "connection":   { "enum": ["rf", "composite", "svideo", "scart_rgb", "component", "rgb_vga"] },
+    "standard":     { "enum": ["ntsc_m", "pal_bg", "pal_n", "secam", "none"] },
+
+    "bandwidth": {
+      "type": "object",
+      "required": ["luma_mhz", "chroma_i_mhz", "chroma_q_mhz", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "luma_mhz":     { "type": "number", "exclusiveMinimum": 0 },
+        "chroma_i_mhz": { "type": "number", "minimum": 0 },
+        "chroma_q_mhz": { "type": "number", "minimum": 0 },
+        "source":       { "$ref": "#/definitions/source" }
+      }
+    },
+
+    "artifacts": {
+      "type": "object",
+      "required": ["dot_crawl_strength", "rainbow_banding", "ringing_amount",
+                   "ghosting_offset_pixels", "noise_type", "noise_strength"],
+      "additionalProperties": false,
+      "properties": {
+        "dot_crawl_strength":     { "type": "number", "minimum": 0, "maximum": 1 },
+        "rainbow_banding":        { "type": "number", "minimum": 0, "maximum": 1 },
+        "ringing_amount":         { "type": "number", "minimum": 0, "maximum": 1 },
+        "ghosting_offset_pixels": { "type": "number", "minimum": 0 },
+        "noise_type":             { "enum": ["pixel", "line", "rf", "none"] },
+        "noise_strength":         { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+
+    "effective_tvl":   { "type": "number", "minimum": 0 },
+    "subcarrier_mhz":  { "type": "number", "minimum": 0 },
+    "h_freq_khz":      { "type": "number", "exclusiveMinimum": 0 }
+  },
+
+  "definitions": {
+    "source": {
+      "type": "object",
+      "required": ["url", "retrieved_at"],
+      "additionalProperties": false,
+      "properties": {
+        "url":           { "type": "string", "format": "uri", "minLength": 5 },
+        "retrieved_at":  { "type": "string", "format": "date" },
+        "notes":         { "type": "string" }
+      }
+    }
+  }
+}

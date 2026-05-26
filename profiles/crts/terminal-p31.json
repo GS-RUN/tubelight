@@ -1,0 +1,56 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "terminal-p31",
+  "display_name": "Monochrome Terminal — P31 green (Apple II / VT100 class)",
+  "era": "1980",
+
+  "tube": {
+    "mask_type": "none",
+    "dot_pitch_mm": null,
+    "screen_curvature": "mild",
+    "diagonal_inches": 12,
+    "aspect_native": "4:3",
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/Phosphor",
+      "retrieved_at": "2026-05-26",
+      "notes": "Monochrome CRT — single P31 phosphor, no shadow mask. Tube geometry approximates typical 12\" Apple II / Commodore PET / VT100 terminal hardware of the era. dot_pitch_mm is N/A for monochrome (single phosphor layer)."
+    }
+  },
+
+  "phosphor": {
+    "type": "P31",
+    "decay_ms": { "r": 0.04, "g": 0.04, "b": 0.04 },
+    "chromaticity_smpte_c": {
+      "r": [0.260, 0.530],
+      "g": [0.260, 0.530],
+      "b": [0.260, 0.530]
+    },
+    "source": {
+      "url": "https://pubmed.ncbi.nlm.nih.gov/9176941/",
+      "retrieved_at": "2026-05-26",
+      "notes": "P31 decay 0.01-1 ms range; representative value 0.04 ms (40 us). Chromaticity uses single point for monochrome — green/yellow-green at approx (0.260, 0.530). Photopic measurement of P31 reports 1.4% residual at 50 ms post-pulse."
+    }
+  },
+
+  "beam": {
+    "focus": 0.72,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.78,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.05,
+    "tint": [0.95, 1.00, 0.95],
+    "reflection_strength": 0.08
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 15.72,
+  "v_freq_hz": 60.0
+}

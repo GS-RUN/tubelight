@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schemas/signal_profile.schema.json",
+  "id": "svideo",
+  "display_name": "S-Video Y/C separated (4-pin mini-DIN)",
+  "connection": "svideo",
+  "standard": "ntsc_m",
+
+  "bandwidth": {
+    "luma_mhz": 4.2,
+    "chroma_i_mhz": 1.3,
+    "chroma_q_mhz": 1.3,
+    "source": {
+      "url": "https://www.cockam.com/vidcolor.htm",
+      "retrieved_at": "2026-05-26",
+      "notes": "S-Video carries Y and C on separate conductors — no cross-luma/chroma interference. Luma keeps full 4.2 MHz; chroma demodulated cleanly at higher BW than composite."
+    }
+  },
+
+  "artifacts": {
+    "dot_crawl_strength": 0.0,
+    "rainbow_banding": 0.0,
+    "ringing_amount": 0.15,
+    "ghosting_offset_pixels": 0.0,
+    "noise_type": "line",
+    "noise_strength": 0.03
+  },
+
+  "effective_tvl": 400,
+  "subcarrier_mhz": 3.579545,
+  "h_freq_khz": 15.734
+}

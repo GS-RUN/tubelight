@@ -17,6 +17,7 @@
 #include "core/gl_common.h"
 #include "core/pipeline.h"
 #include "core/texture.h"
+#include "profile/validator.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -36,6 +37,7 @@ struct Args {
     bool show_help    = false;
     bool show_version = false;
     std::string shader_only_input;
+    std::string validate_profile_path;
     bool unknown_flag = false;
     std::string unknown_flag_text;
 };
@@ -54,6 +56,13 @@ Args parse_args(int argc, char** argv) {
             } else {
                 a.unknown_flag = true;
                 a.unknown_flag_text = "--shader-only requires a path";
+            }
+        } else if (arg == "--validate-profile") {
+            if (i + 1 < argc) {
+                a.validate_profile_path = argv[++i];
+            } else {
+                a.unknown_flag = true;
+                a.unknown_flag_text = "--validate-profile requires a path";
             }
         } else if (arg.substr(0, 2) == "--") {
             // F3+ flags not implemented yet; treat as no-op for now so smoke
@@ -272,6 +281,10 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (!args.validate_profile_path.empty()) {
+        auto r = tubelight::validate_profile_file(args.validate_profile_path);
+        return tubelight::print_validation_result(args.validate_profile_path, r);
+    }
     if (!args.shader_only_input.empty()) {
         return run_shader_only(args.shader_only_input);
     }

@@ -1,0 +1,56 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "tv-bw-p4",
+  "display_name": "Vintage B&W TV — P4 (1960s-70s living-room set)",
+  "era": "1970",
+
+  "tube": {
+    "mask_type": "none",
+    "dot_pitch_mm": null,
+    "screen_curvature": "aggressive",
+    "diagonal_inches": 17,
+    "aspect_native": "4:3",
+    "source": {
+      "url": "https://www.epanorama.net/documents/video/phosphor_decay.html",
+      "retrieved_at": "2026-05-26",
+      "notes": "B&W televisions of the era used P4 phosphor (bluish-white with cool color point ~565/540 nm component mix). No shadow mask. Aggressive screen curvature characteristic of pre-1980 TVs."
+    }
+  },
+
+  "phosphor": {
+    "type": "P4",
+    "decay_ms": { "r": 0.5, "g": 0.5, "b": 0.5 },
+    "chromaticity_smpte_c": {
+      "r": [0.290, 0.320],
+      "g": [0.290, 0.320],
+      "b": [0.290, 0.320]
+    },
+    "source": {
+      "url": "https://en.wikipedia.org/wiki/Phosphor",
+      "retrieved_at": "2026-05-26",
+      "notes": "P4 = white phosphor; short persistence. Representative decay 0.5 ms. Chromaticity approximated near CIE white point (0.29, 0.32)."
+    }
+  },
+
+  "beam": {
+    "focus": 0.55,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.85,
+    "interlace_mode": "2to1"
+  },
+
+  "glass": {
+    "age": 0.45,
+    "tint": [1.05, 1.00, 0.92],
+    "reflection_strength": 0.20
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.05,
+    "purity_drift": 0.05,
+    "geometry_warp": 0.15
+  },
+
+  "h_freq_khz": 15.734,
+  "v_freq_hz": 59.94
+}

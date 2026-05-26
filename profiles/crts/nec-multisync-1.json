@@ -1,0 +1,55 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "nec-multisync-1",
+  "display_name": "NEC MultiSync (JC-1401P3A, 14\" Shadow Mask, 1986)",
+  "era": "1986",
+
+  "tube": {
+    "mask_type": "shadow",
+    "dot_pitch_mm": 0.31,
+    "screen_curvature": "mild",
+    "diagonal_inches": 14,
+    "aspect_native": "4:3",
+    "source": {
+      "url": "https://crtdatabase.com/crts/nec/nec-jc-1401p3a",
+      "retrieved_at": "2026-05-26",
+      "notes": "First NEC MultiSync (1986). 14\" diagonal / 13\" viewable, 0.31 mm trio dot pitch, 90 degrees deflection, autosync 15.75-35 kHz horizontal. Max addressable 800x560. Cross-reference: https://www.minuszerodegrees.net/manuals/NEC/NEC%20MultiSync%20model%20JC-1401P3A%20-%20Service%20manual.pdf"
+    }
+  },
+
+  "phosphor": {
+    "type": "P22",
+    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "chromaticity_smpte_c": {
+      "r": [0.630, 0.340],
+      "g": [0.310, 0.595],
+      "b": [0.155, 0.070]
+    },
+    "source": {
+      "url": "https://crtdatabase.com/faq/phosphor-designations",
+      "retrieved_at": "2026-05-26"
+    }
+  },
+
+  "beam": {
+    "focus": 0.83,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.55,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.0,
+    "tint": [1.00, 1.00, 1.00],
+    "reflection_strength": 0.05
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 31.469,
+  "v_freq_hz": 60.0
+}

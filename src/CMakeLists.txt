@@ -12,6 +12,9 @@ add_library(tubelight_core STATIC
     core/pipeline.cpp
     io/image_io.cpp
     io/shader_io.cpp
+    profile/crt_profile.cpp
+    profile/signal_profile.cpp
+    profile/validator.cpp
 )
 
 target_include_directories(tubelight_core
@@ -25,6 +28,7 @@ target_link_libraries(tubelight_core
     PUBLIC
         glfw
         glm::glm
+        nlohmann_json::nlohmann_json
         tubelight_warnings
 )
 

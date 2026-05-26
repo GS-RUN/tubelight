@@ -10,7 +10,8 @@
     "glfw3",
     "libepoxy",
     "glm",
-    "stb"
+    "stb",
+    "nlohmann-json"
   ],
   "features": {
     "shaders-advanced": {
@@ -18,12 +19,6 @@
       "dependencies": [
         "glslang",
         "spirv-cross"
-      ]
-    },
-    "profiles": {
-      "description": "JSON profile loading (F3+)",
-      "dependencies": [
-        "nlohmann-json"
       ]
     },
     "ui": {

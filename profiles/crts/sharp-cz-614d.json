@@ -1,0 +1,55 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "sharp-cz-614d",
+  "display_name": "Sharp CZ-614D (14\" Shadow Mask matte, 1990s)",
+  "era": "1992",
+
+  "tube": {
+    "mask_type": "shadow",
+    "dot_pitch_mm": 0.31,
+    "screen_curvature": "mild",
+    "diagonal_inches": 14,
+    "aspect_native": "4:3",
+    "source": {
+      "url": "https://crtdatabase.com/crts/sharp/sharp-cz-614d",
+      "retrieved_at": "2026-05-26",
+      "notes": "Matte / anti-glare front surface — reflection_strength slightly higher to model the texture scatter."
+    }
+  },
+
+  "phosphor": {
+    "type": "P22",
+    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "chromaticity_smpte_c": {
+      "r": [0.630, 0.340],
+      "g": [0.310, 0.595],
+      "b": [0.155, 0.070]
+    },
+    "source": {
+      "url": "https://crtdatabase.com/faq/phosphor-designations",
+      "retrieved_at": "2026-05-26"
+    }
+  },
+
+  "beam": {
+    "focus": 0.88,
+    "intensity_curve": "gauss",
+    "scanline_strength": 0.70,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.0,
+    "tint": [1.00, 1.00, 1.00],
+    "reflection_strength": 0.08
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 31.469,
+  "v_freq_hz": 60.0
+}
