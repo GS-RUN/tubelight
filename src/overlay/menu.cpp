@@ -2,6 +2,7 @@
 // Copyright (c) 2026 GS-RUN
 
 #include "overlay/menu.h"
+#include "overlay/folder_picker.h"
 #include "profile/profile_loader.h"
 #include "profile/validator.h"
 
@@ -151,7 +152,10 @@ void Menu::build_widgets(Pipeline& pipeline,
                          std::string& current_profile_id,
                          std::string& current_signal_id,
                          float& intensity_multiplier,
-                         bool& want_quit) {
+                         bool& want_quit,
+                         std::string& capture_dir,
+                         bool& capture_dir_changed) {
+    capture_dir_changed = false;
 #ifdef TUBELIGHT_HAS_IMGUI
     if (!open_) return;
 
@@ -215,6 +219,8 @@ void Menu::build_widgets(Pipeline& pipeline,
         ImGui::SliderFloat("Scanline strength", &P.scanline_strength, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Beam width",        &P.beam_width,        0.5f, 3.0f, "%.2f");
         ImGui::SliderFloat("CRT gamma",         &P.gamma_crt,         1.8f, 3.0f, "%.2f");
+        ImGui::SliderFloat("Scanline count",    &P.scanline_count,    60.0f, 800.0f, "%.0f");
+        ImGui::TextDisabled("240=NTSC, 288=PAL, 480=VGA");
     }
 
     if (ImGui::CollapsingHeader("Phosphor mask")) {
@@ -232,6 +238,31 @@ void Menu::build_widgets(Pipeline& pipeline,
         ImGui::SliderFloat("Barrel",        &P.barrel_strength,   0.0f, 0.20f, "%.3f");
         ImGui::SliderFloat("Vignette",      &P.vignette_strength, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Display gamma", &P.gamma_display,     1.8f, 3.0f, "%.2f");
+
+        // Aspect ratio override. Picking an option overwrites target_aspect;
+        // selecting a different CRT profile after will re-derive from its
+        // aspect_native field, so the user is always in control.
+        struct AspectOpt { const char* label; float ar; };
+        static const AspectOpt kAspects[] = {
+            { "Fill window (no bars)",          0.0f          },
+            { "4:3   (PVM / vintage TV)",       4.0f/3.0f     },
+            { "5:4   (NEC / IBM 5151)",         5.0f/4.0f     },
+            { "16:10 (early widescreen)",       16.0f/10.0f   },
+            { "16:9  (modern widescreen)",      16.0f/9.0f    },
+            { "21:9  (ultrawide CRT FW900)",    21.0f/9.0f    },
+        };
+        const int n_aspects = static_cast<int>(sizeof(kAspects) / sizeof(kAspects[0]));
+        int idx = 0;
+        for (int i = 0; i < n_aspects; ++i) {
+            if (std::abs(kAspects[i].ar - P.target_aspect) < 0.01f) { idx = i; break; }
+        }
+        std::vector<const char*> labels;
+        labels.reserve(static_cast<size_t>(n_aspects));
+        for (int i = 0; i < n_aspects; ++i) labels.push_back(kAspects[i].label);
+        if (ImGui::Combo("Aspect ratio", &idx, labels.data(), n_aspects)) {
+            P.target_aspect = kAspects[idx].ar;
+        }
+        ImGui::TextDisabled("Default comes from CRT profile (aspect_native)");
     }
 
     if (ImGui::CollapsingHeader("Pass toggles")) {
@@ -241,6 +272,40 @@ void Menu::build_widgets(Pipeline& pipeline,
                 pipeline.set_pass_enabled(i, e);
             }
         }
+    }
+
+    if (ImGui::CollapsingHeader("Captures (screenshots + video)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // Editable capture directory. We mutate the std::string via a
+        // fixed-size InputText buffer to avoid wrestling with ImGui's
+        // callback-based variant.
+        static char buf[512];
+        if (buf[0] == 0 || std::string(buf) != capture_dir) {
+            std::snprintf(buf, sizeof(buf), "%s", capture_dir.c_str());
+        }
+        ImGui::TextDisabled("Folder where Ctrl+Alt+S / Ctrl+Alt+V save");
+        if (ImGui::InputText("##capdir", buf, sizeof(buf))) {
+            // edited
+        }
+        if (ImGui::Button("Browse...", ImVec2(110, 0))) {
+            std::string picked = browse_for_folder("Choose Tubelight capture folder");
+            if (!picked.empty()) {
+                capture_dir = picked;
+                std::snprintf(buf, sizeof(buf), "%s", picked.c_str());
+                capture_dir_changed = true;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Apply", ImVec2(80, 0))) {
+            capture_dir = buf;
+            capture_dir_changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Default", ImVec2(90, 0))) {
+            capture_dir.clear();
+            std::snprintf(buf, sizeof(buf), "%s", "");
+            capture_dir_changed = true;
+        }
+        ImGui::TextDisabled("Ctrl+Alt+S  screenshot  |  Ctrl+Alt+V  toggle video");
     }
 
     ImGui::Separator();
@@ -258,6 +323,8 @@ void Menu::build_widgets(Pipeline& pipeline,
     (void)current_signal_id;
     (void)intensity_multiplier;
     (void)want_quit;
+    (void)capture_dir;
+    (void)capture_dir_changed;
 #endif
 }
 

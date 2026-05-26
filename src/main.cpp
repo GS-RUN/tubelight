@@ -45,7 +45,10 @@ struct Args {
     std::string signal_id;
     std::string export_slangp_path;
     bool overlay = false;
+    bool overlay_fullscreen = false;
     int  overlay_monitor = 0;
+    int  overlay_init_w = 1280;
+    int  overlay_init_h = 960;
     bool unknown_flag = false;
     std::string unknown_flag_text;
 };
@@ -78,8 +81,16 @@ Args parse_args(int argc, char** argv) {
             if (i + 1 < argc) a.signal_id = argv[++i];
         } else if (arg == "--overlay") {
             a.overlay = true;
+        } else if (arg == "--overlay-fullscreen") {
+            a.overlay = true;
+            a.overlay_fullscreen = true;
         } else if (arg == "--monitor") {
             if (i + 1 < argc) a.overlay_monitor = std::atoi(argv[++i]);
+        } else if (arg == "--size") {
+            if (i + 2 < argc) {
+                a.overlay_init_w = std::atoi(argv[++i]);
+                a.overlay_init_h = std::atoi(argv[++i]);
+            }
         } else if (arg == "--export-slangp") {
             if (i + 1 < argc) {
                 a.export_slangp_path = argv[++i];
@@ -108,11 +119,12 @@ void print_help() {
         "Options:\n"
         "  --help, -h                   Print this help and exit\n"
         "  --version, -v                Print version and exit\n"
-        "  --overlay                    Real overlay: fullscreen borderless topmost\n"
-        "                               window that captures the desktop beneath via\n"
-        "                               DXGI Desktop Duplication and applies the CRT\n"
-        "                               pipeline live. Windows only today.\n"
-        "  --monitor <index>            Which display to overlay (default 0)\n"
+        "  --overlay                    Real overlay (Windows): a resizable Win32\n"
+        "                               window whose content is the area underneath,\n"
+        "                               processed through the 8-pass CRT pipeline live.\n"
+        "  --overlay-fullscreen         Same but borderless fullscreen topmost.\n"
+        "  --monitor <index>            Which display to capture from (default 0)\n"
+        "  --size <w> <h>               Initial window size for windowed mode (1280x960)\n"
         "  --shader-only <path>         Apply pipeline to a PNG and show in a window\n"
         "  --target <pid|exe>           [F5+] Attach overlay to a process\n"
         "  --profile <id>               CRT profile id\n"
@@ -376,7 +388,11 @@ int main(int argc, char** argv) {
         o.profile_id    = args.profile_id;
         o.signal_id     = args.signal_id;
         o.monitor_index = args.overlay_monitor;
-        o.fullscreen    = true;
+        o.mode = args.overlay_fullscreen
+                    ? tubelight::overlay::OverlayMode::Fullscreen
+                    : tubelight::overlay::OverlayMode::Windowed;
+        o.init_w = args.overlay_init_w;
+        o.init_h = args.overlay_init_h;
         return tubelight::overlay::run(o);
     }
     if (!args.shader_only_input.empty()) {

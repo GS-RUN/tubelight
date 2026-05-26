@@ -45,7 +45,9 @@ public:
                        std::string& current_profile_id,
                        std::string& current_signal_id,
                        float& intensity_multiplier,
-                       bool& want_quit);
+                       bool& want_quit,
+                       std::string& capture_dir,
+                       bool& capture_dir_changed);
 
     // Renders the ImGui draw data on top of whatever the pipeline produced.
     void end_frame_to_screen();

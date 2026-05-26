@@ -22,6 +22,7 @@ uniform vec2  u_resolution;
 uniform float u_scanline_strength;   // [0, 1]
 uniform float u_beam_width;          // ~1.0..2.0 typical
 uniform float u_gamma_crt;           // ~2.5
+uniform float u_scanline_count;      // visible scanlines per frame (240 NTSC, 288 PAL)
 
 float relative_luminance(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -33,11 +34,11 @@ void main() {
     // Linearize from display-gamma-encoded input to physical luminance.
     vec3 lin = pow(max(src, 0.0), vec3(u_gamma_crt));
 
-    // Which scanline are we on? Use the source texture height as the native
-    // raster resolution. For inputs sampled at higher screen resolution,
-    // this still produces the correct number of visible scanlines.
-    ivec2 src_size = textureSize(u_source, 0);
-    float scanline_y = v_uv.y * float(src_size.y);
+    // We can't read the source-resolution from the input texture any more
+    // (it's the output of the previous FBO pass, sized to the current
+    // window). Use u_scanline_count explicitly — 240 NTSC raster visible
+    // lines by default, configurable via menu.
+    float scanline_y = v_uv.y * max(u_scanline_count, 1.0);
     float center_offset = abs(fract(scanline_y) - 0.5);  // [0, 0.5]
 
     // Beam width is brightness-dependent: bright pixels bloom wider.

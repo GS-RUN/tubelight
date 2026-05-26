@@ -34,6 +34,7 @@ uniform int   u_posterize_levels;    // 0 = no quantisation; 2 = pure 1-bit (Mac
 uniform vec3  u_phosphor_color;      // colour of the monochrome phosphor
 uniform vec3  u_glass_tint;          // per-channel multiplier for glass colour
 uniform float u_glass_age;           // [0..1] adds amber drift on top of tint
+uniform float u_target_aspect;       // 4/3, 5/4, 16/9... 0 = fill window (no bars)
 
 vec2 barrel(vec2 uv, float k) {
     vec2 c = uv - 0.5;
@@ -61,7 +62,33 @@ vec3 sample_with_convergence(vec2 uv) {
 }
 
 void main() {
-    vec2 uv = magnetic_interference(v_uv, u_time);
+    // Letterbox / pillarbox: if the window aspect differs from the CRT's
+    // native aspect, black bars are inserted so the picture isn't stretched.
+    vec2 uv = v_uv;
+    if (u_target_aspect > 0.0) {
+        float win_aspect = u_resolution.x / max(u_resolution.y, 1.0);
+        if (win_aspect > u_target_aspect + 0.001) {
+            // Window wider than target → vertical pillarbox bars.
+            float scale = u_target_aspect / win_aspect;
+            float pad   = (1.0 - scale) * 0.5;
+            if (uv.x < pad || uv.x > 1.0 - pad) {
+                o_color = vec4(0.0, 0.0, 0.0, 1.0);
+                return;
+            }
+            uv.x = (uv.x - pad) / scale;
+        } else if (win_aspect < u_target_aspect - 0.001) {
+            // Window taller than target → horizontal letterbox bars.
+            float scale = win_aspect / u_target_aspect;
+            float pad   = (1.0 - scale) * 0.5;
+            if (uv.y < pad || uv.y > 1.0 - pad) {
+                o_color = vec4(0.0, 0.0, 0.0, 1.0);
+                return;
+            }
+            uv.y = (uv.y - pad) / scale;
+        }
+    }
+
+    uv = magnetic_interference(uv, u_time);
     uv = barrel(uv, u_barrel_strength);
 
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {

@@ -22,10 +22,13 @@ add_library(tubelight_core STATIC
     overlay/overlay_mode_win.cpp
     overlay/overlay_mode_stub.cpp
     overlay/menu.cpp
+    overlay/capture_to_disk.cpp
+    overlay/settings.cpp
+    overlay/folder_picker.cpp
 )
 
 if(WIN32)
-    target_link_libraries(tubelight_core PUBLIC d3d11 dxgi)
+    target_link_libraries(tubelight_core PUBLIC d3d11 dxgi ole32 shell32 uuid)
 endif()
 
 if(imgui_FOUND)

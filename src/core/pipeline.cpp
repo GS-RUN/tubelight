@@ -104,6 +104,7 @@ void apply_uniforms_for_pass(ShaderProgram& sh,
             sh.set_float("u_scanline_strength", p.scanline_strength);
             sh.set_float("u_beam_width",        p.beam_width);
             sh.set_float("u_gamma_crt",         p.gamma_crt);
+            sh.set_float("u_scanline_count",    p.scanline_count);
             break;
         case 4: // Pass 3 — mask
             sh.set_int  ("u_mask_type",     p.mask_type);
@@ -127,6 +128,7 @@ void apply_uniforms_for_pass(ShaderProgram& sh,
             sh.set_vec3 ("u_glass_tint",
                           glm::vec3(p.glass_tint_r, p.glass_tint_g, p.glass_tint_b));
             sh.set_float("u_glass_age",         p.glass_age);
+            sh.set_float("u_target_aspect",     p.target_aspect);
             break;
         default:
             break;
@@ -260,6 +262,12 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
     params_.scanline_strength = static_cast<float>(p.scanline_strength);
     params_.gamma_crt         = 2.5f;
 
+    // Aspect ratio: parse "4:3", "5:4", "16:9" etc. → target width/height.
+    params_.target_aspect = 0.0f;
+    if (p.aspect_native == "4:3")  params_.target_aspect = 4.0f / 3.0f;
+    else if (p.aspect_native == "5:4")  params_.target_aspect = 5.0f / 4.0f;
+    else if (p.aspect_native == "16:9") params_.target_aspect = 16.0f / 9.0f;
+
     switch (p.mask_type) {
         case MaskType::None:           params_.mask_type = 0; break;
         case MaskType::Shadow:         params_.mask_type = 1; break;
@@ -351,6 +359,15 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
 
 void Pipeline::apply_signal_profile(const SignalProfile& s) {
     signal_snapshot_ = s;
+    // Pick a sensible default visible scanline count from the signal standard.
+    // The user can override via the menu slider.
+    switch (s.standard) {
+        case Standard::NtscM:  params_.scanline_count = 240.0f; break;
+        case Standard::PalBg:  params_.scanline_count = 288.0f; break;
+        case Standard::PalN:   params_.scanline_count = 288.0f; break;
+        case Standard::Secam:  params_.scanline_count = 288.0f; break;
+        case Standard::None:   params_.scanline_count = 480.0f; break; // VGA / RGB pure
+    }
 }
 
 } // namespace tubelight

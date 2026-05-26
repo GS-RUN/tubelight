@@ -64,6 +64,10 @@ public:
         float scanline_strength = 0.35f;
         float beam_width        = 1.30f;
         float gamma_crt         = 2.5f;
+        // Visible scanlines per output frame: 240 = NTSC raster visible,
+        // 288 = PAL, 480 = VGA, etc. Set from SignalProfile when available;
+        // a slider in the menu lets the user pick non-standard values.
+        float scanline_count    = 240.0f;
 
         // Pass 3 (mask)
         int   mask_type         = 2;     // 0=none 1=shadow 2=aperture 3=slot 4=diamond 5=cgwg 6=dottrio
@@ -78,6 +82,10 @@ public:
         float barrel_strength   = 0.02f;
         float vignette_strength = 0.12f;
         float gamma_display     = 2.2f;
+        // Target aspect ratio (width/height): 0 = fill window, 1.333 = 4:3,
+        // 1.25 = 5:4, 1.778 = 16:9. When non-zero and the window aspect
+        // differs, the shader letterboxes / pillarboxes with black bars.
+        float target_aspect     = 0.0f;
 
         // Phosphor / glass tint (Pass 6 — from CRTProfile).
         // monochrome=1 collapses input to luminance and recolours through

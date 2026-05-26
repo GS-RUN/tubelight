@@ -35,8 +35,14 @@
 #include "core/gl_common.h"
 #include "core/pipeline.h"
 #include "core/texture.h"
+#include "overlay/capture_to_disk.h"
 #include "overlay/menu.h"
+#include "overlay/settings.h"
 #include "profile/profile_loader.h"
+
+#ifdef TUBELIGHT_HAS_IMGUI
+#include <imgui.h>
+#endif
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -70,6 +76,8 @@ std::atomic<bool> g_hk_freeze_toggle{false};
 std::atomic<bool> g_hk_all_on{false};
 std::atomic<int>  g_hk_toggle_pass{-1};
 std::atomic<bool> g_hk_toggle_menu{false};
+std::atomic<bool> g_hk_screenshot{false};
+std::atomic<bool> g_hk_toggle_video{false};
 
 // Track which interesting keys are currently held so we only fire on the
 // initial WM_KEYDOWN, never on the (potentially-many) auto-repeats that
@@ -102,6 +110,8 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (vk == 'Q')                            g_hk_quit = true;
         else if (vk == 'F')                       g_hk_freeze_toggle = true;
         else if (vk == 'M')                       g_hk_toggle_menu = true;
+        else if (vk == 'S')                       g_hk_screenshot = true;
+        else if (vk == 'V')                       g_hk_toggle_video = true;
         else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
         else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
         else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
@@ -288,7 +298,54 @@ void glfw_error_cb(int code, const char* msg) {
 struct AppState {
     tubelight::Pipeline* pipeline = nullptr;
     bool freeze = false;
+    void* resize_state = nullptr;
 };
+
+// Extracts the rect (mon_x, mon_y, mon_w, mon_h) — relative to monitor 0,0
+// — from the DXGI capture and uploads it to `source`, vertically flipped
+// (DXGI top-down → GL bottom-up). For fullscreen mode the rect is ignored
+// and the full desktop is uploaded.
+//
+// Out-of-bounds pixels (the user dragged the window partially off-screen)
+// are filled with black so the shader sees clean borders.
+void upload_subregion_to_source(class DxgiCapture& capture,
+                                 tubelight::Texture2D& source,
+                                 int mon_x, int mon_y, int mon_w, int mon_h,
+                                 int tex_w, int tex_h,
+                                 std::vector<uint8_t>& tmp,
+                                 bool fullscreen) {
+    const uint8_t* src = capture.pixels();
+    const int CW = capture.width();
+    const int CH = capture.height();
+    const size_t row_bytes = static_cast<size_t>(tex_w) * 4;
+
+    if (fullscreen) {
+        // Identity path: full desktop, top-down → bottom-up.
+        for (int y = 0; y < tex_h; ++y) {
+            std::memcpy(tmp.data() + (tex_h - 1 - y) * row_bytes,
+                        src + y * static_cast<size_t>(tex_w) * 4, row_bytes);
+        }
+    } else {
+        std::fill(tmp.begin(), tmp.end(), 0);
+        for (int y = 0; y < tex_h; ++y) {
+            int sy = mon_y + y;
+            if (sy < 0 || sy >= CH) continue;
+            int dy = tex_h - 1 - y;
+            uint8_t* dst_row = tmp.data() + dy * row_bytes;
+            // Source row starts at (mon_x, sy). Skip if completely out of bounds.
+            int start_x = std::max(0, mon_x);
+            int end_x   = std::min(CW, mon_x + tex_w);
+            if (end_x <= start_x) continue;
+            const uint8_t* src_row = src + (static_cast<size_t>(sy) * CW + start_x) * 4;
+            uint8_t* dst_offset = dst_row + (start_x - mon_x) * 4;
+            std::memcpy(dst_offset, src_row, static_cast<size_t>(end_x - start_x) * 4);
+        }
+    }
+
+    glBindTexture(GL_TEXTURE_2D, source.id());
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tex_w, tex_h,
+                    GL_BGRA, GL_UNSIGNED_BYTE, tmp.data());
+}
 
 void key_cb(GLFWwindow* w, int key, int /*sc*/, int action, int /*mods*/) {
     if (action != GLFW_PRESS) return;
@@ -331,25 +388,27 @@ int run(const Options& opts) {
         return 1;
     }
 
-    // Create the window initially INVISIBLE — we want to grab the first
-    // DXGI frame and upload it before the user sees anything. Otherwise the
-    // brief "no captured frame yet" state shows as a black overlay (and on
-    // some configurations DXGI ends up capturing our own black surface,
-    // creating a stable black feedback loop).
+    // Window mode: Windowed = movable resizable normal Win32 window with a
+    // title bar; Fullscreen = borderless topmost covering the whole monitor;
+    // Region / TargetWindow = positioned + sized to track a user rectangle
+    // or another application's window.
+    const bool fullscreen_mode  = (opts.mode == OverlayMode::Fullscreen);
+    const bool windowed_mode    = (opts.mode == OverlayMode::Windowed);
+
     glfwWindowHint(GLFW_VISIBLE,   GLFW_FALSE);
-    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
-    glfwWindowHint(GLFW_FLOATING,  GLFW_TRUE);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    glfwWindowHint(GLFW_FOCUSED,   GLFW_FALSE);
-    glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
+    glfwWindowHint(GLFW_DECORATED, windowed_mode ? GLFW_TRUE  : GLFW_FALSE);
+    glfwWindowHint(GLFW_FLOATING,  windowed_mode ? GLFW_FALSE : GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, windowed_mode ? GLFW_TRUE  : GLFW_FALSE);
+    glfwWindowHint(GLFW_FOCUSED,   windowed_mode ? GLFW_TRUE  : GLFW_FALSE);
+    glfwWindowHint(GLFW_FOCUS_ON_SHOW, windowed_mode ? GLFW_TRUE : GLFW_FALSE);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 
-    const int W = capture.width();
-    const int H = capture.height();
-    GLFWwindow* window = glfwCreateWindow(W, H, "Tubelight overlay", nullptr, nullptr);
+    int W = fullscreen_mode ? capture.width()  : opts.init_w;
+    int H = fullscreen_mode ? capture.height() : opts.init_h;
+    GLFWwindow* window = glfwCreateWindow(W, H, "Tubelight", nullptr, nullptr);
     if (!window) {
         std::fprintf(stderr, "[overlay] glfwCreateWindow failed\n");
         capture.shutdown();
@@ -357,8 +416,14 @@ int run(const Options& opts) {
         return 1;
     }
 
-    // Position at monitor origin (multi-monitor aware).
-    glfwSetWindowPos(window, capture.origin_x(), capture.origin_y());
+    if (fullscreen_mode) {
+        glfwSetWindowPos(window, capture.origin_x(), capture.origin_y());
+    } else {
+        // Centre on the chosen monitor.
+        glfwSetWindowPos(window,
+                         capture.origin_x() + (capture.width()  - W) / 2,
+                         capture.origin_y() + (capture.height() - H) / 2);
+    }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
@@ -368,32 +433,25 @@ int run(const Options& opts) {
     // DXGI would otherwise include our own rendered output in its grab).
     SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
 
-    // Make the window click-through and never grab focus:
-    //   WS_EX_LAYERED   — required for WS_EX_TRANSPARENT to work cross-process
-    //   WS_EX_TRANSPARENT — mouse clicks pass through to the window beneath
-    //   WS_EX_NOACTIVATE — don't steal focus when the overlay appears
-    //   WS_EX_TOOLWINDOW — don't appear in the taskbar / Alt-Tab
-    //
-    // SetLayeredWindowAttributes with alpha=255 keeps the overlay opaque
-    // while satisfying the layered window requirement.
-    LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-    ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
-    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-    SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-
-    // Reassert topmost in case the style changes dropped it.
-    SetWindowPos(hwnd, HWND_TOPMOST, capture.origin_x(), capture.origin_y(),
-                 W, H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    if (fullscreen_mode) {
+        // Fullscreen overlay: click-through topmost so the user keeps
+        // interacting with whatever is underneath.
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+        SetWindowPos(hwnd, HWND_TOPMOST, capture.origin_x(), capture.origin_y(),
+                     W, H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    } else {
+        // Windowed overlay: a normal Win32 window the user can move + resize.
+        // Stays topmost by default (overlay use case) but accepts input.
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
 
     // Global hotkeys: registered to the thread queue (HWND=nullptr), then
-    // a dedicated worker thread listens for WM_HOTKEY and signals atomics
-    // that the render loop polls. We can't use the overlay's HWND for this
-    // because WS_EX_TRANSPARENT makes the window invisible to most input
-    // routing (including its own RegisterHotKey delivery in some configs).
-    constexpr int kHotkeyQuit   = 1;
-    constexpr int kHotkeyFreeze = 2;
-    constexpr int kHotkeyAllOn  = 3;
-    constexpr int kHotkeyPass1  = 10; // ids 10..17 = passes 0..7
+    // The keyboard hook (kb_hook_proc above) routes by VK code directly into
+    // the g_hk_* atomics, so we no longer need per-hotkey RegisterHotKey IDs.
 
     // Build the source texture sized to the desktop.
     tubelight::Texture2D source;
@@ -442,15 +500,77 @@ int run(const Options& opts) {
         }
     }
 
+    // Helper: read the window's client rect in monitor-local pixel coords.
+    auto read_window_rect_on_monitor = [&](int& out_x, int& out_y, int& out_w, int& out_h) {
+        POINT tl = {0, 0};
+        ClientToScreen(hwnd, &tl);
+        RECT cr;
+        GetClientRect(hwnd, &cr);
+        out_x = tl.x - capture.origin_x();
+        out_y = tl.y - capture.origin_y();
+        out_w = cr.right  - cr.left;
+        out_h = cr.bottom - cr.top;
+    };
+
     AppState state{&pipeline, false};
     glfwSetWindowUserPointer(window, &state);
     glfwSetKeyCallback(window, key_cb);
+
+    // Handle resize of the windowed mode: pipeline + source texture both
+    // resize to the new framebuffer size so we always render at native pixel
+    // density (no upscale blur on top of the CRT shader).
+    // Resize state: the GLFW callback ONLY records the target size; the
+    // expensive FBO + texture + sub-buffer recreation happens once per
+    // main-loop iteration when a pending size differs from the current one.
+    // This debounces the WM_SIZE storm Windows fires during a drag-resize.
+    struct ResizeState {
+        int pending_w = 0;
+        int pending_h = 0;
+    };
+    int win_w = W, win_h = H;
+    std::vector<uint8_t> sub_buffer(static_cast<size_t>(win_w) * win_h * 4, 0);
+    ResizeState rs{win_w, win_h};
+    state.resize_state = &rs;
+
+    glfwSetFramebufferSizeCallback(window, [](GLFWwindow* w, int width, int height) {
+        if (width <= 0 || height <= 0) return;
+        auto* s = static_cast<AppState*>(glfwGetWindowUserPointer(w));
+        if (!s || !s->resize_state) return;
+        auto* r = static_cast<ResizeState*>(s->resize_state);
+        r->pending_w = width;
+        r->pending_h = height;
+    });
+
+    auto apply_pending_resize = [&]() {
+        if (rs.pending_w == win_w && rs.pending_h == win_h) return;
+        if (rs.pending_w <= 0 || rs.pending_h <= 0) return;
+        win_w = rs.pending_w;
+        win_h = rs.pending_h;
+        source.destroy();
+        source.create_empty(win_w, win_h, GL_RGBA8);
+        glBindTexture(GL_TEXTURE_2D, source.id());
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        pipeline.resize(win_w, win_h);
+        sub_buffer.assign(static_cast<size_t>(win_w) * win_h * 4, 0);
+        glViewport(0, 0, win_w, win_h);
+    };
 
     // Menu state — selected profile/signal ids + a global intensity multiplier.
     std::string current_profile_id = opts.profile_id;
     std::string current_signal_id  = opts.signal_id;
     float intensity_multiplier     = 1.0f;
     Pipeline::GlobalParams base_params = pipeline.params();
+
+    Settings settings = load_settings();
+    std::string effective_capture_dir =
+        settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
+    std::string ui_capture_dir = settings.capture_dir;
+
+    VideoRecorder video_recorder;
+    std::string toast_text;
+    auto toast_time = std::chrono::steady_clock::now() - std::chrono::hours(1);
+    const auto kToastShown = std::chrono::milliseconds(2500);
 
     Menu menu;
     bool has_menu = menu.init(window);
@@ -466,10 +586,9 @@ int run(const Options& opts) {
         "[overlay] %dx%d — capturing first desktop frame before showing window...\n",
         W, H);
 
-    // Vertical flip is needed because DXGI gives top-down rows while GL
-    // wants bottom-up. Cheapest: row-flip on CPU once per frame.
-    std::vector<uint8_t> flipped(static_cast<size_t>(W) * H * 4);
-    const size_t row = static_cast<size_t>(W) * 4;
+    // upload_subregion_to_source() does the vertical flip into `sub_buffer`
+    // (resized by the framebuffer-size callback) — no separate full-frame
+    // buffer is needed any more.
 
     // -----------------------------------------------------------------
     // Install a low-level keyboard hook so Ctrl+Alt+<key> works regardless
@@ -525,14 +644,11 @@ int run(const Options& opts) {
                 continue;
             }
             if (new_frame) {
-                const uint8_t* src = capture.pixels();
-                for (int y = 0; y < H; ++y) {
-                    std::memcpy(flipped.data() + (H - 1 - y) * row,
-                                src + y * row, row);
-                }
-                glBindTexture(GL_TEXTURE_2D, source.id());
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, W, H,
-                                GL_BGRA, GL_UNSIGNED_BYTE, flipped.data());
+                int wx, wy, ww, wh;
+                read_window_rect_on_monitor(wx, wy, ww, wh);
+                upload_subregion_to_source(capture, source, wx, wy, ww, wh,
+                                            win_w, win_h, sub_buffer,
+                                            fullscreen_mode);
                 got = true;
             } else {
                 // Force the desktop to repaint so DXGI has something to deliver.
@@ -553,9 +669,13 @@ int run(const Options& opts) {
     pipeline.render_to_screen(source.id());
     glfwSwapBuffers(window);
     glfwShowWindow(window);
-    // Reassert topmost + position after showing (some compositors reset it).
-    SetWindowPos(hwnd, HWND_TOPMOST, capture.origin_x(), capture.origin_y(),
-                 W, H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    if (fullscreen_mode) {
+        SetWindowPos(hwnd, HWND_TOPMOST, capture.origin_x(), capture.origin_y(),
+                     W, H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    } else {
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    }
 
     std::printf(
         "[overlay] hotkeys: Ctrl+Alt+Q quit | Ctrl+Alt+F freeze | "
@@ -568,6 +688,7 @@ int run(const Options& opts) {
     auto loop_started = std::chrono::steady_clock::now();
 
     while (!glfwWindowShouldClose(window)) {
+        apply_pending_resize();
         bool new_frame = false;
         if (!state.freeze) {
             // DXGI only delivers frames when the desktop changes.
@@ -598,14 +719,11 @@ int run(const Options& opts) {
         }
 
         if (new_frame) {
-            // Flip rows top-down (DXGI) → bottom-up (GL).
-            const uint8_t* src = capture.pixels();
-            for (int y = 0; y < H; ++y) {
-                std::memcpy(flipped.data() + (H - 1 - y) * row, src + y * row, row);
-            }
-            glBindTexture(GL_TEXTURE_2D, source.id());
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, W, H,
-                            GL_BGRA, GL_UNSIGNED_BYTE, flipped.data());
+            int wx, wy, ww, wh;
+            read_window_rect_on_monitor(wx, wy, ww, wh);
+            upload_subregion_to_source(capture, source, wx, wy, ww, wh,
+                                        win_w, win_h, sub_buffer,
+                                        fullscreen_mode);
             have_initial = true;
             ++frames_new;
         }
@@ -627,8 +745,58 @@ int run(const Options& opts) {
             std::string prev_profile = current_profile_id;
             std::string prev_signal  = current_signal_id;
             float       prev_intensity = intensity_multiplier;
+            bool cap_changed = false;
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
-                               intensity_multiplier, want_quit_from_menu);
+                               intensity_multiplier, want_quit_from_menu,
+                               ui_capture_dir, cap_changed);
+            if (cap_changed) {
+                settings.capture_dir = ui_capture_dir;
+                effective_capture_dir =
+                    ui_capture_dir.empty() ? default_capture_dir() : ui_capture_dir;
+                save_settings(settings);
+                toast_text = ui_capture_dir.empty()
+                    ? std::string("Capture folder reset to default")
+                    : std::string("Capture folder: ") + effective_capture_dir;
+                toast_time = std::chrono::steady_clock::now();
+            }
+
+#ifdef TUBELIGHT_HAS_IMGUI
+            // ---- Overlay-on-overlay HUD: toast + REC indicator ----
+            ImDrawList* fg = ImGui::GetForegroundDrawList();
+            auto now_steady = std::chrono::steady_clock::now();
+            if (!toast_text.empty() && (now_steady - toast_time) < kToastShown) {
+                // Fade out the last 600 ms.
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                now_steady - toast_time).count();
+                float alpha = 1.0f;
+                auto total_ms = kToastShown.count();
+                if (elapsed > total_ms - 600) {
+                    alpha = std::max(0.0f,
+                                static_cast<float>(total_ms - elapsed) / 600.0f);
+                }
+                ImVec2 ts = ImGui::CalcTextSize(toast_text.c_str());
+                const float pad = 14.0f;
+                ImVec2 box_min(20.0f, static_cast<float>(win_h) - ts.y - 2 * pad - 20.0f);
+                ImVec2 box_max(box_min.x + ts.x + 2 * pad,
+                               box_min.y + ts.y + 2 * pad);
+                ImU32 col_bg   = ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.78f * alpha));
+                ImU32 col_text = ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, alpha));
+                fg->AddRectFilled(box_min, box_max, col_bg, 6.0f);
+                fg->AddText(ImVec2(box_min.x + pad, box_min.y + pad),
+                            col_text, toast_text.c_str());
+            }
+            if (video_recorder.is_recording()) {
+                // Blinking red dot + REC label, top-left.
+                float t = static_cast<float>(std::fmod(glfwGetTime() * 1.5, 1.5));
+                float bright = (t < 1.0f) ? 1.0f : 0.4f;
+                ImU32 col = ImGui::GetColorU32(ImVec4(1.0f * bright, 0.1f, 0.1f, 0.95f));
+                fg->AddCircleFilled(ImVec2(28.0f, 28.0f), 9.0f, col, 24);
+                fg->AddText(ImVec2(46.0f, 19.0f),
+                            ImGui::GetColorU32(ImVec4(1.0f, 0.6f, 0.6f, 0.95f)),
+                            "REC");
+            }
+#endif
+
             menu.end_frame_to_screen();
 
             if (want_quit_from_menu) glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -663,6 +831,12 @@ int run(const Options& opts) {
                 auto s = tubelight::load_signal_profile_by_id(current_signal_id, err);
                 if (s) {
                     pipeline.apply_signal_profile(*s);
+                    // apply_signal_profile mutates params (notably
+                    // scanline_count and possibly more). Re-snapshot
+                    // base_params so the intensity-scale path keeps
+                    // operating on the *current* baseline.
+                    base_params = pipeline.params();
+                    intensity_multiplier = 1.0f;
                     std::fprintf(stderr, "[overlay] applied signal '%s'\n",
                                  current_signal_id.c_str());
                 } else {
@@ -708,6 +882,61 @@ int run(const Options& opts) {
         if (g_hk_toggle_menu.exchange(false) && has_menu) {
             menu.toggle();
         }
+        // Screenshot: read the framebuffer AFTER the pipeline rendered but
+        // BEFORE swap, so we capture exactly what the user sees.
+        if (g_hk_screenshot.exchange(false)) {
+            std::string err;
+            std::string out = save_screenshot_png(win_w, win_h,
+                                                    effective_capture_dir, err);
+            if (!out.empty()) {
+                std::fprintf(stderr, "[overlay] screenshot saved: %s\n", out.c_str());
+                // Trim path to just the filename for the toast.
+                auto slash = out.find_last_of("/\\");
+                std::string fname = (slash == std::string::npos) ? out : out.substr(slash + 1);
+                toast_text = "Screenshot saved: " + fname;
+                toast_time = std::chrono::steady_clock::now();
+            } else {
+                std::fprintf(stderr, "[overlay] screenshot failed: %s\n", err.c_str());
+                toast_text = "Screenshot failed";
+                toast_time = std::chrono::steady_clock::now();
+            }
+        }
+        if (g_hk_toggle_video.exchange(false)) {
+            if (video_recorder.is_recording()) {
+                video_recorder.stop();
+                std::fprintf(stderr, "[overlay] video saved: %s\n",
+                              video_recorder.output_path().c_str());
+                auto slash = video_recorder.output_path().find_last_of("/\\");
+                std::string fname = (slash == std::string::npos)
+                    ? video_recorder.output_path()
+                    : video_recorder.output_path().substr(slash + 1);
+                toast_text = "Video saved: " + fname;
+                toast_time = std::chrono::steady_clock::now();
+            } else {
+                std::string err;
+                if (video_recorder.start(win_w, win_h, 60,
+                                         effective_capture_dir, err)) {
+                    std::fprintf(stderr, "[overlay] video recording → %s\n",
+                                  video_recorder.output_path().c_str());
+                    toast_text = "Recording... Ctrl+Alt+V to stop";
+                    toast_time = std::chrono::steady_clock::now();
+                } else {
+                    std::fprintf(stderr, "[overlay] video start failed: %s\n",
+                                  err.c_str());
+                    toast_text = "Video start failed (is ffmpeg in PATH?)";
+                    toast_time = std::chrono::steady_clock::now();
+                }
+            }
+        }
+        if (video_recorder.is_recording()) {
+            if (!video_recorder.push_frame()) {
+                // Pipe broken (ffmpeg crashed / disk full). Bail out and tell
+                // the user — we don't sit forever in zombie-recording mode.
+                video_recorder.stop();
+                toast_text = "Recording stopped: pipe error";
+                toast_time = std::chrono::steady_clock::now();
+            }
+        }
 
         // When the menu is open we need clicks to land on it, so we drop
         // WS_EX_TRANSPARENT temporarily. Restore click-through on close.
@@ -738,6 +967,14 @@ int run(const Options& opts) {
     if (hotkey_thread.joinable()) hotkey_thread.join();
 
     if (has_menu) menu.shutdown();
+    if (video_recorder.is_recording()) video_recorder.stop();
+
+    // Nullify GLFW callbacks and user pointer before tearing down — the
+    // framebuffer-size callback can fire one last time during destruction
+    // and our stack-local AppState/ResizeState would already be gone.
+    glfwSetFramebufferSizeCallback(window, nullptr);
+    glfwSetKeyCallback(window, nullptr);
+    glfwSetWindowUserPointer(window, nullptr);
 
     capture.shutdown();
     glfwDestroyWindow(window);
