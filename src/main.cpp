@@ -181,13 +181,18 @@ void print_help() {
         "  --screenshot <path>          [F2+] Save next frame as PNG and exit\n"
         "  --export-slangp <path>       [F7]  Export current profile as RetroArch preset\n"
         "\n"
-        "Interactive keys (in --shader-only mode):\n"
-        "  ESC                          Quit\n"
-        "  1..8                         Toggle pass −1..6 individually\n"
-        "  0                            Re-enable all passes\n"
-        "  R                            Reload shaders from disk\n"
+        "Overlay global hotkeys (Ctrl+Alt+ ...):\n"
+        "  Q  quit            M  toggle menu      F  freeze frame\n"
+        "  Enter  toggle fullscreen (preserves aspect)\n"
+        "  T  attach/detach foreground window     H  toggle status HUD\n"
+        "  C  toggle click-through (windowed)     S  PNG screenshot\n"
+        "  V  toggle MP4 recording (needs ffmpeg in PATH)\n"
+        "  0  enable all passes  |  1..8  toggle individual pass\n"
         "\n"
-        "See docs/USER_GUIDE.md for build, specs/PLAN.LOCKED.md for roadmap.\n",
+        "Interactive keys (in --shader-only mode):\n"
+        "  ESC  Quit  |  1..8 toggle pass −1..6  |  0 enable all  |  R reload shaders\n"
+        "\n"
+        "See docs/USER_GUIDE.md + docs/BEZELS.md for details.\n",
         kVersion
     );
 }

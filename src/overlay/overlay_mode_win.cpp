@@ -1443,10 +1443,13 @@ int run(const Options& opts) {
                         if (t.size() > 32) t = t.substr(0, 29) + "...";
                         mode_line += " \"" + t + "\"";
                     }
+                } else if (region_active) {
+                    mode_line = "Mode: Region (fixed rect)";
                 } else if (fullscreen_active) {
                     mode_line = "Mode: Fullscreen";
                 } else {
                     mode_line = "Mode: Windowed";
+                    if (clickthrough_user) mode_line += " (click-through)";
                 }
 
                 std::string profile_line = "Profile: " +
