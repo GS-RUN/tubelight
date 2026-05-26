@@ -1199,12 +1199,11 @@ int run(const Options& opts) {
             have_initial = true;
             ++frames_new;
 
-            // Cheap luminance sample for the audio flyback modulation.
-            // sub_buffer is BGRA8. We scan every Nth pixel — 1920×1200×4
-            // = 9.2 MB is too much per-frame, but sampling 1 in 64 is
-            // ~140 KB and gives a stable mean within ~2-3% of the
-            // ground truth. Only computed when audio is enabled.
-            if (audio_enabled && crt_audio.is_enabled() && !sub_buffer.empty()) {
+            // Cheap luminance sample shared between audio flyback
+            // modulation and the pipeline's voltage-bloom uniform.
+            // sub_buffer is BGRA8. We scan 1 in 64 pixels — ~140 KB
+            // per 1920×1200 frame, sub-ms, mean within ~3 % of truth.
+            if (!sub_buffer.empty()) {
                 const uint8_t* px = sub_buffer.data();
                 const size_t total_px = static_cast<size_t>(win_w) * win_h;
                 if (total_px > 0) {
@@ -1213,7 +1212,6 @@ int run(const Options& opts) {
                     size_t   n   = 0;
                     for (size_t i = 0; i < total_px; i += step) {
                         const uint8_t* p = px + i * 4;
-                        // BGRA → BT.709 luma; integer approximation.
                         acc += static_cast<uint64_t>(p[2]) * 54
                              + static_cast<uint64_t>(p[1]) * 183
                              + static_cast<uint64_t>(p[0]) * 19;
@@ -1221,7 +1219,10 @@ int run(const Options& opts) {
                     }
                     if (n > 0) {
                         float lum = static_cast<float>(acc) / static_cast<float>(n) / (256.0f * 255.0f);
-                        crt_audio.set_frame_luminance(lum);
+                        if (audio_enabled && crt_audio.is_enabled()) {
+                            crt_audio.set_frame_luminance(lum);
+                        }
+                        pipeline.set_frame_mean_luminance(lum);
                     }
                 }
             }

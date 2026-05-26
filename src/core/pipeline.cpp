@@ -59,6 +59,7 @@ void apply_uniforms_for_pass(ShaderProgram& sh,
                              int src_width,
                              int src_height,
                              float time,
+                             float frame_mean_lum,
                              const std::optional<SignalProfile>& signal) {
     // Common uniforms used by most shaders.
     sh.set_vec2("u_resolution",
@@ -105,6 +106,7 @@ void apply_uniforms_for_pass(ShaderProgram& sh,
             sh.set_float("u_beam_width",        p.beam_width);
             sh.set_float("u_gamma_crt",         p.gamma_crt);
             sh.set_float("u_scanline_count",    p.scanline_count);
+            sh.set_float("u_frame_mean_lum",    frame_mean_lum);
             break;
         case 4: // Pass 3 — mask
             sh.set_int  ("u_mask_type",     p.mask_type);
@@ -254,7 +256,7 @@ bool Pipeline::render_to_screen(GLuint source_tex) {
         glClear(GL_COLOR_BUFFER_BIT);
 
         sh.use();
-        apply_uniforms_for_pass(sh, i, params_, output_width_, output_height_, time_, signal_snapshot_);
+        apply_uniforms_for_pass(sh, i, params_, output_width_, output_height_, time_, frame_mean_lum_, signal_snapshot_);
 
         // Bind input texture to unit 0 ("u_source")
         glActiveTexture(GL_TEXTURE0);

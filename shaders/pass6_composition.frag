@@ -43,10 +43,14 @@ vec2 barrel(vec2 uv, float k) {
 }
 
 vec2 magnetic_interference(vec2 uv, float t) {
-    // Slow horizontal wave + slower vertical breathe; both micro-amplitude.
-    float dx = sin(t * 0.30 + uv.y * 6.0) * 0.0003;
-    float dy = sin(t * 0.13 + uv.x * 8.0) * 0.0002;
-    return uv + vec2(dx, dy);
+    // Slow horizontal wave + slower vertical breathe, plus a faint
+    // higher-frequency vertical ripple that emulates 60 Hz hum bleed
+    // from a nearby transformer. Amplitudes are still small but ~3×
+    // more visible than the previous "almost invisible" setting.
+    float dx = sin(t * 0.30 + uv.y * 6.0) * 0.0010;
+    float dy = sin(t * 0.13 + uv.x * 8.0) * 0.0007;
+    float hum = sin(t * 6.28 * 0.5 + uv.y * 80.0) * 0.0003;  // ~0.5 Hz ripple
+    return uv + vec2(dx, dy + hum);
 }
 
 vec3 sample_with_convergence(vec2 uv) {

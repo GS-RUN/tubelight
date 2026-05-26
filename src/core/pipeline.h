@@ -133,6 +133,12 @@ public:
     void set_time(float t) { time_ = t; }
     float time() const { return time_; }
 
+    // Cheap CPU-side rolling estimate of average frame luminance (0..1).
+    // Drives voltage-bloom in Pass 2: a brighter screen sags the CRT
+    // power supply, the beam current goes up, and the beam widens.
+    void set_frame_mean_luminance(float lum) { frame_mean_lum_ = lum; }
+    float frame_mean_luminance() const { return frame_mean_lum_; }
+
     // Optional signal profile snapshot used to feed Pass −1 uniforms.
     void set_signal_profile_snapshot(const SignalProfile& s) { signal_snapshot_ = s; }
     const std::optional<SignalProfile>& signal_profile_snapshot() const { return signal_snapshot_; }
@@ -166,6 +172,7 @@ private:
     GlobalParams params_;
     FullscreenQuad quad_;
     float time_ = 0.0f;
+    float frame_mean_lum_ = 0.0f;
     std::optional<SignalProfile> signal_snapshot_;
 
     // Pass 5 history: previous frame's pass-5 output, sampled by the next
