@@ -26,10 +26,11 @@ add_library(tubelight_core STATIC
     overlay/settings.cpp
     overlay/folder_picker.cpp
     overlay/preset_saver.cpp
+    audio/crt_audio.cpp
 )
 
 if(WIN32)
-    target_link_libraries(tubelight_core PUBLIC d3d11 dxgi ole32 shell32 uuid)
+    target_link_libraries(tubelight_core PUBLIC d3d11 dxgi ole32 shell32 uuid xaudio2)
 endif()
 
 if(imgui_FOUND)

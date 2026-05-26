@@ -53,6 +53,12 @@ Settings load_settings() {
         if (j.contains("hud_visible") && j.at("hud_visible").is_boolean()) {
             s.hud_visible = j.at("hud_visible").get<bool>();
         }
+        if (j.contains("crt_audio_enabled") && j.at("crt_audio_enabled").is_boolean()) {
+            s.crt_audio_enabled = j.at("crt_audio_enabled").get<bool>();
+        }
+        if (j.contains("crt_audio_volume") && j.at("crt_audio_volume").is_number()) {
+            s.crt_audio_volume = j.at("crt_audio_volume").get<float>();
+        }
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[overlay] settings parse error: %s\n", e.what());
     }
@@ -61,8 +67,10 @@ Settings load_settings() {
 
 void save_settings(const Settings& s) {
     nlohmann::json j;
-    j["capture_dir"] = s.capture_dir;
-    j["hud_visible"] = s.hud_visible;
+    j["capture_dir"]       = s.capture_dir;
+    j["hud_visible"]       = s.hud_visible;
+    j["crt_audio_enabled"] = s.crt_audio_enabled;
+    j["crt_audio_volume"]  = s.crt_audio_volume;
     std::ofstream out(settings_file_path());
     if (!out.is_open()) {
         std::fprintf(stderr, "[overlay] could not write %s\n", settings_file_path().c_str());

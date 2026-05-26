@@ -17,6 +17,8 @@ namespace tubelight::overlay {
 struct Settings {
     std::string capture_dir; // empty → default (default_capture_dir())
     bool        hud_visible = false; // status HUD (Ctrl+Alt+H) initial state
+    bool        crt_audio_enabled = false; // CRT flyback whine on/off
+    float       crt_audio_volume  = 0.20f; // 0..1 master gain
 };
 
 // Reads settings.json if present. Missing fields keep their default values.

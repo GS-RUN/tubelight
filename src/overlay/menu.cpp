@@ -157,9 +157,13 @@ void Menu::build_widgets(Pipeline& pipeline,
                          bool& capture_dir_changed,
                          WindowActions& window_actions,
                          bool& hud_visible,
-                         bool& hud_changed) {
+                         bool& hud_changed,
+                         bool& audio_enabled,
+                         float& audio_volume,
+                         bool& audio_changed) {
     capture_dir_changed = false;
     hud_changed = false;
+    audio_changed = false;
     window_actions.snap_to_aspect_requested = false;
     window_actions.toggle_fullscreen_requested = false;
     window_actions.track_foreground_requested = false;
@@ -380,6 +384,17 @@ void Menu::build_widgets(Pipeline& pipeline,
         }
     }
 
+    if (ImGui::CollapsingHeader("CRT audio")) {
+        if (ImGui::Checkbox("Enable flyback whine (~15.7 kHz)", &audio_enabled)) {
+            audio_changed = true;
+        }
+        if (ImGui::SliderFloat("Volume", &audio_volume, 0.0f, 1.0f, "%.2f")) {
+            audio_changed = true;
+        }
+        ImGui::TextDisabled("Modulated by frame mean luminance (whiter = louder)");
+        ImGui::TextDisabled("Off by default; persists in settings.json");
+    }
+
     if (ImGui::CollapsingHeader("Captures (screenshots + video)", ImGuiTreeNodeFlags_DefaultOpen)) {
         // Editable capture directory. We mutate the std::string via a
         // fixed-size InputText buffer to avoid wrestling with ImGui's
@@ -440,6 +455,9 @@ void Menu::build_widgets(Pipeline& pipeline,
     (void)window_actions;
     (void)hud_visible;
     (void)hud_changed;
+    (void)audio_enabled;
+    (void)audio_volume;
+    (void)audio_changed;
 #endif
 }
 

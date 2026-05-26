@@ -35,6 +35,7 @@
 #include "core/gl_common.h"
 #include "core/pipeline.h"
 #include "core/texture.h"
+#include "audio/crt_audio.h"
 #include "overlay/capture_to_disk.h"
 #include "overlay/menu.h"
 #include "overlay/preset_saver.h"
@@ -927,6 +928,22 @@ int run(const Options& opts) {
         settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
     std::string ui_capture_dir = settings.capture_dir;
     bool hud_visible = settings.hud_visible;
+    bool  audio_enabled = settings.crt_audio_enabled;
+    float audio_volume  = settings.crt_audio_volume;
+
+    // CRT audio (XAudio2 flyback whine). Init best-effort: if it fails
+    // for any reason (no audio device, driver issue, headless test env)
+    // the overlay keeps running silently.
+    tubelight::audio::CrtAudio crt_audio;
+    {
+        std::string audio_err;
+        if (!crt_audio.init(audio_err)) {
+            std::fprintf(stderr, "[overlay] CRT audio disabled: %s\n", audio_err.c_str());
+        } else {
+            crt_audio.set_volume(audio_volume);
+            crt_audio.set_enabled(audio_enabled);
+        }
+    }
 
     VideoRecorder video_recorder;
     std::string toast_text;
@@ -1181,6 +1198,33 @@ int run(const Options& opts) {
                                         fullscreen_active);
             have_initial = true;
             ++frames_new;
+
+            // Cheap luminance sample for the audio flyback modulation.
+            // sub_buffer is BGRA8. We scan every Nth pixel — 1920×1200×4
+            // = 9.2 MB is too much per-frame, but sampling 1 in 64 is
+            // ~140 KB and gives a stable mean within ~2-3% of the
+            // ground truth. Only computed when audio is enabled.
+            if (audio_enabled && crt_audio.is_enabled() && !sub_buffer.empty()) {
+                const uint8_t* px = sub_buffer.data();
+                const size_t total_px = static_cast<size_t>(win_w) * win_h;
+                if (total_px > 0) {
+                    const size_t step = 64;
+                    uint64_t acc = 0;
+                    size_t   n   = 0;
+                    for (size_t i = 0; i < total_px; i += step) {
+                        const uint8_t* p = px + i * 4;
+                        // BGRA → BT.709 luma; integer approximation.
+                        acc += static_cast<uint64_t>(p[2]) * 54
+                             + static_cast<uint64_t>(p[1]) * 183
+                             + static_cast<uint64_t>(p[0]) * 19;
+                        ++n;
+                    }
+                    if (n > 0) {
+                        float lum = static_cast<float>(acc) / static_cast<float>(n) / (256.0f * 255.0f);
+                        crt_audio.set_frame_luminance(lum);
+                    }
+                }
+            }
         }
         ++frames_total;
 
@@ -1206,12 +1250,21 @@ int run(const Options& opts) {
             wa.is_tracking_target = target_active;
             wa.target_title       = target_title_cached;
             bool hud_changed = false;
+            bool audio_changed = false;
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
                                intensity_multiplier, want_quit_from_menu,
                                ui_capture_dir, cap_changed, wa,
-                               hud_visible, hud_changed);
+                               hud_visible, hud_changed,
+                               audio_enabled, audio_volume, audio_changed);
             if (hud_changed) {
                 settings.hud_visible = hud_visible;
+                save_settings(settings);
+            }
+            if (audio_changed) {
+                settings.crt_audio_enabled = audio_enabled;
+                settings.crt_audio_volume  = audio_volume;
+                crt_audio.set_enabled(audio_enabled);
+                crt_audio.set_volume(audio_volume);
                 save_settings(settings);
             }
             if (cap_changed) {
@@ -1322,6 +1375,10 @@ int run(const Options& opts) {
                     pipeline.apply_crt_profile(*p);
                     base_params = pipeline.params();
                     intensity_multiplier = 1.0f;
+                    // Trigger degauss thump on profile switch — that
+                    // characteristic low rumble a CRT makes when you
+                    // change input or turn it on.
+                    crt_audio.trigger_degauss(1.0f);
                     std::fprintf(stderr,
                         "[overlay] applied CRT '%s': mono=%d phosphor=(%.2f,%.2f,%.2f) tint=(%.2f,%.2f,%.2f) age=%.2f mask=%d strength=%.2f\n",
                         current_profile_id.c_str(),
@@ -1351,6 +1408,11 @@ int run(const Options& opts) {
                     // operating on the *current* baseline.
                     base_params = pipeline.params();
                     intensity_multiplier = 1.0f;
+                    // Pick the right flyback frequency for the audio
+                    // synth so PAL signals get 15.625 kHz instead of
+                    // 15.734 kHz NTSC. Approx h_freq_khz × 1000.
+                    crt_audio.set_flyback_frequency_hz(
+                        static_cast<float>(s->h_freq_khz) * 1000.0f);
                     std::fprintf(stderr, "[overlay] applied signal '%s'\n",
                                  current_signal_id.c_str());
                 } else {
