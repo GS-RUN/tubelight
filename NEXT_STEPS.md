@@ -49,24 +49,24 @@ Every JSON has `source.url` per Constitution C2. Monochromes have correct satura
 
 ### Big items still open (planned earlier, not done)
 
-- **F+I — Capture by region or target window** (task #21). Two new modes:
-  - `--overlay-region` opens a Snipping-Tool-style rectangle selector; the overlay positions/sizes to that.
-  - `--overlay-target <title|pid>` follows a specific app window; if it moves or resizes, the overlay tracks it.
-- **B — Pass 5 history-FBO temporal persistence** (task #23). Per-channel exponential decay using `decay_ms_{r,g,b}` from the profile. Visible "warm trail" effect when moving windows quickly. Needs a ping-pong FBO refactor in `core/pipeline.cpp`.
-- **E — Audio** (task #25). Miniaudio header-only library, flyback whine (~15.7 kHz NTSC / 15.6 kHz PAL) modulated by frame luminance, degaussing thump on profile change.
-- **J — Physics effects iteration** (task #26):
-  - Heavier beam bloom on bright pixels (intensity-dependent Gaussian widening).
-  - Voltage blooming dynamic (frame-mean luminance → beam width, screen tries to shrink when fully white).
-  - Magnetic / thermal interference temporal (more pronounced).
-  - Sub-pixel colour blending (specifically test the Sonic Green Hill cascade demo).
-  - Faux analog antialiasing.
+- **F+I — Capture by region or target window** — DONE.
+  - `--overlay-target <title>` / `--overlay-target-pid <pid>` + `Ctrl+Alt+T` hotkey + menu "Target window" section. Overlay follows the target's client rect every frame, click-through. Done sesión 3.
+  - `--overlay-region x,y,w,h` + menu "Region (fixed rect)" section pins the overlay to a fixed monitor-relative rectangle. Done sesión 3.
+- **B — Pass 5 history-FBO temporal persistence** — DONE. history_fbo_ + glCopyTexSubImage2D blit per frame. Per-channel decay via persistence_strength × ratios (R=1.0, G=0.5, B=0.5 for P22 colour CRT warm-trail). Menu sliders. Done sesión 3.
+- **E — Audio** — DONE. XAudio2 streaming source voice + worker thread, sine at h_freq_khz×1000, amplitude modulated by frame mean luminance, degauss thump on profile change. Menu enable + volume slider, off by default, persisted. Done sesión 3.
+- **C — Physics effects** — DONE. Voltage bloom (u_frame_mean_lum widens beam +30 % at full white), heavier intensity-dependent bloom (1.0→2.5×), sub-pixel AA in Pass 2 (4-tap average), magnetic interference ×3-4 amplitude in Pass 6 + 0.5 Hz hum ripple. Done sesión 3.
 
 ### Mid-priority polish
 
-- HUD overlay showing currently-active profile + signal in a corner during normal use (toggleable).
-- Per-profile preset save: "Save current as new preset..." button → writes a JSON in `%APPDATA%\Tubelight\profiles\crts\`.
-- Bezel overlay (textured PNG of a real CRT frame around the picture) — depends on aspect snap behaviour above.
-- Cleanup of unused `kHotkeyQuit / kHotkeyFreeze / kHotkeyAllOn / kHotkeyPass1` constants in `overlay_mode_win.cpp` (dead since the keyboard hook refactor).
+- **HUD** — DONE. Top-right floating box shows profile + signal + mode. Ctrl+Alt+H toggle + menu checkbox + persist. Done sesión 3.
+- **Save current as preset** — DONE. Inline menu form (id + display_name + Save button). Writes %APPDATA%\Tubelight\profiles\crts\<id>.json based on the current profile + live params. Done sesión 3.
+- Bezel overlay (textured PNG of a real CRT frame around the picture) — depends on aspect snap behaviour above. **Open.**
+
+### Optional / deferred for v1.1
+
+- PBO double-buffer in `glReadPixels` (during video recording).
+- Linux build local + cross-platform bit-comparable parity (M7).
+- Refactors: `Menu::build_widgets` 12-param signature → `MenuIO` struct; stringly-typed `aspect_native` → enum.
 
 ## Build commands (Windows)
 
