@@ -769,11 +769,38 @@ int run(const Options& opts) {
 
     auto apply_clickthrough_user = [&](bool on) {
         clickthrough_user = on;
-        std::fprintf(stderr, on ? "[overlay] click-through ON\n"
+        // Cross-process click-through REQUIRES WS_EX_LAYERED +
+        // WS_EX_TRANSPARENT (DWM honours hit-test there). WM_NCHITTEST
+        // returning HTTRANSPARENT only routes clicks to windows in the
+        // SAME thread — useless for "click on overlay → openMSX gets it"
+        // because openMSX is a different process.
+        //
+        // LAYERED gets added on first activation and is then LEFT set
+        // permanently — runtime removal of LAYERED is unreliable on
+        // some hardware (broke earlier). We only toggle TRANSPARENT +
+        // NOACTIVATE between sessions.
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if (on) {
+            if (!(ex & WS_EX_LAYERED)) {
+                ex |= WS_EX_LAYERED;
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                // Set alpha=255 so the layered window paints normally
+                // (OpenGL back buffer composited at full opacity).
+                SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+                ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);  // re-read
+            }
+            ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+        } else {
+            ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+        }
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        // Force the new ex style to take effect immediately.
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                     SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        std::fprintf(stderr, on ? "[overlay] click-through ON (WS_EX_TRANSPARENT)\n"
                                 : "[overlay] click-through OFF\n");
-        // Toast pops on every toggle so the user gets visible feedback —
-        // confirms the hotkey landed even when stderr is invisible
-        // (Explorer launch with no console).
         toast_text  = on
             ? "CLICK-THROUGH: ON  (clicks pass to apps below)"
             : "CLICK-THROUGH: OFF (clicks land on the overlay)";
@@ -1841,14 +1868,22 @@ int run(const Options& opts) {
         }
 
         // When the menu is open we need clicks to land on it, so we drop
-        // Menu open/close: grab focus when opening so ImGui sees clicks
-        // (the NCHITTEST suppression at the top of the loop handles the
-        // hit-test transparency, no WS_EX_TRANSPARENT manipulation here).
+        // Menu open/close: temporarily disable WS_EX_TRANSPARENT while
+        // the menu is up so the user can click on widgets. Restore on
+        // close if click-through is supposed to stay on.
         bool menu_open_now = has_menu && menu.is_open();
+        const bool should_be_click_through =
+            initial_fullscreen || target_active || region_active || clickthrough_user;
         if (menu_open_now != menu_was_open) {
+            LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             if (menu_open_now) {
+                ex &= ~WS_EX_TRANSPARENT;
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 SetForegroundWindow(hwnd);
                 SetFocus(hwnd);
+            } else if (should_be_click_through) {
+                ex |= WS_EX_TRANSPARENT;
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
             }
             menu_was_open = menu_open_now;
         }
