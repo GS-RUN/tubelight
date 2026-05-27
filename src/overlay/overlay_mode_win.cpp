@@ -264,6 +264,23 @@ LRESULT CALLBACK tubelight_subclass_proc(HWND hwnd, UINT msg,
             return MA_NOACTIVATEANDEAT;
         }
         break;
+    case WM_KEYDOWN:
+    case WM_SYSKEYDOWN: {
+        // Fallback path for the global hotkeys when the LL hook is being
+        // intercepted by another driver (NVIDIA, Logitech, antivirus,
+        // some screen-grabber tools insert themselves first). The window
+        // sees these directly when focused. We only fire the click-through
+        // toggle here since that's the one users have reported as broken;
+        // the other hotkeys are less likely to need a fallback.
+        const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool alt  = (GetAsyncKeyState(VK_MENU)    & 0x8000) != 0;
+        if (ctrl && alt && wp == 'C') {
+            g_hk_toggle_clickthrough = true;
+            std::fprintf(stderr, "[overlay] WndProc fallback fired Ctrl+Alt+C\n");
+            return 0;
+        }
+        break;
+    }
     case WM_NCCALCSIZE:
         // wp == TRUE means lp points to NCCALCSIZE_PARAMS and we're asked
         // for the *new* client rect. Returning 0 with rgrc[0] left at the
@@ -745,15 +762,22 @@ int run(const Options& opts) {
     // Persists across runs via settings.json.
     bool clickthrough_user = false;
 
+    // Toast state — declared early so apply_clickthrough_user can write to it.
+    std::string toast_text;
+    auto toast_time = std::chrono::steady_clock::now() - std::chrono::hours(1);
+    const auto kToastShown = std::chrono::milliseconds(2500);
+
     auto apply_clickthrough_user = [&](bool on) {
         clickthrough_user = on;
-        // The actual effective state (which the WndProc reads) is set
-        // once per frame at the top of the main loop, factoring in
-        // menu_open (menu must be interactable, so we suppress click-
-        // through while it's open). No window style changes needed —
-        // WM_NCHITTEST returning HTTRANSPARENT handles everything.
-        std::fprintf(stderr, "[overlay] click-through requested: %s\n",
-                     on ? "ON" : "OFF");
+        std::fprintf(stderr, on ? "[overlay] click-through ON\n"
+                                : "[overlay] click-through OFF\n");
+        // Toast pops on every toggle so the user gets visible feedback —
+        // confirms the hotkey landed even when stderr is invisible
+        // (Explorer launch with no console).
+        toast_text  = on
+            ? "CLICK-THROUGH: ON  (clicks pass to apps below)"
+            : "CLICK-THROUGH: OFF (clicks land on the overlay)";
+        toast_time  = std::chrono::steady_clock::now();
     };
 
     // Lock GLFW's user-drag resize to match the current target aspect (if
@@ -1083,9 +1107,8 @@ int run(const Options& opts) {
     }
 
     VideoRecorder video_recorder;
-    std::string toast_text;
-    auto toast_time = std::chrono::steady_clock::now() - std::chrono::hours(1);
-    const auto kToastShown = std::chrono::milliseconds(2500);
+    // toast_text / toast_time / kToastShown moved earlier (above
+    // apply_clickthrough_user) so the lambda can capture them by ref.
 
     Menu menu;
     bool has_menu = menu.init(window);
