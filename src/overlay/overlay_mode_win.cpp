@@ -406,6 +406,18 @@ public:
     // Returns false only on terminal failures.
     bool grab(bool& new_frame, DWORD timeout_ms = 16) {
         new_frame = false;
+        if (use_gdi_ && gdi_ready_) {
+            // GDI path — skips our WS_EX_LAYERED overlay window so the
+            // CRT pipeline doesn't get fed its own output.
+            if (!BitBlt(gdi_dc_mem_, 0, 0, width_, height_,
+                        gdi_dc_screen_, origin_x_, origin_y_, SRCCOPY)) {
+                return false;
+            }
+            std::memcpy(cpu_buffer_.data(), gdi_bits_,
+                        static_cast<size_t>(width_) * height_ * 4);
+            new_frame = true;
+            return true;
+        }
         if (!dup_) return false;
 
         DXGI_OUTDUPL_FRAME_INFO info = {};
@@ -454,6 +466,60 @@ public:
         staging_.Reset();
         context_.Reset();
         device_.Reset();
+        if (gdi_bmp_)       { DeleteObject(gdi_bmp_); gdi_bmp_ = nullptr; }
+        if (gdi_dc_mem_)    { DeleteDC(gdi_dc_mem_); gdi_dc_mem_ = nullptr; }
+        if (gdi_dc_screen_) { ReleaseDC(nullptr, gdi_dc_screen_); gdi_dc_screen_ = nullptr; }
+        gdi_bits_ = nullptr;
+        gdi_ready_ = false;
+        use_gdi_   = false;
+    }
+
+    // Switch the source capture between two backends:
+    //   - false (default): DXGI Desktop Duplication. Fast (~1 ms / frame),
+    //     but reads the DWM-composited output, so it sees any window that
+    //     doesn't have WDA_EXCLUDEFROMCAPTURE set — including our own
+    //     overlay → feedback loop when recordable mode is on.
+    //   - true: legacy GDI BitBlt from the desktop DC into a DIB section,
+    //     WITHOUT the CAPTUREBLT raster op. Per MSDN BitBlt docs, that
+    //     specifically excludes WS_EX_LAYERED windows from the source
+    //     bitmap. Combined with adding WS_EX_LAYERED to the overlay,
+    //     this path lets us keep grabbing the desktop "as if Tubelight
+    //     weren't there" while external recorders (Snipping Tool, Game
+    //     Bar, OBS) — which all go through DWM composition — still see
+    //     our overlay normally. Slower (~10-30 ms / frame at 1080p) but
+    //     only used while the user is actively recording.
+    void set_gdi_fallback(bool on) {
+        if (on && !gdi_ready_) {
+            gdi_dc_screen_ = GetDC(nullptr);
+            if (gdi_dc_screen_) {
+                gdi_dc_mem_ = CreateCompatibleDC(gdi_dc_screen_);
+                BITMAPINFO bi = {};
+                bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+                bi.bmiHeader.biWidth       = width_;
+                bi.bmiHeader.biHeight      = -height_; // top-down BGRA
+                bi.bmiHeader.biPlanes      = 1;
+                bi.bmiHeader.biBitCount    = 32;
+                bi.bmiHeader.biCompression = BI_RGB;
+                gdi_bmp_ = CreateDIBSection(gdi_dc_mem_, &bi, DIB_RGB_COLORS,
+                                             &gdi_bits_, nullptr, 0);
+                if (gdi_bmp_) {
+                    SelectObject(gdi_dc_mem_, gdi_bmp_);
+                    gdi_ready_ = true;
+                    std::fprintf(stderr,
+                        "[overlay] GDI fallback ready (%dx%d BGRA DIB)\n",
+                        width_, height_);
+                } else {
+                    DeleteDC(gdi_dc_mem_); gdi_dc_mem_ = nullptr;
+                    ReleaseDC(nullptr, gdi_dc_screen_); gdi_dc_screen_ = nullptr;
+                    std::fprintf(stderr,
+                        "[overlay] CreateDIBSection failed for GDI fallback\n");
+                }
+            }
+        }
+        use_gdi_ = on && gdi_ready_;
+        std::fprintf(stderr, "[overlay] capture backend: %s\n",
+                     use_gdi_ ? "GDI BitBlt (no CAPTUREBLT, skips layered)"
+                              : "DXGI Desktop Duplication");
     }
 
     bool reacquire_duplication() {
@@ -491,6 +557,14 @@ private:
     int width_ = 0, height_ = 0;
     int origin_x_ = 0, origin_y_ = 0;
     int monitor_index_ = 0;
+
+    // GDI BitBlt fallback (used when recordable mode is on).
+    HDC     gdi_dc_screen_ = nullptr;
+    HDC     gdi_dc_mem_    = nullptr;
+    HBITMAP gdi_bmp_       = nullptr;
+    void*   gdi_bits_      = nullptr;
+    bool    gdi_ready_     = false;
+    bool    use_gdi_       = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -1116,17 +1190,6 @@ int run(const Options& opts) {
         settings.clickthrough_user = false;
         save_settings(settings);
     }
-    // Same footgun pattern for recordable: applying WDA_NONE at startup
-    // before the first DXGI capture races with DWM, and auto-freezing
-    // before the source texture is populated leaves the user with a black
-    // overlay and no idea why. Force off on every launch — user toggles
-    // it per session via Ctrl+Alt+R or the menu checkbox when they're
-    // ready to record.
-    if (settings.recordable) {
-        std::fprintf(stderr, "[overlay] migrating settings.recordable true → false (no longer auto-applied at startup)\n");
-        settings.recordable = false;
-        save_settings(settings);
-    }
     std::string effective_capture_dir =
         settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
     std::string ui_capture_dir = settings.capture_dir;
@@ -1136,19 +1199,31 @@ int run(const Options& opts) {
     bool  low_latency   = settings.low_latency;
     bool  recordable    = settings.recordable;
     g_recordable_mode.store(recordable);
-    // The initial WDA_EXCLUDEFROMCAPTURE was applied during window setup
-    // before settings were loaded; re-apply now in case the user had
-    // recordable=true persisted from a previous run.
-    apply_capture_affinity(hwnd);
-    // Tracks whether we auto-froze the source when recordable went ON.
-    // We need this because dropping WDA_EXCLUDEFROMCAPTURE makes DXGI
-    // Desktop Duplication see our own rendered output → the CRT pipeline
-    // gets fed its own output → each pass attenuates brightness → image
-    // collapses to black within a few frames. Freezing the source frame
-    // breaks the loop. We restore the previous freeze state when the user
-    // turns recordable off, but only if the user didn't manually toggle
-    // freeze in the meantime.
-    bool recordable_auto_froze = false;
+    // Helper applied whenever recordable changes: switches the source
+    // capture backend (DXGI vs GDI BitBlt) and forces WS_EX_LAYERED on
+    // the overlay so the GDI path's "no CAPTUREBLT" filter sees us as
+    // a layered window to skip. WS_EX_LAYERED is added permanent — per
+    // the click-through lesson, removing it at runtime is unreliable on
+    // some NVIDIA + Win11 builds (it crashes the second toggle). With
+    // alpha=255 it's visually identical to a non-layered window.
+    auto apply_recordable_mode = [&](bool on) {
+        capture.set_gdi_fallback(on);
+        if (on) {
+            LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            if (!(ex & WS_EX_LAYERED)) {
+                ex |= WS_EX_LAYERED;
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+                SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                             SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                std::fprintf(stderr, "[overlay] added WS_EX_LAYERED for GDI exclusion\n");
+            }
+        }
+        apply_capture_affinity(hwnd);
+    };
+    // Honour persisted recordable=true now that the helper exists.
+    if (recordable) apply_recordable_mode(true);
     glfwSwapInterval(low_latency ? 0 : 1);
     int   rec_source    = settings.record_source;
     int   rec_rx        = settings.record_rect_x;
@@ -1549,26 +1624,12 @@ int run(const Options& opts) {
             if (recordable_changed) {
                 settings.recordable = recordable;
                 g_recordable_mode.store(recordable);
-                apply_capture_affinity(hwnd);
+                apply_recordable_mode(recordable);
                 any_setting_changed = true;
-                if (recordable) {
-                    if (!state.freeze) {
-                        state.freeze = true;
-                        recordable_auto_froze = true;
-                    }
-                    toast_text = "RECORDABLE: ON — source frozen on last frame. To capture a new source, toggle OFF/ON.";
-                } else {
-                    if (recordable_auto_froze) {
-                        state.freeze = false;
-                        recordable_auto_froze = false;
-                    }
-                    toast_text = "RECORDABLE: OFF (external recorders won't see overlay)";
-                }
+                toast_text = recordable
+                    ? "RECORDABLE: ON  (overlay live + visible to Snipping Tool / Game Bar / OBS)"
+                    : "RECORDABLE: OFF (external recorders won't see overlay)";
                 toast_time = std::chrono::steady_clock::now();
-                std::fprintf(stderr, "[overlay] recordable %s (WDA_%s) freeze=%s\n",
-                             recordable ? "ON" : "OFF",
-                             recordable ? "NONE" : "EXCLUDEFROMCAPTURE",
-                             state.freeze ? "ON" : "OFF");
             }
             if (any_setting_changed) save_settings(settings);
             if (cap_changed) {
@@ -1859,32 +1920,13 @@ int run(const Options& opts) {
         if (g_hk_toggle_recordable.exchange(false)) {
             recordable = !recordable;
             g_recordable_mode.store(recordable);
-            apply_capture_affinity(hwnd);
+            apply_recordable_mode(recordable);
             settings.recordable = recordable;
             save_settings(settings);
-            if (recordable) {
-                // Auto-freeze: without WDA_EXCLUDEFROMCAPTURE the DXGI
-                // duplication captures our own output → CRT pipeline
-                // attenuates each iteration → image goes black. Freezing
-                // the source breaks the feedback loop; time-based shader
-                // effects (scanlines drift, beam noise) still animate.
-                if (!state.freeze) {
-                    state.freeze = true;
-                    recordable_auto_froze = true;
-                }
-                toast_text = "RECORDABLE: ON — source frozen on last frame. To capture a new source, toggle OFF/ON.";
-            } else {
-                if (recordable_auto_froze) {
-                    state.freeze = false;
-                    recordable_auto_froze = false;
-                }
-                toast_text = "RECORDABLE: OFF (external recorders won't see overlay)";
-            }
+            toast_text = recordable
+                ? "RECORDABLE: ON  (overlay live + visible to Snipping Tool / Game Bar / OBS)"
+                : "RECORDABLE: OFF (external recorders won't see overlay)";
             toast_time = std::chrono::steady_clock::now();
-            std::fprintf(stderr, "[overlay] recordable %s via hotkey (WDA_%s) freeze=%s\n",
-                         recordable ? "ON" : "OFF",
-                         recordable ? "NONE" : "EXCLUDEFROMCAPTURE",
-                         state.freeze ? "ON" : "OFF");
         }
         // Screenshot: read the framebuffer AFTER the pipeline rendered but
         // BEFORE swap, so we capture exactly what the user sees. The PNG
