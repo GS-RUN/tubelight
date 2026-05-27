@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+﻿// SPDX-License-Identifier: MIT
 // Copyright (c) 2026 GS-RUN
 
 #include "overlay/menu.h"
@@ -47,51 +47,67 @@ constexpr const char* kMaskTypeLabels[] = {
     "Diamond", "CGWG Mix", "Dot Trio"
 };
 
-// Modern dark theme inspired by VS Code / Figma / professional audio
-// plugins: neutral dark grey base, off-white text (not pure white →
-// gentler on eyes during long sessions), a single calm blue accent
-// reserved for active states (selected tab, slider grab being dragged,
-// active button, checkmark). Generous padding + soft rounded corners.
-// Called once at init. The CRT look stays where it belongs — in the
-// shader output, not in the chrome that sits on top of it.
+// Multi-accent dark theme inspired by professional audio plugins
+// (FabFilter, Reaper) and modern dev tools â€” neutral dark base with a
+// curated 6-colour accent system, each hue assigned to a functional
+// category. Off-white text + soft 4-6 px rounding + generous padding.
+// Tubelight's CRT look stays in the shader output; the chrome is its
+// own design system, not part of the effect.
+//
+// Accent palette (kept harmonised â€” all desaturated, similar luminance,
+// none of them shout):
+//   accent_sky      â†’ primary / sliders / checks
+//   accent_teal     â†’ Capture tab (system / camera vibe)
+//   accent_amber    â†’ Image tab (warm visual params)
+//   accent_coral    â†’ destructive (Quit button)
+//   accent_lavender â†’ Help tab (informational)
+//   accent_mint     â†’ Audio tab
+// They co-exist on screen at the same moment but never cluster.
+namespace pal {
+    inline ImVec4 sky      (float a=1.0f) { return ImVec4(0.42f, 0.65f, 0.92f, a); }
+    inline ImVec4 teal     (float a=1.0f) { return ImVec4(0.37f, 0.79f, 0.77f, a); }
+    inline ImVec4 amber    (float a=1.0f) { return ImVec4(0.96f, 0.72f, 0.42f, a); }
+    inline ImVec4 coral    (float a=1.0f) { return ImVec4(0.93f, 0.54f, 0.48f, a); }
+    inline ImVec4 lavender (float a=1.0f) { return ImVec4(0.66f, 0.58f, 0.93f, a); }
+    inline ImVec4 mint     (float a=1.0f) { return ImVec4(0.52f, 0.83f, 0.60f, a); }
+}
+
 void apply_tubelight_theme(ImGuiStyle& style) {
     auto& c = style.Colors;
+    const ImVec4 accent      = pal::sky();
+    const ImVec4 accent_soft = pal::sky(0.45f);
 
-    // Single accent. Soft, modern, blue-leaning (think VS Code highlight).
-    const ImVec4 accent      = ImVec4(0.42f, 0.65f, 0.92f, 1.00f);
-    const ImVec4 accent_soft = ImVec4(0.42f, 0.65f, 0.92f, 0.50f);
-
-    // Text — off-white, slightly cool. Pure-white at long viewing
+    // Text â€” off-white, slightly cool. Pure-white at long viewing
     // distances feels harsh; a few percent of grey helps.
     c[ImGuiCol_Text]                = ImVec4(0.86f, 0.87f, 0.89f, 1.00f);
     c[ImGuiCol_TextDisabled]        = ImVec4(0.50f, 0.52f, 0.56f, 1.00f);
     c[ImGuiCol_TextSelectedBg]      = ImVec4(0.42f, 0.65f, 0.92f, 0.35f);
 
-    // Window backgrounds — three close shades for depth without high
+    // Window backgrounds â€” three close shades for depth without high
     // contrast. Window slightly translucent so the CRT output stays
-    // visible behind the menu (Tubelight is an overlay app — the
+    // visible behind the menu (Tubelight is an overlay app â€” the
     // user should still see what they're tweaking).
     c[ImGuiCol_WindowBg]            = ImVec4(0.11f, 0.12f, 0.14f, 0.96f);
     c[ImGuiCol_ChildBg]             = ImVec4(0.11f, 0.12f, 0.14f, 0.00f);
     c[ImGuiCol_PopupBg]             = ImVec4(0.13f, 0.14f, 0.17f, 0.98f);
 
-    // No harsh borders — depth comes from background tone differences.
+    // No harsh borders â€” depth comes from background tone differences.
     c[ImGuiCol_Border]              = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     c[ImGuiCol_BorderShadow]        = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 
-    // Frame (inputs, sliders, combos) — elevated above window.
+    // Frame (inputs, sliders, combos) â€” elevated above window.
     c[ImGuiCol_FrameBg]             = ImVec4(0.18f, 0.19f, 0.22f, 1.00f);
     c[ImGuiCol_FrameBgHovered]      = ImVec4(0.22f, 0.24f, 0.28f, 1.00f);
     c[ImGuiCol_FrameBgActive]       = ImVec4(0.26f, 0.29f, 0.34f, 1.00f);
 
-    // Title bar — slightly elevated from window background.
+    // Title bar â€” slightly elevated from window background.
     c[ImGuiCol_TitleBg]             = ImVec4(0.13f, 0.14f, 0.17f, 1.00f);
     c[ImGuiCol_TitleBgActive]       = ImVec4(0.16f, 0.18f, 0.21f, 1.00f);
     c[ImGuiCol_TitleBgCollapsed]    = ImVec4(0.10f, 0.11f, 0.13f, 0.80f);
 
     c[ImGuiCol_MenuBarBg]           = ImVec4(0.13f, 0.14f, 0.17f, 1.00f);
 
-    // Scrollbar — neutral until the user is actually dragging.
+    // Scrollbar â€” neutral until the user is actually dragging.
     c[ImGuiCol_ScrollbarBg]         = ImVec4(0.11f, 0.12f, 0.14f, 0.50f);
     c[ImGuiCol_ScrollbarGrab]       = ImVec4(0.35f, 0.38f, 0.43f, 1.00f);
     c[ImGuiCol_ScrollbarGrabHovered]= ImVec4(0.42f, 0.46f, 0.52f, 1.00f);
@@ -102,18 +118,18 @@ void apply_tubelight_theme(ImGuiStyle& style) {
     c[ImGuiCol_SliderGrab]          = ImVec4(0.45f, 0.48f, 0.54f, 1.00f);
     c[ImGuiCol_SliderGrabActive]    = accent;
 
-    // Buttons — match the frame palette so they don't shout.
+    // Buttons â€” match the frame palette so they don't shout.
     c[ImGuiCol_Button]              = ImVec4(0.21f, 0.23f, 0.27f, 1.00f);
     c[ImGuiCol_ButtonHovered]       = ImVec4(0.26f, 0.29f, 0.34f, 1.00f);
     c[ImGuiCol_ButtonActive]        = accent;
 
-    // Collapsing headers — slightly more saturated than buttons so the
+    // Collapsing headers â€” slightly more saturated than buttons so the
     // visual hierarchy reads correctly (header > button > frame).
     c[ImGuiCol_Header]              = ImVec4(0.18f, 0.20f, 0.24f, 1.00f);
     c[ImGuiCol_HeaderHovered]       = ImVec4(0.22f, 0.25f, 0.30f, 1.00f);
     c[ImGuiCol_HeaderActive]        = ImVec4(0.26f, 0.29f, 0.34f, 1.00f);
 
-    // Separators — barely visible, just enough to group.
+    // Separators â€” barely visible, just enough to group.
     c[ImGuiCol_Separator]           = ImVec4(0.20f, 0.22f, 0.26f, 1.00f);
     c[ImGuiCol_SeparatorHovered]    = accent_soft;
     c[ImGuiCol_SeparatorActive]     = accent;
@@ -125,7 +141,7 @@ void apply_tubelight_theme(ImGuiStyle& style) {
     c[ImGuiCol_TabUnfocused]        = ImVec4(0.11f, 0.12f, 0.14f, 1.00f);
     c[ImGuiCol_TabUnfocusedActive]  = ImVec4(0.14f, 0.16f, 0.19f, 1.00f);
 
-    // Resize grip + nav highlight + drag-drop target — all accent at
+    // Resize grip + nav highlight + drag-drop target â€” all accent at
     // different alphas so the same colour signals "interactive".
     c[ImGuiCol_ResizeGrip]          = ImVec4(0.30f, 0.32f, 0.37f, 0.50f);
     c[ImGuiCol_ResizeGripHovered]   = accent_soft;
@@ -137,7 +153,7 @@ void apply_tubelight_theme(ImGuiStyle& style) {
 
     c[ImGuiCol_ModalWindowDimBg]    = ImVec4(0.05f, 0.05f, 0.05f, 0.40f);
 
-    // Style — modern radius + comfortable padding.
+    // Style â€” modern radius + comfortable padding.
     style.WindowRounding    = 6.0f;
     style.ChildRounding     = 4.0f;
     style.FrameRounding     = 4.0f;
@@ -162,6 +178,56 @@ void apply_tubelight_theme(ImGuiStyle& style) {
     style.ScrollbarSize     = 14.0f;
 
     style.WindowTitleAlign  = ImVec2(0.5f, 0.5f);
+}
+
+// RAII wrapper around BeginTabItem that pushes a category accent for
+// the tab label colour AND for the CollapsingHeader hues inside the
+// tab. Destructor handles EndTabItem + PopStyleColor cleanup so the
+// callsite reads cleanly:
+//     if (TintedTab t("Image", pal::amber(), pal::amber())) { ... }
+class TintedTab {
+public:
+    TintedTab(const char* label, const ImVec4& label_col, const ImVec4& hdr_base) {
+        ImGui::PushStyleColor(ImGuiCol_Text, label_col);
+        selected_ = ImGui::BeginTabItem(label);
+        ImGui::PopStyleColor();
+        if (selected_) {
+            ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(hdr_base.x, hdr_base.y, hdr_base.z, 0.18f));
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(hdr_base.x, hdr_base.y, hdr_base.z, 0.30f));
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive,  ImVec4(hdr_base.x, hdr_base.y, hdr_base.z, 0.42f));
+        }
+    }
+    ~TintedTab() {
+        if (selected_) {
+            ImGui::PopStyleColor(3);
+        }
+    }
+    explicit operator bool() const { return selected_; }
+private:
+    bool selected_ = false;
+};
+
+// Tooltip helper with a visually distinct presentation: slightly
+// lighter background than the menu (so the popup reads as "info"
+// rather than blending into the chrome), a thin accent border, and
+// generous padding. Called after each widget instead of
+// ImGui::SetItemTooltip so we control the styling.
+void tl_tooltip(const char* text) {
+    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) return;
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.16f, 0.18f, 0.22f, 0.97f));
+    ImGui::PushStyleColor(ImGuiCol_Border,  pal::sky(0.55f));
+    ImGui::PushStyleColor(ImGuiCol_Text,    ImVec4(0.91f, 0.93f, 0.95f, 1.00f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,    ImVec2(12, 9));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,   5.0f);
+    if (ImGui::BeginTooltip()) {
+        ImGui::PushTextWrapPos(360.0f);
+        ImGui::TextUnformatted(text);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(3);
 }
 
 void collect_profiles_in_dirs(const std::vector<std::string>& dirs,
@@ -317,7 +383,7 @@ void Menu::build_widgets(Pipeline& pipeline,
     if (ImGui::BeginTabBar("##tubelight_tabs", ImGuiTabBarFlags_None)) {
 
         // ====================== PROFILE TAB ======================
-        if (ImGui::BeginTabItem("Profile")) {
+        if (TintedTab _ttab{"Profile", pal::sky(), pal::sky()}) {
             // CRT combo
             int crt_idx = -1;
             for (size_t i = 0; i < crt_ids_.size(); ++i)
@@ -330,7 +396,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                     current_profile_id = crt_ids_[crt_idx];
                 }
             }
-            ImGui::SetItemTooltip("Perfil de tubo CRT: define mascara, fosforo, sombra y aspecto.\n"
+            tl_tooltip("Perfil de tubo CRT: define mascara, fosforo, sombra y aspecto.\n"
                                   "Cambiar reemplaza todos los valores del bloque Image.");
 
             // Signal combo (only colour CRTs)
@@ -346,7 +412,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                         current_signal_id = sig_ids_[sig_idx];
                     }
                 }
-                ImGui::SetItemTooltip("Perfil de senal: simula NTSC / PAL / RGB / composite.\n"
+                tl_tooltip("Perfil de senal: simula NTSC / PAL / RGB / composite.\n"
                                       "Bloqueado en monocromo (siempre RGB limpio).");
             } else {
                 ImGui::TextDisabled("Signal: clean RGB (locked for monochrome)");
@@ -354,7 +420,7 @@ void Menu::build_widgets(Pipeline& pipeline,
 
             ImGui::Separator();
             ImGui::SliderFloat("Intensity x", &intensity_multiplier, 0.0f, 2.0f, "%.2f");
-            ImGui::SetItemTooltip("Mezcla global con la imagen original.\n"
+            tl_tooltip("Mezcla global con la imagen original.\n"
                                   "0=passthrough sin efecto, 1=normal, 2=maximo retro.\n"
                                   "Default: 1.0");
 
@@ -364,10 +430,10 @@ void Menu::build_widgets(Pipeline& pipeline,
                 static char name_buf[256];
                 ImGui::TextDisabled("Guarda en %%APPDATA%%\\Tubelight\\profiles\\crts\\<id>.json");
                 ImGui::InputText("id (filename)",  id_buf,  sizeof(id_buf));
-                ImGui::SetItemTooltip("Nombre de archivo (sin .json). Solo a-z, 0-9, guiones.\n"
+                tl_tooltip("Nombre de archivo (sin .json). Solo a-z, 0-9, guiones.\n"
                                       "Ej: mi_pvm_verde");
                 ImGui::InputText("display name",   name_buf, sizeof(name_buf));
-                ImGui::SetItemTooltip("Nombre visible en el combo CRT. Texto libre.\n"
+                tl_tooltip("Nombre visible en el combo CRT. Texto libre.\n"
                                       "Ej: Mi PVM verde");
                 if (ImGui::Button("Save preset", ImVec2(-1, 0))) {
                     window_actions.preset_new_id        = id_buf;
@@ -375,14 +441,13 @@ void Menu::build_widgets(Pipeline& pipeline,
                     window_actions.save_preset_requested = true;
                     id_buf[0] = 0; name_buf[0] = 0;
                 }
-                ImGui::SetItemTooltip("Guarda los valores actuales como nuevo preset.");
+                tl_tooltip("Guarda los valores actuales como nuevo preset.");
                 ImGui::TreePop();
             }
-            ImGui::EndTabItem();
         }
 
         // ====================== IMAGE TAB ======================
-        if (ImGui::BeginTabItem("Image")) {
+        if (TintedTab _ttab{"Image", pal::amber(), pal::amber()}) {
             if (mono_locked) {
                 ImGui::TextDisabled("Monochrome tube: mask + per-channel persistence hidden.");
                 ImGui::TextDisabled("(single-phosphor tubes have no mask). Tint + glow below.");
@@ -391,30 +456,30 @@ void Menu::build_widgets(Pipeline& pipeline,
             // ---- Scanlines / beam ----
             if (ImGui::CollapsingHeader("Scanlines / beam", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::SliderFloat("Scanline strength", &P.scanline_strength, 0.0f, 1.0f, "%.2f");
-                ImGui::SetItemTooltip("Cuan oscuras son las lineas entre escaneos.\n"
+                tl_tooltip("Cuan oscuras son las lineas entre escaneos.\n"
                                       "0=invisibles, 1=PVM agresivo. Default ~0.35.");
                 ImGui::SliderFloat("Beam width",        &P.beam_width,        0.5f, 3.0f, "%.2f");
-                ImGui::SetItemTooltip("Grosor del haz electronico.\n"
+                tl_tooltip("Grosor del haz electronico.\n"
                                       "<1=fino y nitido, >2=grueso y borroso (TV vieja). Default 1.30.");
                 ImGui::SliderFloat("CRT gamma",         &P.gamma_crt,         1.8f, 3.0f, "%.2f");
-                ImGui::SetItemTooltip("Linealizacion de entrada.\n"
+                tl_tooltip("Linealizacion de entrada.\n"
                                       "2.2=sRGB neutro, 2.5=mas contraste. Default 2.2.");
                 ImGui::SliderFloat("Scanline count",    &P.scanline_count,    60.0f, 800.0f, "%.0f");
-                ImGui::SetItemTooltip("Lineas visibles por frame.\n"
+                tl_tooltip("Lineas visibles por frame.\n"
                                       "240=NTSC, 288=PAL, 350=terminal IBM, 480=VGA.");
             }
 
             // ---- Phosphor mask (colour CRT) ----
             if (!mono_locked && ImGui::CollapsingHeader("Phosphor mask (colour CRT)")) {
                 ImGui::Combo("Type", &P.mask_type, kMaskTypeLabels, 7);
-                ImGui::SetItemTooltip("Geometria de fosforos:\n"
+                tl_tooltip("Geometria de fosforos:\n"
                                       "Shadow=triadico TV consumer, Aperture=Trinitron rayas verticales,\n"
                                       "Slot=mezcla (1084S), Diamond=PVM Sony.");
                 ImGui::SliderFloat("Strength",  &P.mask_strength,  0.0f, 1.0f, "%.2f");
-                ImGui::SetItemTooltip("Cuan visible es la rejilla de subpixeles RGB.\n"
+                tl_tooltip("Cuan visible es la rejilla de subpixeles RGB.\n"
                                       "0=invisible, 1=cada subpixel separado. Default 0.22.");
                 ImGui::SliderFloat("Pitch (px)", &P.mask_pitch_px, 1.0f, 10.0f, "%.1f");
-                ImGui::SetItemTooltip("Tamano de la triada en pixeles de pantalla.\n"
+                tl_tooltip("Tamano de la triada en pixeles de pantalla.\n"
                                       "3=denso, 8=PVM gigante. Default 3.0.");
             }
 
@@ -422,66 +487,66 @@ void Menu::build_widgets(Pipeline& pipeline,
             if (mono_locked && ImGui::CollapsingHeader("Phosphor colour (monochrome)",
                                                         ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::SliderFloat("R tint", &P.phosphor_color_r, 0.0f, 1.5f, "%.2f");
-                ImGui::SetItemTooltip("Componente rojo del fosforo monocromo.\n"
+                tl_tooltip("Componente rojo del fosforo monocromo.\n"
                                       "0.05=P31 verde, 1.30=P3 ambar, 1.0=P4 blanco.");
                 ImGui::SliderFloat("G tint", &P.phosphor_color_g, 0.0f, 1.5f, "%.2f");
-                ImGui::SetItemTooltip("Componente verde. P31=1.30, P3=0.55, P4=1.00.");
+                tl_tooltip("Componente verde. P31=1.30, P3=0.55, P4=1.00.");
                 ImGui::SliderFloat("B tint", &P.phosphor_color_b, 0.0f, 1.5f, "%.2f");
-                ImGui::SetItemTooltip("Componente azul. P31=0.18, P3=0.05, P4=1.10.");
+                tl_tooltip("Componente azul. P31=0.18, P3=0.05, P4=1.10.");
                 if (ImGui::Button("P31 green")) {
                     P.phosphor_color_r = 0.12f; P.phosphor_color_g = 1.30f; P.phosphor_color_b = 0.18f;
                 }
-                ImGui::SetItemTooltip("Verde puro de mainframe / Apple IIe / VT100.");
+                tl_tooltip("Verde puro de mainframe / Apple IIe / VT100.");
                 ImGui::SameLine();
                 if (ImGui::Button("P3 amber")) {
                     P.phosphor_color_r = 1.30f; P.phosphor_color_g = 0.55f; P.phosphor_color_b = 0.05f;
                 }
-                ImGui::SetItemTooltip("Ambar IBM 5151 / WYSE — calido para sesiones largas.");
+                tl_tooltip("Ambar IBM 5151 / WYSE â€” calido para sesiones largas.");
                 ImGui::SameLine();
                 if (ImGui::Button("P1 oscope")) {
                     P.phosphor_color_r = 0.05f; P.phosphor_color_g = 1.35f; P.phosphor_color_b = 0.20f;
                 }
-                ImGui::SetItemTooltip("Verde-amarillo de osciloscopio Tektronix.");
+                tl_tooltip("Verde-amarillo de osciloscopio Tektronix.");
                 ImGui::SameLine();
                 if (ImGui::Button("P4 white")) {
                     P.phosphor_color_r = 0.92f; P.phosphor_color_g = 1.00f; P.phosphor_color_b = 1.10f;
                 }
-                ImGui::SetItemTooltip("Blanco neutro: TV B&N + Mac Classic.");
+                tl_tooltip("Blanco neutro: TV B&N + Mac Classic.");
                 ImGui::SliderInt("Posterize levels", &P.posterize_levels, 0, 8);
-                ImGui::SetItemTooltip("Cuantizacion de luminancia.\n"
+                tl_tooltip("Cuantizacion de luminancia.\n"
                                       "0=continuo analogico, 2=1-bit Mac Classic, 4-6=terminal de texto.");
             }
 
             // ---- Bloom / glow ----
             if (!mono_locked && ImGui::CollapsingHeader("Bloom / halation")) {
                 ImGui::SliderFloat("Bloom",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
-                ImGui::SetItemTooltip("Sangrado de zonas brillantes a oscuras\n"
+                tl_tooltip("Sangrado de zonas brillantes a oscuras\n"
                                       "(sobreexcitacion del haz electronico).");
                 ImGui::SliderFloat("Halation", &P.halation_strength, 0.0f, 1.0f, "%.2f");
-                ImGui::SetItemTooltip("Aro rojizo alrededor de blancos\n"
+                tl_tooltip("Aro rojizo alrededor de blancos\n"
                                       "(luz rebotando dentro del vidrio del tubo).");
             }
             if (mono_locked && ImGui::CollapsingHeader("Phosphor glow")) {
                 ImGui::SliderFloat("Bloom",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
-                ImGui::SetItemTooltip("Bloom del fosforo. Mono tubes solo bloom, no halacion.");
+                tl_tooltip("Bloom del fosforo. Mono tubes solo bloom, no halacion.");
             }
 
             // ---- Persistence ----
             if (!mono_locked && ImGui::CollapsingHeader("Phosphor persistence (per-channel)")) {
                 ImGui::SliderFloat("Strength",  &P.persistence_strength, 0.0f, 0.95f, "%.2f");
-                ImGui::SetItemTooltip("Cuanto rastro deja el fosforo entre frames.\n"
+                tl_tooltip("Cuanto rastro deja el fosforo entre frames.\n"
                                       "0=sin rastro, 0.95=largo (osciloscopio).");
                 ImGui::SliderFloat("R ratio",   &P.persistence_ratio_r,  0.0f, 1.0f, "%.2f");
-                ImGui::SetItemTooltip("Decaimiento relativo del rojo. P22 colour: ~1.0 (rastro calido).");
+                tl_tooltip("Decaimiento relativo del rojo. P22 colour: ~1.0 (rastro calido).");
                 ImGui::SliderFloat("G ratio",   &P.persistence_ratio_g,  0.0f, 1.0f, "%.2f");
-                ImGui::SetItemTooltip("Decaimiento relativo del verde. P22 tipico: 0.5.");
+                tl_tooltip("Decaimiento relativo del verde. P22 tipico: 0.5.");
                 ImGui::SliderFloat("B ratio",   &P.persistence_ratio_b,  0.0f, 1.0f, "%.2f");
-                ImGui::SetItemTooltip("Decaimiento relativo del azul. P22 tipico: 0.5.");
+                tl_tooltip("Decaimiento relativo del azul. P22 tipico: 0.5.");
                 ImGui::TextDisabled("P22 colour CRT: R~1.0, G~0.5, B~0.5 (warm trail)");
             }
             if (mono_locked && ImGui::CollapsingHeader("Phosphor persistence (afterglow)")) {
                 ImGui::SliderFloat("Strength", &P.persistence_strength, 0.0f, 0.95f, "%.2f");
-                ImGui::SetItemTooltip("Persistencia del fosforo monocromo.\n"
+                tl_tooltip("Persistencia del fosforo monocromo.\n"
                                       "P31/P4 cortos (~0). P3 medio (~0.3). P1 largo (~0.7).");
             }
 
@@ -489,12 +554,12 @@ void Menu::build_widgets(Pipeline& pipeline,
             if (ImGui::CollapsingHeader("Composition")) {
                 if (!mono_locked) {
                     ImGui::SliderFloat("Barrel",        &P.barrel_strength,   0.0f, 0.20f, "%.3f");
-                    ImGui::SetItemTooltip("Distorsion de barril (curvatura del tubo).\n"
+                    tl_tooltip("Distorsion de barril (curvatura del tubo).\n"
                                           "0=plano, 0.05=PVM, 0.20=TV redondeada.");
                     ImGui::SliderFloat("Vignette",      &P.vignette_strength, 0.0f, 1.0f, "%.2f");
-                    ImGui::SetItemTooltip("Oscurecimiento de las esquinas.");
+                    tl_tooltip("Oscurecimiento de las esquinas.");
                     ImGui::SliderFloat("Display gamma", &P.gamma_display,     1.8f, 3.0f, "%.2f");
-                    ImGui::SetItemTooltip("Gamma final hacia tu monitor. 2.2=sRGB. Default 2.2.");
+                    tl_tooltip("Gamma final hacia tu monitor. 2.2=sRGB. Default 2.2.");
                 }
 
                 struct AspectOpt { const char* label; float ar; };
@@ -520,7 +585,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                         window_actions.snap_to_aspect_requested = true;
                     }
                 }
-                ImGui::SetItemTooltip("Forma del area de imagen.\n"
+                tl_tooltip("Forma del area de imagen.\n"
                                       "Fill=sin barras, 4:3=TV vintage, 16:9=moderno.\n"
                                       "Default viene del perfil CRT (aspect_native).");
 
@@ -529,7 +594,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                         window_actions.snap_to_aspect_requested = true;
                     }
                 }
-                ImGui::SetItemTooltip("Redimensiona la ventana de Tubelight\n"
+                tl_tooltip("Redimensiona la ventana de Tubelight\n"
                                       "para que la imagen llene sin barras.");
                 ImGui::SameLine();
                 const char* fs_label = window_actions.is_fullscreen
@@ -538,7 +603,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                 if (ImGui::Button(fs_label, ImVec2(-1, 0))) {
                     window_actions.toggle_fullscreen_requested = true;
                 }
-                ImGui::SetItemTooltip("Pantalla completa borderless en el monitor actual.\n"
+                tl_tooltip("Pantalla completa borderless en el monitor actual.\n"
                                       "Mantiene aspect ratio (letterbox).\n"
                                       "Atajo: Ctrl+Alt+Enter");
 
@@ -554,7 +619,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                 if (ImGui::Combo("Bezel style", &bz, kBezelLabels, 6)) {
                     P.bezel_style = bz;
                 }
-                ImGui::SetItemTooltip("Marco dibujado en las barras laterales.\n"
+                tl_tooltip("Marco dibujado en las barras laterales.\n"
                                       "Default viene del perfil CRT.");
             }
 
@@ -575,14 +640,13 @@ void Menu::build_widgets(Pipeline& pipeline,
                     if (ImGui::Checkbox(kPassNames[i], &e)) {
                         pipeline.set_pass_enabled(i, e);
                     }
-                    ImGui::SetItemTooltip("%s", kPassTooltips[i]);
+                    tl_tooltip(kPassTooltips[i]);
                 }
             }
-            ImGui::EndTabItem();
         }
 
         // ====================== CAPTURE TAB ======================
-        if (ImGui::BeginTabItem("Capture")) {
+        if (TintedTab _ttab{"Capture", pal::teal(), pal::teal()}) {
             // ---- Target window ----
             if (ImGui::CollapsingHeader("Target window")) {
                 if (window_actions.is_tracking_target) {
@@ -594,22 +658,22 @@ void Menu::build_widgets(Pipeline& pipeline,
                     if (ImGui::Button("Detach", ImVec2(-1, 0))) {
                         window_actions.detach_target_requested = true;
                     }
-                    ImGui::SetItemTooltip("Suelta la ventana seguida. Atajo: Ctrl+Alt+T");
+                    tl_tooltip("Suelta la ventana seguida. Atajo: Ctrl+Alt+T");
                 } else {
                     static char title_buf[256];
                     ImGui::InputText("##targettitle", title_buf, sizeof(title_buf));
-                    ImGui::SetItemTooltip("Substring del titulo a seguir (case-insensitive).\n"
+                    tl_tooltip("Substring del titulo a seguir (case-insensitive).\n"
                                           "Ej: notepad");
                     if (ImGui::Button("Track by title", ImVec2(150, 0))) {
                         window_actions.title_to_track = title_buf;
                         window_actions.track_by_title_requested = true;
                     }
-                    ImGui::SetItemTooltip("Engancha a la ventana cuyo titulo contiene el texto.");
+                    tl_tooltip("Engancha a la ventana cuyo titulo contiene el texto.");
                     ImGui::SameLine();
                     if (ImGui::Button("Track foreground", ImVec2(-1, 0))) {
                         window_actions.track_foreground_requested = true;
                     }
-                    ImGui::SetItemTooltip("Engancha a la ventana que tenia foco antes del menu.\n"
+                    tl_tooltip("Engancha a la ventana que tenia foco antes del menu.\n"
                                           "Atajo: Ctrl+Alt+T");
                 }
             }
@@ -621,17 +685,17 @@ void Menu::build_widgets(Pipeline& pipeline,
                     if (ImGui::Button("Detach region", ImVec2(-1, 0))) {
                         window_actions.region_detach_requested = true;
                     }
-                    ImGui::SetItemTooltip("Suelta el rectangulo fijo.");
+                    tl_tooltip("Suelta el rectangulo fijo.");
                 } else {
                     static int rx = 100, ry = 100, rw = 800, rh = 600;
                     ImGui::InputInt("x##region", &rx);
-                    ImGui::SetItemTooltip("Coordenada X en pixeles del monitor (0=borde izquierdo).");
+                    tl_tooltip("Coordenada X en pixeles del monitor (0=borde izquierdo).");
                     ImGui::InputInt("y##region", &ry);
-                    ImGui::SetItemTooltip("Coordenada Y en pixeles del monitor (0=borde superior).");
+                    tl_tooltip("Coordenada Y en pixeles del monitor (0=borde superior).");
                     ImGui::InputInt("w##region", &rw);
-                    ImGui::SetItemTooltip("Ancho del rectangulo en pixeles. Minimo 16.");
+                    tl_tooltip("Ancho del rectangulo en pixeles. Minimo 16.");
                     ImGui::InputInt("h##region", &rh);
-                    ImGui::SetItemTooltip("Alto del rectangulo en pixeles. Minimo 16.");
+                    tl_tooltip("Alto del rectangulo en pixeles. Minimo 16.");
                     if (ImGui::Button("Pin to this rect", ImVec2(-1, 0))) {
                         window_actions.region_x = rx;
                         window_actions.region_y = ry;
@@ -639,7 +703,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                         window_actions.region_h = std::max(rh, 16);
                         window_actions.region_attach_requested = true;
                     }
-                    ImGui::SetItemTooltip("Fija la region. La entrada pasa a la app debajo (click-through).");
+                    tl_tooltip("Fija la region. La entrada pasa a la app debajo (click-through).");
                 }
             }
 
@@ -652,7 +716,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                 }
                 ImGui::TextDisabled("Folder where Ctrl+Alt+S / Ctrl+Alt+V save");
                 ImGui::InputText("##capdir", buf, sizeof(buf));
-                ImGui::SetItemTooltip("Carpeta donde se guardan screenshots y videos.\n"
+                tl_tooltip("Carpeta donde se guardan screenshots y videos.\n"
                                       "Vacio = carpeta por defecto.");
                 if (ImGui::Button("Browse...", ImVec2(110, 0))) {
                     std::string picked = browse_for_folder("Choose Tubelight capture folder");
@@ -662,20 +726,20 @@ void Menu::build_widgets(Pipeline& pipeline,
                         capture_dir_changed = true;
                     }
                 }
-                ImGui::SetItemTooltip("Abre el dialogo de Windows para elegir carpeta.");
+                tl_tooltip("Abre el dialogo de Windows para elegir carpeta.");
                 ImGui::SameLine();
                 if (ImGui::Button("Apply", ImVec2(80, 0))) {
                     capture_dir = buf;
                     capture_dir_changed = true;
                 }
-                ImGui::SetItemTooltip("Confirma el texto editado como nueva carpeta de capturas.");
+                tl_tooltip("Confirma el texto editado como nueva carpeta de capturas.");
                 ImGui::SameLine();
                 if (ImGui::Button("Default", ImVec2(90, 0))) {
                     capture_dir.clear();
                     std::snprintf(buf, sizeof(buf), "%s", "");
                     capture_dir_changed = true;
                 }
-                ImGui::SetItemTooltip("Restaura a %%USERPROFILE%%\\Pictures\\Tubelight.");
+                tl_tooltip("Restaura a %%USERPROFILE%%\\Pictures\\Tubelight.");
 
                 ImGui::Separator();
                 const char* kRecSources[] = {
@@ -686,17 +750,17 @@ void Menu::build_widgets(Pipeline& pipeline,
                 if (ImGui::Combo("Record source", &sio.record_source, kRecSources, 3)) {
                     sio.record_changed = true;
                 }
-                ImGui::SetItemTooltip("De donde grabar el video:\n"
+                tl_tooltip("De donde grabar el video:\n"
                                       "vista CRT (lo que ves), monitor completo, o rectangulo.");
                 if (sio.record_source == 2) {
                     if (ImGui::InputInt("rec x", &sio.record_rect_x)) sio.record_changed = true;
-                    ImGui::SetItemTooltip("X del rectangulo de grabacion (pixeles del monitor).");
+                    tl_tooltip("X del rectangulo de grabacion (pixeles del monitor).");
                     if (ImGui::InputInt("rec y", &sio.record_rect_y)) sio.record_changed = true;
-                    ImGui::SetItemTooltip("Y del rectangulo de grabacion.");
+                    tl_tooltip("Y del rectangulo de grabacion.");
                     if (ImGui::InputInt("rec w", &sio.record_rect_w)) sio.record_changed = true;
-                    ImGui::SetItemTooltip("Ancho del rectangulo de grabacion.");
+                    tl_tooltip("Ancho del rectangulo de grabacion.");
                     if (ImGui::InputInt("rec h", &sio.record_rect_h)) sio.record_changed = true;
-                    ImGui::SetItemTooltip("Alto del rectangulo de grabacion.");
+                    tl_tooltip("Alto del rectangulo de grabacion.");
                 }
             }
 
@@ -705,51 +769,49 @@ void Menu::build_widgets(Pipeline& pipeline,
                 if (ImGui::Checkbox("Show status HUD", &hud_visible)) {
                     hud_changed = true;
                 }
-                ImGui::SetItemTooltip("HUD arriba a la derecha con perfil + modo + senal.\n"
+                tl_tooltip("HUD arriba a la derecha con perfil + modo + senal.\n"
                                       "Atajo: Ctrl+Alt+H");
                 if (ImGui::Checkbox("Click-through (windowed)",
                                     &sio.clickthrough_user)) {
                     sio.clickthrough_changed = true;
                 }
-                ImGui::SetItemTooltip("El cursor atraviesa Tubelight; la app de abajo recibe clicks.\n"
+                tl_tooltip("El cursor atraviesa Tubelight; la app de abajo recibe clicks.\n"
                                       "Atajo: Ctrl+Alt+C");
                 if (ImGui::Checkbox("Low-latency mode (vsync off)", &sio.low_latency)) {
                     sio.low_latency_changed = true;
                 }
-                ImGui::SetItemTooltip("Desactiva vsync. Menos retardo, posible tearing.\n"
+                tl_tooltip("Desactiva vsync. Menos retardo, posible tearing.\n"
                                       "Soft-cap 240 fps para no saturar GPU.");
                 if (ImGui::Checkbox("Recordable by Snipping Tool / Game Bar / OBS",
                                     &sio.recordable)) {
                     sio.recordable_changed = true;
                 }
-                ImGui::SetItemTooltip("Cambia source a Magnification API con self-filter\n"
+                tl_tooltip("Cambia source a Magnification API con self-filter\n"
                                       "para que OBS / Game Bar puedan grabar Tubelight\n"
                                       "sin feedback infinito. Atajo: Ctrl+Alt+R");
                 if (sio.recordable) {
                     ImGui::TextDisabled("Source via Magnification API w/ self-filter.");
                 }
             }
-            ImGui::EndTabItem();
         }
 
         // ====================== AUDIO TAB ======================
-        if (ImGui::BeginTabItem("Audio")) {
+        if (TintedTab _ttab{"Audio", pal::mint(), pal::mint()}) {
             if (ImGui::Checkbox("Enable flyback whine (~15.7 kHz)", &audio_enabled)) {
                 audio_changed = true;
             }
-            ImGui::SetItemTooltip("Reproduce el chillido ~15.7 kHz del transformador flyback.\n"
+            tl_tooltip("Reproduce el chillido ~15.7 kHz del transformador flyback.\n"
                                   "Modulado por luminancia (mas blanco = mas fuerte).");
             if (ImGui::SliderFloat("Volume", &audio_volume, 0.0f, 1.0f, "%.2f")) {
                 audio_changed = true;
             }
-            ImGui::SetItemTooltip("Volumen del flyback. 0=silencio, 1=maximo. Default 0.20.");
+            tl_tooltip("Volumen del flyback. 0=silencio, 1=maximo. Default 0.20.");
             ImGui::TextDisabled("Off by default; persists in settings.json.");
             ImGui::TextDisabled("XAudio2 streaming voice in a worker thread.");
-            ImGui::EndTabItem();
         }
 
         // ====================== HELP TAB ======================
-        if (ImGui::BeginTabItem("Help")) {
+        if (TintedTab _ttab{"Help", pal::lavender(), pal::lavender()}) {
             ImGui::TextDisabled("Tubelight v0.1.0-alpha");
             ImGui::TextDisabled("https://github.com/GS-RUN/tubelight");
             ImGui::Separator();
@@ -771,7 +833,6 @@ void Menu::build_widgets(Pipeline& pipeline,
             ImGui::Separator();
             ImGui::TextDisabled("Recording with Win11 stock tools requires Ctrl+Alt+R");
             ImGui::TextDisabled("first. OBS Window Capture (WGC) works without it.");
-            ImGui::EndTabItem();
         }
 
         ImGui::EndTabBar();
@@ -781,11 +842,17 @@ void Menu::build_widgets(Pipeline& pipeline,
     if (ImGui::Button("Hide menu (Ctrl+Alt+M)", ImVec2(-1, 0))) {
         open_ = false;
     }
-    ImGui::SetItemTooltip("Oculta el menu. Reabrir con Ctrl+Alt+M.");
+    tl_tooltip("Oculta el menu. Reabrir con Ctrl+Alt+M.");
+    // Quit button uses coral accent — destructive action, deserves
+    // its own colour so the user notices what they're clicking.
+    ImGui::PushStyleColor(ImGuiCol_Button,        pal::coral(0.30f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, pal::coral(0.55f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  pal::coral(0.85f));
     if (ImGui::Button("Quit overlay (Ctrl+Alt+Q)", ImVec2(-1, 0))) {
         want_quit = true;
     }
-    ImGui::SetItemTooltip("Cierra Tubelight por completo. Atajo: Ctrl+Alt+Q");
+    ImGui::PopStyleColor(3);
+    tl_tooltip("Cierra Tubelight por completo. Atajo: Ctrl+Alt+Q");
 
     ImGui::End();
 #else
