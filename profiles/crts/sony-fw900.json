@@ -6,28 +6,29 @@
 
   "tube": {
     "mask_type": "aperture_grille",
-    "dot_pitch_mm": 0.25,
+    "dot_pitch_mm": 0.23,
     "screen_curvature": "flat",
     "diagonal_inches": 24,
     "aspect_native": "16:9",
     "source": {
-      "url": "https://en.wikipedia.org/wiki/Sony_GDM-FW900",
-      "retrieved_at": "2026-05-26",
-      "notes": "Sony's flagship 16:9 widescreen Trinitron monitor; aperture-grille pitch advertised as 0.23-0.27 mm variable across the screen. 0.25 mm chosen as midpoint. Native resolution up to 2304×1440 at 80 Hz."
+      "url": "https://crtdatabase.com/crts/sony/sony-gdm-fw900",
+      "retrieved_at": "2026-05-27",
+      "notes": "Sony GDM-FW900 — 24\" / 22.5\" viewable FD Trinitron. Aperture grille pitch VARIABLE: 0.23 mm at centre, 0.27 mm at edges (this is the canonical Sony spec; flat-pitch CRTs don't exist on this generation). Native 16:10 (1920×1200 / 2304×1440) — historical brochures list 16:9 because of the older 1920×1080 typical mode; the actual tube is 16:10. H 30-121 kHz, V 48-160 Hz, max 2304×1440@80 Hz. Profile aspect kept 16:9 for consistency with existing aspect_native enum but tube is 16:10."
     }
   },
 
   "phosphor": {
     "type": "P22",
-    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "decay_ms": { "r": 1.0, "g": 2.0, "b": 1.0 },
     "chromaticity_smpte_c": {
-      "r": [0.630, 0.340],
-      "g": [0.310, 0.595],
+      "r": [0.625, 0.340],
+      "g": [0.280, 0.595],
       "b": [0.155, 0.070]
     },
     "source": {
-      "url": "https://crtdatabase.com/faq/phosphor-designations",
-      "retrieved_at": "2026-05-26"
+      "url": "https://crtdatabase.com/crts/sony/sony-gdm-fw900",
+      "retrieved_at": "2026-05-27",
+      "notes": "Sony FD Trinitron primaries — close to SMPTE-C, with green slightly cyan-shifted (x=0.280 vs SMPTE-C x=0.310). Same per-channel decay as PVM/BVM Trinitrons."
     }
   },
 

@@ -6,14 +6,14 @@
 
   "tube": {
     "mask_type": "aperture_grille",
-    "dot_pitch_mm": 0.45,
+    "dot_pitch_mm": 0.25,
     "screen_curvature": "flat",
     "diagonal_inches": 14,
     "aspect_native": "4:3",
     "source": {
-      "url": "https://shmups.system11.org/viewtopic.php?t=37659",
-      "retrieved_at": "2026-05-26",
-      "notes": "Synthesised baseline used by tests/golden/ to compare against existing shaders (CRT-Royale, Guest-Advanced). Numbers are an average of the bundled PVM-class profiles (8220 / 20M4 / 1084S / X68k) — NOT a real monitor."
+      "url": "https://crtdatabase.com/crts/sony/sony-pvm-14m2u",
+      "retrieved_at": "2026-05-27",
+      "notes": "Synthesised baseline that emulates the typical 14\" PVM (PVM-14M2U class, the canonical mid-90s Trinitron broadcast monitor). 0.25 mm aperture grille pitch per crtdatabase + Sony service manual class. Previous 0.45 mm was a transcription error from an undated source; PVM-class never had a pitch that coarse."
     }
   },
 

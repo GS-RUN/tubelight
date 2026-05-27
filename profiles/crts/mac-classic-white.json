@@ -19,16 +19,16 @@
 
   "phosphor": {
     "type": "P4",
-    "decay_ms": { "r": 0.5, "g": 0.5, "b": 0.5 },
+    "decay_ms": { "r": 0.06, "g": 0.06, "b": 0.06 },
     "chromaticity_smpte_c": {
-      "r": [0.295, 0.330],
-      "g": [0.295, 0.330],
-      "b": [0.295, 0.330]
+      "r": [0.265, 0.285],
+      "g": [0.265, 0.285],
+      "b": [0.265, 0.285]
     },
     "source": {
-      "url": "https://en.wikipedia.org/wiki/Phosphor",
-      "retrieved_at": "2026-05-26",
-      "notes": "P4 white phosphor used in compact Macs. Cool-white tint, short persistence (~0.5 ms representative)."
+      "url": "https://nerdhut.de/2016/06/26/macintosh-classic-crt-1/",
+      "notes": "Mac Classic uses a 9\" P4 white CRT (assumed — Apple never published the explicit phosphor designation; community consensus + visible bluish-white is consistent with P4). 22.25 kHz H-sync (45 µs period), 60.15 Hz V-refresh, pixel clock 15.6672 MHz, native 512×342. Decay 0.06 ms canonical P4. xy (0.265, 0.285) cooler than NTSC P4 reference — Apple Macs were notably blue-shifted.",
+      "retrieved_at": "2026-05-27"
     }
   },
 

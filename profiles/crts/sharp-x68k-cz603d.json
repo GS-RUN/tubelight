@@ -6,20 +6,20 @@
 
   "tube": {
     "mask_type": "shadow",
-    "dot_pitch_mm": 0.29,
+    "dot_pitch_mm": 0.31,
     "screen_curvature": "mild",
     "diagonal_inches": 14,
     "aspect_native": "4:3",
     "source": {
       "url": "https://gamesx.com/wiki/doku.php?id=x68000%3Ax68000_monitors",
-      "retrieved_at": "2026-05-26",
-      "notes": "Later X68k monitor series (CZ-603D/606D/608D) tightened the mask pitch from 0.39 mm to 0.28-0.31 mm and dropped 24 kHz support. 0.29 mm chosen as midpoint."
+      "retrieved_at": "2026-05-27",
+      "notes": "Sharp CZ-603D — 14\" tube / 13\" viewable, 0.31 mm shadow mask (refined from 602D's 0.39 mm). Supports ONLY 15.98 kHz + 31.469 kHz — DROPS 24.838 kHz, so several X68000 native modes don't display correctly. No audio. Cross-confirmed by gamesx X68000 wiki + crtdatabase Sharp entry."
     }
   },
 
   "phosphor": {
     "type": "P22",
-    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "decay_ms": { "r": 1.0, "g": 2.0, "b": 1.0 },
     "chromaticity_smpte_c": {
       "r": [0.630, 0.340],
       "g": [0.310, 0.595],

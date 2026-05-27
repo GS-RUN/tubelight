@@ -19,16 +19,16 @@
 
   "phosphor": {
     "type": "P4",
-    "decay_ms": { "r": 0.5, "g": 0.5, "b": 0.5 },
+    "decay_ms": { "r": 0.06, "g": 0.06, "b": 0.06 },
     "chromaticity_smpte_c": {
-      "r": [0.290, 0.320],
-      "g": [0.290, 0.320],
-      "b": [0.290, 0.320]
+      "r": [0.270, 0.300],
+      "g": [0.270, 0.300],
+      "b": [0.270, 0.300]
     },
     "source": {
       "url": "https://en.wikipedia.org/wiki/Phosphor",
-      "retrieved_at": "2026-05-26",
-      "notes": "P4 = white phosphor; short persistence. Representative decay 0.5 ms. Chromaticity approximated near CIE white point (0.29, 0.32)."
+      "retrieved_at": "2026-05-27",
+      "notes": "P4 = ZnS:Ag + (Zn,Cd)S:Ag — white (slightly bluish) cathode-ray sulphide, 565/540 nm dual peak, short persistence ~60 µs (corrected from 0.5 ms — that was an order-of-magnitude error). Standard NTSC B&W TV phosphor 1946-1980s. Chromaticity xy (0.270, 0.300) per Wikipedia phosphor table. Modern Cd-free P4 variants shift xy slightly. Also see 7JP4 article."
     }
   },
 

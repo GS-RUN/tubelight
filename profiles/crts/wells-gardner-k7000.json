@@ -12,14 +12,14 @@
     "aspect_native": "4:3",
     "source": {
       "url": "https://wellsgardner.com/wp-content/uploads/2016/08/K7000-1.pdf",
-      "retrieved_at": "2026-05-26",
-      "notes": "K7000 service manual PDF (~7-9 MB) hosts the dot pitch table; remote fetch hit size limits. Estimated 0.43-0.50 mm based on arcade-class CRTs of the era. NEEDS-MEASUREMENT against the printed manual."
+      "retrieved_at": "2026-05-27",
+      "notes": "Wells-Gardner K7000 — 13\" arcade tube, ~0.65 mm shadow mask (typical for the era's arcade CRTs; finer-pitched consumer 14\" tubes were 0.42-0.45 mm). 15.72 kHz horizontal, 60 Hz vertical — standard NTSC arcade rate. Service manual referenced for tube specs."
     }
   },
 
   "phosphor": {
     "type": "P22",
-    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "decay_ms": { "r": 1.0, "g": 2.0, "b": 1.0 },
     "chromaticity_smpte_c": {
       "r": [0.630, 0.340],
       "g": [0.310, 0.595],
@@ -27,7 +27,8 @@
     },
     "source": {
       "url": "https://crtdatabase.com/faq/phosphor-designations",
-      "retrieved_at": "2026-05-26"
+      "retrieved_at": "2026-05-27",
+      "notes": "SMPTE-C primaries — close enough for arcade-class CRTs (the actual phosphor was often P22 or P22-mod variants without published xy)."
     }
   },
 

@@ -1,25 +1,25 @@
 {
   "$schema": "../../schemas/crt_profile.schema.json",
   "id": "sharp-cz-614d",
-  "display_name": "Sharp CZ-614D (14\" Shadow Mask matte, 1990s)",
+  "display_name": "Sharp CZ-614D (15\" tube / 14\" viewable, Shadow Mask matte, 1990s)",
   "era": "1992",
 
   "tube": {
     "mask_type": "shadow",
     "dot_pitch_mm": 0.31,
     "screen_curvature": "mild",
-    "diagonal_inches": 14,
+    "diagonal_inches": 15,
     "aspect_native": "4:3",
     "source": {
       "url": "https://crtdatabase.com/crts/sharp/sharp-cz-614d",
-      "retrieved_at": "2026-05-26",
-      "notes": "Matte / anti-glare front surface — reflection_strength slightly higher to model the texture scatter."
+      "retrieved_at": "2026-05-27",
+      "notes": "Sharp CZ-614D — 15\" tube / 14\" viewable, 0.31 mm shadow mask (matte AG tint front), 90° deflection, Sharp M36KLJ180X tube. Multi-sync 15.625 / 15.734 / 24.838 / 31.469 kHz (X68000 + VGA + 240p/480i). Stereo audio. Reflection_strength bumped 0.05→0.08 to model matte scatter."
     }
   },
 
   "phosphor": {
     "type": "P22",
-    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "decay_ms": { "r": 1.0, "g": 2.0, "b": 1.0 },
     "chromaticity_smpte_c": {
       "r": [0.630, 0.340],
       "g": [0.310, 0.595],

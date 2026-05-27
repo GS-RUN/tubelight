@@ -11,15 +11,15 @@
     "diagonal_inches": 20,
     "aspect_native": "4:3",
     "source": {
-      "url": "https://www.manualslib.com/manual/1037089/Sony-Trinitron-Bvm-A20f1u.html?page=124",
-      "retrieved_at": "2026-05-26",
-      "notes": "Broadcast-grade Trinitron with the finest aperture grille pitch (0.30 mm). Multistandard horizontal up to ~64 kHz. Linear field-rate, low geometry warp baseline."
+      "url": "https://www.manualslib.com/manual/262577/Sony-Trinitron-Bvm-20f1u-Bvm-20f1e-Bvm-20e1u-Bvm-20e1e-Bvm-14f1u-Bvm-14f1e-Bvm-14e1u-Bvm-14e1e-Bvm-14f5u-Bvm-14f5e-Bvm-14e5.html?page=61",
+      "retrieved_at": "2026-05-27",
+      "notes": "Sony BVM-20F1U operation manual (page 61) — 20\" tube / 19\" viewable, 0.30 mm Super Fine Pitch Trinitron aperture grille, 30.6mm in-line gun, 90° deflection. 525/60i (15.734 kHz) and 625/50i (15.625 kHz) broadcast formats. Native 4:3 with switchable 16:9 via mask swap. Requires BKM-10R/11R controller. Multistandard horizontal up to ~64 kHz when fed PC signals."
     }
   },
 
   "phosphor": {
     "type": "P22",
-    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "decay_ms": { "r": 1.0, "g": 2.0, "b": 1.0 },
     "chromaticity_smpte_c": {
       "r": [0.630, 0.340],
       "g": [0.310, 0.595],

@@ -21,14 +21,14 @@
     "type": "P31",
     "decay_ms": { "r": 0.04, "g": 0.04, "b": 0.04 },
     "chromaticity_smpte_c": {
-      "r": [0.260, 0.530],
-      "g": [0.260, 0.530],
-      "b": [0.260, 0.530]
+      "r": [0.226, 0.555],
+      "g": [0.226, 0.555],
+      "b": [0.226, 0.555]
     },
     "source": {
-      "url": "https://pubmed.ncbi.nlm.nih.gov/9176941/",
-      "retrieved_at": "2026-05-26",
-      "notes": "P31 decay 0.01-1 ms range; representative value 0.04 ms (40 us). Chromaticity uses single point for monochrome — green/yellow-green at approx (0.260, 0.530). Photopic measurement of P31 reports 1.4% residual at 50 ms post-pulse."
+      "url": "https://en.wikipedia.org/wiki/Phosphor",
+      "retrieved_at": "2026-05-27",
+      "notes": "P31 = ZnS:Cu or ZnS:Cu,Ag — yellowish-green, ~525 nm peak, short persistence 0.01-1 ms (EIA TEP-116 range; typical ~38 µs). CIE 1931 xy (0.226, 0.555) per Wikipedia phosphor table — corrected from previous (0.260, 0.530) which was an averaged value. Used in oscilloscopes and computer monochrome monitors (Apple Monitor III, VT100 green variants). Note: IBM 5151 is actually P39 high-persistence green, not P31 — but P31 is the dominant green-terminal phosphor of the era."
     }
   },
 

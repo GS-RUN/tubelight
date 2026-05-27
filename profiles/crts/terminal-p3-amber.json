@@ -21,14 +21,14 @@
     "type": "P3",
     "decay_ms": { "r": 13.0, "g": 13.0, "b": 13.0 },
     "chromaticity_smpte_c": {
-      "r": [0.560, 0.430],
-      "g": [0.560, 0.430],
-      "b": [0.560, 0.430]
+      "r": [0.523, 0.469],
+      "g": [0.523, 0.469],
+      "b": [0.523, 0.469]
     },
     "source": {
       "url": "https://en.wikipedia.org/wiki/Phosphor",
-      "retrieved_at": "2026-05-26",
-      "notes": "P3 amber: emission at approx 602 nm, decay ~13 ms — medium persistence. Single chromaticity point used for monochrome (warm amber/orange)."
+      "retrieved_at": "2026-05-27",
+      "notes": "P3 = Zn8:BeSi5O19:Mn (Zn-Be silicate Mn-activated). Yellow-amber emission at 602 nm peak, EIA medium-persistence ~13 ms. Wikipedia phosphor table gives xy (0.523, 0.469); corrected from previous averaged (0.560, 0.430). Used in IBM 5151 amber, DEC VR201 amber, Wyse 50 amber. EIA TEP-116 paywalled — exact batch chromaticity ±0.02 tolerance."
     }
   },
 

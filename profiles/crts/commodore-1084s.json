@@ -5,29 +5,30 @@
   "era": "1986",
 
   "tube": {
-    "mask_type": "shadow",
+    "mask_type": "slot",
     "dot_pitch_mm": 0.42,
     "screen_curvature": "mild",
     "diagonal_inches": 14,
     "aspect_native": "4:3",
     "source": {
-      "url": "https://www.manualslib.com/manual/1100625/Commodore-1084s.html?page=12",
-      "retrieved_at": "2026-05-26",
-      "notes": "Commodore service manual specifies slotted-triplet shadow mask with 0.42 mm pitch, 90 degrees deflection, 640x400 max interlaced. Cross-reference: https://bigbookofamigahardware.com/bboah/product.aspx?id=850"
+      "url": "https://crtdatabase.com/crts/commodore/commodore-1084",
+      "retrieved_at": "2026-05-27",
+      "notes": "Commodore 1084S — 0.42 mm SLOT mask (not shadow trio — slot type confirmed by crtdatabase and corroborated by Philips CM8833 OEM service manual). 13\" viewable on 14\" tube. PAL-first Amiga monitor; 15.625 kHz/50 Hz native + 15.75 kHz/60 Hz NTSC alt."
     }
   },
 
   "phosphor": {
     "type": "P22",
-    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "decay_ms": { "r": 1.0, "g": 2.0, "b": 1.0 },
     "chromaticity_smpte_c": {
-      "r": [0.630, 0.340],
-      "g": [0.310, 0.595],
-      "b": [0.155, 0.070]
+      "r": [0.64, 0.33],
+      "g": [0.29, 0.60],
+      "b": [0.15, 0.06]
     },
     "source": {
-      "url": "https://crtdatabase.com/faq/phosphor-designations",
-      "retrieved_at": "2026-05-26"
+      "url": "https://en.wikipedia.org/wiki/EBU_Tech_3213",
+      "retrieved_at": "2026-05-27",
+      "notes": "EBU phosphor set (Tech 3213) — 1084S is a PAL-first European monitor, EBU primaries fit the tube better than SMPTE-C NTSC primaries. Per-channel decay typical of P22 colour triplet: R ~1 ms, G ~2 ms, B ~1 ms (the green a touch slower on consumer-grade P22)."
     }
   },
 

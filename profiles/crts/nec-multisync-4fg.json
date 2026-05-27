@@ -11,15 +11,15 @@
     "diagonal_inches": 15,
     "aspect_native": "4:3",
     "source": {
-      "url": "https://crtdatabase.com/crts/nec/nec-jc-1401p3a",
-      "retrieved_at": "2026-05-26",
-      "notes": "Successor lineage to the first MultiSync. The 4FG/5FG family tightened pitch to 0.28 mm and extended autosync to ~50 kHz. dot_pitch_mm derived by lineage; NEEDS-MEASUREMENT against a specific MultiSync 4FG service manual for confirmation."
+      "url": "https://archive.org/download/manual_MULTISYNC4FG_SM_NEC/MULTISYNC4FG_SM_NEC_text.pdf",
+      "retrieved_at": "2026-05-27",
+      "notes": "NEC MultiSync 4FG (JC-1531VMA, 1990). Service manual on archive.org confirms 0.28 mm black-matrix shadow mask, 15\" FST tube / 14\" viewable, native 1024×768 at 4:3 (the 5:4 era starts with the later 5FG-onward FE/FP). H 27–57 kHz auto-sync, V 55–90 Hz. Picked 50 kHz / 75 Hz as a typical mid-range operating point (1024×768@75 Hz)."
     }
   },
 
   "phosphor": {
     "type": "P22",
-    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "decay_ms": { "r": 1.0, "g": 2.0, "b": 1.0 },
     "chromaticity_smpte_c": {
       "r": [0.630, 0.340],
       "g": [0.310, 0.595],
@@ -27,7 +27,8 @@
     },
     "source": {
       "url": "https://crtdatabase.com/faq/phosphor-designations",
-      "retrieved_at": "2026-05-26"
+      "retrieved_at": "2026-05-27",
+      "notes": "SMPTE-C primaries — NEC followed the broadcast standard from MultiSync II onward. Per-channel decay typical P22 colour triplet."
     }
   },
 

@@ -19,7 +19,7 @@
 
   "phosphor": {
     "type": "P22",
-    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "decay_ms": { "r": 1.0, "g": 2.0, "b": 1.0 },
     "chromaticity_smpte_c": {
       "r": [0.630, 0.340],
       "g": [0.310, 0.595],
@@ -27,7 +27,8 @@
     },
     "source": {
       "url": "https://crtdatabase.com/faq/phosphor-designations",
-      "retrieved_at": "2026-05-26"
+      "retrieved_at": "2026-05-27",
+      "notes": "SMPTE-C primaries. Per-channel decay: P22 colour triplet typical R~1 ms, G~2 ms (slightly slower green on consumer grade), B~1 ms — corrected from previous (1.0, 0.08, 0.08) which was an erroneous off-by-one in the G/B ms values."
     }
   },
 

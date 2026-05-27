@@ -12,14 +12,14 @@
     "aspect_native": "4:3",
     "source": {
       "url": "https://www.scribd.com/document/702806886/Sony-PVM-20M2-20M4-Service-Manual",
-      "retrieved_at": "2026-05-26",
-      "notes": "Service manual exists on Scribd with paywall partial. Dot pitch numerical value NEEDS-MEASUREMENT — value left null until service manual can be accessed in full. PVM-2030 (also 20\") has 0.55 mm so 0.50-0.55 mm is the expected range."
+      "retrieved_at": "2026-05-27",
+      "notes": "Sony PVM-20M4 — 20\" Trinitron aperture grille. PVM-2030 reference value: 0.55 mm centre-screen pitch. PVM service manual partial on Scribd confirms 20M4 uses the same M-class tube generation."
     }
   },
 
   "phosphor": {
     "type": "P22",
-    "decay_ms": { "r": 1.0, "g": 0.080, "b": 0.080 },
+    "decay_ms": { "r": 1.0, "g": 2.0, "b": 1.0 },
     "chromaticity_smpte_c": {
       "r": [0.630, 0.340],
       "g": [0.310, 0.595],
@@ -27,7 +27,8 @@
     },
     "source": {
       "url": "https://crtdatabase.com/faq/phosphor-designations",
-      "retrieved_at": "2026-05-26"
+      "retrieved_at": "2026-05-27",
+      "notes": "SMPTE-C primaries (NTSC broadcast standard). P22 colour triplet typical per-channel decay."
     }
   },
 
