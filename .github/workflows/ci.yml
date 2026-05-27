@@ -34,8 +34,10 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
-          # vcpkg tag 2024.07.12 → SHA1 (action requires 40-hex-digit hash, not tag).
-          vcpkgGitCommitId: '1de2026f28ead93ff1773e6e680387643e914ea1'
+          # Must match (or exceed) the builtin-baseline pinned in
+          # vcpkg.json — otherwise the manifest's version constraints
+          # can't be resolved against the older port database.
+          vcpkgGitCommitId: '7e99dc220963b470f61bd502e3fee50eda5c41ff'
 
       - name: Configure
         # lukka/run-vcpkg@v11 sets VCPKG_ROOT job-wide; the preset reads
