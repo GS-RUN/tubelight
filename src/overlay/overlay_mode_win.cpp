@@ -973,9 +973,13 @@ int run(const Options& opts) {
 
     HWND hwnd = glfwGetWin32Window(window);
 
+#define TL_CKPT(tag) do { std::fprintf(stderr, "[ckpt] %s\n", tag); std::fflush(stderr); } while(0)
+    TL_CKPT("01 post-glfwGetWin32Window");
+
     // Exclude the overlay from screen capture (avoid feedback loop where
     // DXGI would otherwise include our own rendered output in its grab).
     apply_capture_affinity(hwnd);
+    TL_CKPT("02 post-apply_capture_affinity");
 
     if (fullscreen_active || target_mode || region_active) {
         // Click-through topmost. WDA_EXCLUDEFROMCAPTURE keeps DXGI from
@@ -1003,9 +1007,12 @@ int run(const Options& opts) {
     // The keyboard hook (kb_hook_proc above) routes by VK code directly into
     // the g_hk_* atomics, so we no longer need per-hotkey RegisterHotKey IDs.
 
+    TL_CKPT("03 post-styles-and-setwindowpos");
+
     // Build the source texture sized to the desktop.
     tubelight::Texture2D source;
     source.create_empty(W, H, GL_RGBA8);
+    TL_CKPT("04 post-source-texture-create");
 
     // We upload with `format = GL_BGRA` so OpenGL itself does the byte
     // reordering from DXGI's BGRA8 into the texture's internal RGBA layout.
@@ -1020,33 +1027,44 @@ int run(const Options& opts) {
     // top-down rows AND ALSO compensate by using GL_REPEAT? Instead we flip
     // here by uploading with a temp buffer when needed — see below).
 
+    TL_CKPT("05 pre-pipeline-create");
     // Pipeline at window resolution.
     tubelight::Pipeline pipeline;
     if (!pipeline.create(W, H)) {
         std::fprintf(stderr, "[overlay] pipeline create failed\n");
         return 1;
     }
+    TL_CKPT("06 post-pipeline-create");
 
     if (!opts.profile_id.empty()) {
+        TL_CKPT("07 pre-load_crt_profile");
         std::string err;
         auto p = tubelight::load_crt_profile_by_id(opts.profile_id, err);
+        TL_CKPT("08 post-load_crt_profile");
         if (p) {
             pipeline.apply_crt_profile(*p);
-            std::printf("[overlay] CRT profile: %s\n", p->display_name.c_str());
+            TL_CKPT("09 post-apply_crt_profile");
+            std::fprintf(stderr, "[overlay] CRT profile loaded: %s\n", p->display_name.c_str());
+            std::fflush(stderr);
             // Optional photo-real bezel PNG at assets/bezels/<id>.png.
             std::string bezel_path =
                 std::string("assets/bezels/") + opts.profile_id + ".png";
+            TL_CKPT("10 pre-load_bezel_image");
             pipeline.load_bezel_image(bezel_path);
+            TL_CKPT("11 post-load_bezel_image");
         } else {
             std::fprintf(stderr, "[overlay] CRT profile '%s' not found: %s\n",
                          opts.profile_id.c_str(), err.c_str());
         }
     }
     if (!opts.signal_id.empty()) {
+        TL_CKPT("12 pre-load_signal_profile");
         std::string err;
         auto s = tubelight::load_signal_profile_by_id(opts.signal_id, err);
+        TL_CKPT("13 post-load_signal_profile");
         if (s) {
             pipeline.apply_signal_profile(*s);
+            TL_CKPT("14 post-apply_signal_profile");
             if (pipeline.params().monochrome == 1) {
                 std::printf("[overlay] signal profile '%s' ignored (locked to clean RGB for monochrome)\n",
                              s->display_name.c_str());
@@ -1382,7 +1400,9 @@ int run(const Options& opts) {
     float intensity_multiplier     = 1.0f;
     Pipeline::GlobalParams base_params = pipeline.params();
 
+    TL_CKPT("15 pre-load_settings");
     Settings settings = load_settings();
+    TL_CKPT("16 post-load_settings");
     // Migration: the previous build defaulted low_latency=true which
     // caused the render loop to spin without bound and starve the
     // rest of the desktop. Force it off once on this version so users
@@ -1446,7 +1466,9 @@ int run(const Options& opts) {
     // CRT audio (XAudio2 flyback whine). Init best-effort: if it fails
     // for any reason (no audio device, driver issue, headless test env)
     // the overlay keeps running silently.
+    TL_CKPT("17 pre-crt_audio_ctor");
     tubelight::audio::CrtAudio crt_audio;
+    TL_CKPT("18 post-crt_audio_ctor");
     {
         std::string audio_err;
         if (!crt_audio.init(audio_err)) {
@@ -1461,8 +1483,10 @@ int run(const Options& opts) {
     // toast_text / toast_time / kToastShown moved earlier (above
     // apply_clickthrough_user) so the lambda can capture them by ref.
 
+    TL_CKPT("19 pre-Menu-init");
     Menu menu;
     bool has_menu = menu.init(window);
+    TL_CKPT("20 post-Menu-init");
     std::fprintf(stderr, "[overlay] %s\n",
                  has_menu ? "in-app menu ready (Ctrl+Alt+M to open)"
                           : "built without imgui — menu disabled");
