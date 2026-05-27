@@ -1429,26 +1429,23 @@ int run(const Options& opts) {
     TL_CKPT("16.6 post-locals-assignment");
     g_recordable_mode.store(recordable);
     TL_CKPT("16.7 post-g_recordable_mode-store");
-    // Helper applied whenever recordable changes. Lazy-inits the
-    // Magnification API source on first activation (cost: ~3-5 ms +
-    // one extra invisible host HWND while ON) and flips WDA. Keeping
-    // Mag initialised even after toggling off is fine but uses ~36 MB
-    // for a 1080p backing buffer — we tear it down on disable.
-    auto apply_recordable_mode = [&](bool on) {
-        g_recordable_mode.store(on);
-        if (on) {
-            if (!mag_capture.is_initialized()) {
-                mag_capture.init(opts.monitor_index, hwnd,
-                                  GetModuleHandleW(nullptr));
-            }
-        } else {
-            if (mag_capture.is_initialized()) mag_capture.shutdown();
+    // Recordable-mode application is now an inline helper rather than a
+    // [&]-capturing lambda. Earlier diagnostic builds (ckpt 16.8 OK,
+    // 16.9 never printed) pinpointed a /GS canary trip on the conditional
+    // call through the lambda — the closure's stack placement appeared
+    // to trigger MSVC's security check. Inlining sidesteps the closure
+    // entirely while keeping the same semantics. We repeat the body at
+    // the (small) handful of call sites instead of factoring; cheap
+    // duplication beats hidden ABI risk here.
+    if (recordable) {
+        g_recordable_mode.store(true);
+        if (!mag_capture.is_initialized()) {
+            mag_capture.init(opts.monitor_index, hwnd,
+                              GetModuleHandleW(nullptr));
         }
         apply_capture_affinity(hwnd);
-    };
-    TL_CKPT("16.8 post-apply_recordable_mode-lambda-defn");
-    if (recordable) apply_recordable_mode(true);
-    TL_CKPT("16.9 post-if-recordable");
+    }
+    TL_CKPT("16.9 post-if-recordable-inline");
     glfwSwapInterval(low_latency ? 0 : 1);
     TL_CKPT("16.10 post-glfwSwapInterval");
     int   rec_source    = settings.record_source;
@@ -1858,7 +1855,16 @@ int run(const Options& opts) {
             }
             if (recordable_changed) {
                 settings.recordable = recordable;
-                apply_recordable_mode(recordable);
+                g_recordable_mode.store(recordable);
+                if (recordable) {
+                    if (!mag_capture.is_initialized()) {
+                        mag_capture.init(opts.monitor_index, hwnd,
+                                          GetModuleHandleW(nullptr));
+                    }
+                } else {
+                    if (mag_capture.is_initialized()) mag_capture.shutdown();
+                }
+                apply_capture_affinity(hwnd);
                 any_setting_changed = true;
                 toast_text = recordable
                     ? "RECORDABLE: ON  (overlay live + visible to Snipping Tool / Game Bar / OBS)"
@@ -2153,7 +2159,16 @@ int run(const Options& opts) {
         }
         if (g_hk_toggle_recordable.exchange(false)) {
             recordable = !recordable;
-            apply_recordable_mode(recordable);
+            g_recordable_mode.store(recordable);
+            if (recordable) {
+                if (!mag_capture.is_initialized()) {
+                    mag_capture.init(opts.monitor_index, hwnd,
+                                      GetModuleHandleW(nullptr));
+                }
+            } else {
+                if (mag_capture.is_initialized()) mag_capture.shutdown();
+            }
+            apply_capture_affinity(hwnd);
             settings.recordable = recordable;
             save_settings(settings);
             toast_text = recordable
