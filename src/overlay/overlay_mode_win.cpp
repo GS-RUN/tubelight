@@ -877,13 +877,11 @@ int run(const Options& opts) {
         glfwTerminate();
         return 1;
     }
-    // Sibling backend for recordable mode. Heap-allocated to keep its
-    // ~70-byte footprint out of run_overlay's stack frame — prior diag
-    // builds showed a /GS canary trip immediately after this region of
-    // the frame, so we displace the object from the canary's
-    // neighbourhood while keeping the same reference-based usage.
-    auto mag_capture_ptr = std::make_unique<MagCapture>();
-    MagCapture& mag_capture = *mag_capture_ptr;
+    // DIAG: mag_capture intentionally REMOVED to isolate whether its
+    // mere presence in run_overlay's stack frame causes the /GS canary
+    // trip the user reports at startup. If this build no longer crashes,
+    // the trigger is the MagCapture local. If it still crashes, the
+    // corruption is elsewhere.
 
     // Window mode: Windowed = movable resizable normal Win32 window with a
     // title bar; Fullscreen = borderless topmost covering the whole monitor;
@@ -1441,13 +1439,9 @@ int run(const Options& opts) {
     // entirely while keeping the same semantics. We repeat the body at
     // the (small) handful of call sites instead of factoring; cheap
     // duplication beats hidden ABI risk here.
+    // DIAG: recordable-init temporarily disabled (mag_capture removed).
     if (recordable) {
-        g_recordable_mode.store(true);
-        if (!mag_capture.is_initialized()) {
-            mag_capture.init(opts.monitor_index, hwnd,
-                              GetModuleHandleW(nullptr));
-        }
-        apply_capture_affinity(hwnd);
+        std::fprintf(stderr, "[overlay] DIAG: recordable=true persisted but Mag init disabled in this diag build\n");
     }
     TL_CKPT("16.9 post-if-recordable-inline");
     glfwSwapInterval(low_latency ? 0 : 1);
@@ -1554,7 +1548,7 @@ int run(const Options& opts) {
         bool got = false;
         for (int attempt = 0; attempt < 20 && !got; ++attempt) {
             bool new_frame = false;
-            if (!grab_source(capture, mag_capture, new_frame, 500)) {
+            if (!capture.grab(new_frame, 500)) {
                 capture.shutdown();
                 if (!capture.init(opts.monitor_index)) break;
                 continue;
@@ -1624,7 +1618,7 @@ int run(const Options& opts) {
             // Non-blocking grab: if the desktop hasn't changed we just
             // re-use the previous capture rather than stall the modal
             // loop waiting on DXGI.
-            (void)grab_source(capture, mag_capture, new_frame, 0);
+            (void)capture.grab(new_frame, 0);
         }
         if (new_frame) {
             int wx, wy, ww, wh;
@@ -1724,7 +1718,7 @@ int run(const Options& opts) {
             // isn't pure black while we wait for the next natural
             // redraw (cursor blink, DWM tick, etc).
             DWORD timeout = have_initial ? 16 : 250;
-            if (!grab_source(capture, mag_capture, new_frame, timeout)) {
+            if (!capture.grab(new_frame, timeout)) {
                 std::fprintf(stderr, "[overlay] capture lost — full re-init...\n");
                 capture.shutdown();
                 if (!capture.init(opts.monitor_index)) {
@@ -1860,14 +1854,7 @@ int run(const Options& opts) {
             if (recordable_changed) {
                 settings.recordable = recordable;
                 g_recordable_mode.store(recordable);
-                if (recordable) {
-                    if (!mag_capture.is_initialized()) {
-                        mag_capture.init(opts.monitor_index, hwnd,
-                                          GetModuleHandleW(nullptr));
-                    }
-                } else {
-                    if (mag_capture.is_initialized()) mag_capture.shutdown();
-                }
+                // DIAG: Mag init/shutdown removed for the bisect build.
                 apply_capture_affinity(hwnd);
                 any_setting_changed = true;
                 toast_text = recordable
@@ -2164,14 +2151,7 @@ int run(const Options& opts) {
         if (g_hk_toggle_recordable.exchange(false)) {
             recordable = !recordable;
             g_recordable_mode.store(recordable);
-            if (recordable) {
-                if (!mag_capture.is_initialized()) {
-                    mag_capture.init(opts.monitor_index, hwnd,
-                                      GetModuleHandleW(nullptr));
-                }
-            } else {
-                if (mag_capture.is_initialized()) mag_capture.shutdown();
-            }
+            // DIAG: Mag init/shutdown removed for the bisect build.
             apply_capture_affinity(hwnd);
             settings.recordable = recordable;
             save_settings(settings);
