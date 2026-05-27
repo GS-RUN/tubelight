@@ -1620,6 +1620,10 @@ int run(const Options& opts) {
     // rather than exit on the first transient.
     int target_lost_frames = 0;
 
+    std::fprintf(stderr,
+                 "[overlay] entering main loop (recordable=%d)\n",
+                 (int)g_recordable_mode.load());
+    std::fflush(stderr);
     while (!glfwWindowShouldClose(window)) {
         // Recompute the effective click-through state for the subclass
         // hit-test handler. Always OFF while the menu is open so the
