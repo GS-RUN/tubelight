@@ -38,9 +38,12 @@ jobs:
           vcpkgGitCommitId: '1de2026f28ead93ff1773e6e680387643e914ea1'
 
       - name: Configure
-        run: cmake --preset windows-vcpkg
-        env:
-          VCPKG_ROOT: ${{ env.VCPKG_INSTALLATION_ROOT }}
+        # lukka/run-vcpkg@v11 sets VCPKG_ROOT job-wide; the preset reads
+        # it via $env{VCPKG_ROOT}. No need to forward anything.
+        shell: pwsh
+        run: |
+          Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
+          cmake --preset windows-vcpkg
 
       - name: Build
         run: cmake --build build/windows-vcpkg --config Release
