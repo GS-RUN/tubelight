@@ -2,6 +2,23 @@
 
 Repo: **https://github.com/GS-RUN/tubelight** (PRIVATE) — `main` builds and runs end-to-end on Windows with the full overlay + menu + capture pipeline.
 
+## Pendiente con planificación cerrada — manual de usuario
+
+Skill: `app-manual-forge` (catálogo skill-anvil). Fases 1 / 2 / 3 (índice
+aprobado) / 3.5 (shotlist aprobado) **ya superadas**; queda Fase 4
+(redacción) + Fase 5 (ensamblado HTML + PDF + TXT bilingüe ES/EN).
+
+Plan completo, parámetros aprobados, índice de 15 secciones, shotlist
+~58 PNGs con backend Windows-MCP, decisiones pendientes y acciones
+automatizables documentadas en:
+
+  → `docs/manual/PENDING.md`
+
+Para retomar:
+
+> *"Usa app-manual-forge en D:\AgentWorkspace\Tubelight retomando el
+> índice y el shotlist aprobados en docs/manual/PENDING.md"*
+
 ## v0.1.0 — first complete version closed 2026-05-27
 
 HEAD `6c9d282`. User signed off: *"creo que ya tenemos la primera versión final del proyecto"*. Closes the full feature scope agreed across sessions: overlay (4 modes), 16 CRT + 7 signal profiles re-verified against service manuals, 8-pass shader pipeline, ImGui menu redesign with 5 tabs and per-widget Spanish tooltips, recordable mode via Magnification API, capture pipeline (PNG screenshot + MP4 video via ffmpeg + CRT audio), per-session click-through + recordable + low-latency toggles, target / region / fullscreen modes with hotkey + menu equivalence.
