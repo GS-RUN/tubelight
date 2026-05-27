@@ -3,7 +3,7 @@
 > High-fidelity CRT overlay for Windows and Linux. Aplica un shader CRT de alta fidelidad sobre cualquier ventana, juego, emulador o reproductor de vídeo del sistema.
 
 [![CI](https://github.com/gs-run/tubelight/actions/workflows/ci.yml/badge.svg)](https://github.com/gs-run/tubelight/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-blue)](LICENSE)
 
 **Estado**: pre-alpha (fase F1 del PLAN). No usable todavía.
 
@@ -59,7 +59,9 @@ cmake --build build/windows-vcpkg --config Release
 
 ## Licencia
 
-[MIT](LICENSE) © 2026 GS-RUN.
+[PolyForm Noncommercial 1.0.0](LICENSE) © 2026 Alonso J. Núñez (GS·RUN).
+
+Gratis para cualquier uso no comercial (personal, investigación, educación, hobby, asociaciones sin ánimo de lucro). Para licencias comerciales: `gsrun.editor@gmail.com`.
 
 ## Contribuir
 

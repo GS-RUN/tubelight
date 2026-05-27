@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 GS-RUN
+﻿// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
 //
 // Serialises the user's current pipeline params as a new CRT profile JSON
 // in the user-local config directory (%APPDATA%\Tubelight\profiles\crts or

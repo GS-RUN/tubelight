@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 GS-RUN
+﻿// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
 //
 // Entry point for the real overlay mode: a borderless always-on-top window
 // that captures the desktop beneath it (via DXGI Desktop Duplication on

@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 GS-RUN
+﻿// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
 //
 // Non-Windows stub for overlay mode. Replaced by a PipeWire portal
 // implementation in v1.1.

@@ -1,6 +1,6 @@
-#!/usr/bin/env bash
-# SPDX-License-Identifier: MIT
-# Copyright (c) 2026 GS-RUN
+﻿#!/usr/bin/env bash
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
 #
 # Build a Tubelight AppImage for Linux distribution.
 #

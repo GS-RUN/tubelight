@@ -1,5 +1,5 @@
-# SPDX-License-Identifier: MIT
-# Copyright (c) 2026 GS-RUN
+﻿# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
 #
 # Builds libtubelight_preload.so for use via LD_PRELOAD on Linux. The .so
 # intercepts glXSwapBuffers (X11/GLX) and eglSwapBuffers (Wayland/EGL),

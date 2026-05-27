@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 GS-RUN
+﻿// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
 //
 // Saves the current overlay framebuffer to disk as a PNG, or records a
 // sequence of frames to an MP4 via ffmpeg (subprocess pipe). Used by

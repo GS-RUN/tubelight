@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 GS-RUN
+﻿// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
 //
 // Single include for the OpenGL function loader (libepoxy) plus GLFW.
 // All in-tree code must include this rather than <GL/gl.h> directly to keep

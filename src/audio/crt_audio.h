@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 GS-RUN
+﻿// SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+// Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
 //
 // CRT-style audio: continuous flyback transformer whine (~15.7 kHz NTSC,
 // ~15.6 kHz PAL) modulated by frame-mean luminance, plus an optional

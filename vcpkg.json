@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "High-fidelity CRT overlay for Windows and Linux",
   "homepage": "https://github.com/gs-run/tubelight",
-  "license": "MIT",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
   "supports": "(windows | linux) & x64",
   "builtin-baseline": "7e99dc220963b470f61bd502e3fee50eda5c41ff",
   "dependencies": [

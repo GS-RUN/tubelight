@@ -1,6 +1,6 @@
-#!/usr/bin/env bash
-# SPDX-License-Identifier: MIT
-# Copyright (c) 2026 GS-RUN
+﻿#!/usr/bin/env bash
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
 #
 # Enforces Constitution C1: no absolute personal paths in versioned files.
 # Usage: bash tools/precommit_check_paths.sh

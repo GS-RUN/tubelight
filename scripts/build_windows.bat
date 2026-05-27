@@ -1,6 +1,6 @@
-@echo off
-REM SPDX-License-Identifier: MIT
-REM Copyright (c) 2026 GS-RUN
+﻿@echo off
+REM SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+REM Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
 REM
 REM One-shot Windows build helper. Calls vcvars64.bat to set up MSVC env,
 REM configures CMake with the windows-vcpkg preset, then builds Release.
