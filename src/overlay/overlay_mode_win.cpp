@@ -130,7 +130,10 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
         else if (vk == VK_RETURN)                 g_hk_toggle_fullscreen = true;
         else if (vk == 'T')                       g_hk_toggle_target = true;
         else if (vk == 'H')                       g_hk_toggle_hud = true;
-        else if (vk == 'C')                       g_hk_toggle_clickthrough = true;
+        else if (vk == 'C') {
+            g_hk_toggle_clickthrough = true;
+            std::fprintf(stderr, "[overlay] LL hook fired Ctrl+Alt+C\n");
+        }
         else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
         else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
         else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
@@ -249,7 +252,16 @@ LRESULT CALLBACK tubelight_subclass_proc(HWND hwnd, UINT msg,
             // Tell Windows "this pixel is transparent" → the click is
             // re-routed to whatever window is behind us in z-order.
             // Works without WS_EX_LAYERED, doesn't fight OpenGL.
+            static std::atomic<int> log_once{0};
+            if (log_once.exchange(1) == 0) {
+                std::fprintf(stderr, "[overlay] WM_NCHITTEST → HTTRANSPARENT (click-through active)\n");
+            }
             return HTTRANSPARENT;
+        }
+        break;
+    case WM_MOUSEACTIVATE:
+        if (g_clickthrough_effective.load()) {
+            return MA_NOACTIVATEANDEAT;
         }
         break;
     case WM_NCCALCSIZE:
@@ -1396,11 +1408,15 @@ int run(const Options& opts) {
                 any_setting_changed = true;
             }
             if (clickthrough_changed) {
-                // The menu wrote directly to clickthrough_user; sync the
-                // window styles + persist.
+                // The menu wrote directly to clickthrough_user; sync.
                 apply_clickthrough_user(clickthrough_user);
                 settings.clickthrough_user = clickthrough_user;
                 any_setting_changed = true;
+                // When activating click-through, auto-close the menu so
+                // the user sees the effect immediately — otherwise the
+                // menu_is_open guard keeps the overlay opaque and the
+                // user thinks nothing happened.
+                if (clickthrough_user) menu.set_open(false);
             }
             if (record_changed) {
                 settings.record_source = rec_source;
@@ -1770,24 +1786,14 @@ int run(const Options& opts) {
         }
 
         // When the menu is open we need clicks to land on it, so we drop
-        // WS_EX_TRANSPARENT temporarily. Restore click-through on close —
-        // but ONLY if the overlay is supposed to be click-through right now
-        // (CLI fullscreen mode, or runtime target-tracking). For a plain
-        // windowed overlay we never want TRANSPARENT, even after the menu
-        // closes, otherwise the user can't drag the title bar any more.
-        const bool should_be_click_through =
-            initial_fullscreen || target_active || region_active || clickthrough_user;
+        // Menu open/close: grab focus when opening so ImGui sees clicks
+        // (the NCHITTEST suppression at the top of the loop handles the
+        // hit-test transparency, no WS_EX_TRANSPARENT manipulation here).
         bool menu_open_now = has_menu && menu.is_open();
         if (menu_open_now != menu_was_open) {
-            LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             if (menu_open_now) {
-                ex &= ~WS_EX_TRANSPARENT;
-                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 SetForegroundWindow(hwnd);
                 SetFocus(hwnd);
-            } else if (should_be_click_through) {
-                ex |= WS_EX_TRANSPARENT;
-                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
             }
             menu_was_open = menu_open_now;
         }
