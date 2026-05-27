@@ -70,6 +70,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -876,10 +877,13 @@ int run(const Options& opts) {
         glfwTerminate();
         return 1;
     }
-    // Sibling backend for recordable mode. Not initialised yet —
-    // the apply_recordable_mode() helper below brings it up on demand,
-    // so the cost is zero unless the user actually toggles Ctrl+Alt+R.
-    MagCapture mag_capture;
+    // Sibling backend for recordable mode. Heap-allocated to keep its
+    // ~70-byte footprint out of run_overlay's stack frame — prior diag
+    // builds showed a /GS canary trip immediately after this region of
+    // the frame, so we displace the object from the canary's
+    // neighbourhood while keeping the same reference-based usage.
+    auto mag_capture_ptr = std::make_unique<MagCapture>();
+    MagCapture& mag_capture = *mag_capture_ptr;
 
     // Window mode: Windowed = movable resizable normal Win32 window with a
     // title bar; Fullscreen = borderless topmost covering the whole monitor;
