@@ -28,7 +28,7 @@ $form.MinimizeBox = $false
 $form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
 $form.Location = New-Object System.Drawing.Point $X, $Y
 $form.ClientSize = New-Object System.Drawing.Size $W, $H
-$form.TopMost = $false
+$form.TopMost = $false  # No interferir con z-order de tubelight overlay
 $form.BackColor = [System.Drawing.Color]::Black
 
 $pic = New-Object System.Windows.Forms.PictureBox

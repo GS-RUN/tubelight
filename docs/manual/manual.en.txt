@@ -292,9 +292,26 @@ corner, optional) and the **toast notifications** (bottom-left, ephemeral).
   below it.
 
 [fig] assets/ui/ui-02-menu-profile.png
-  In-app menu open (Ctrl+Alt+M) on the Profile tab: CRT dropdown (16
-  monitors) + Signal dropdown (7 signals) + Intensity slider. The testcard
-  remains pipeline-processed behind the menu.
+  **Profile** tab (sky accent): CRT dropdown (16 monitors) + Signal dropdown
+  (7 signals) + Intensity slider. The testcard remains pipeline-processed
+  behind the menu.
+
+[fig] assets/ui/ui-03-menu-image.png
+  **Image** tab (teal accent): Scanlines / Beam, Phosphor mask, Bloom /
+  Halation, Persistence, Composition groups plus the 8 pass toggles.
+
+[fig] assets/ui/ui-04-menu-capture.png
+  **Capture** tab (amber accent): Target window, Region (fixed), Captures
+  folder with Browse / Apply / Default, Record source combo and Recordable
+  mode toggle.
+
+[fig] assets/ui/ui-05-menu-audio.png
+  **Audio** tab (coral accent): flyback whine volume slider and degauss thump
+  on profile change.
+
+[fig] assets/ui/ui-06-menu-help.png
+  **Help** tab (lavender + mint accent): full shortcuts table, **Open user
+  manual** button (this HTML), credits, version and git SHA.
 
 [fig] assets/ui/ui-08-hud.png
   Status HUD (Ctrl+Alt+H) enabled in the top-right corner — current profile,

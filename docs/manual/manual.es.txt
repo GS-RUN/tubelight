@@ -297,9 +297,26 @@ inferior izquierda, efímeros).
   escritorio que tiene debajo.
 
 [fig] assets/ui/ui-02-menu-profile.png
-  Menú in-app abierto (Ctrl+Alt+M) en el tab Profile: dropdown CRT (16
-  monitores) + dropdown Signal (7 señales) + slider Intensity. La testcard
-  sigue procesada por la pipeline detrás del menú.
+  Tab **Profile** (accento sky): dropdown CRT (16 monitores) + dropdown
+  Signal (7 señales) + slider Intensity. La testcard sigue procesada por la
+  pipeline detrás del menú.
+
+[fig] assets/ui/ui-03-menu-image.png
+  Tab **Image** (accento teal): grupos Scanlines / Beam, Phosphor mask, Bloom
+  / Halation, Persistence, Composition y los 8 pass toggles.
+
+[fig] assets/ui/ui-04-menu-capture.png
+  Tab **Capture** (accento amber): Target window, Region (fixed), Captures
+  folder con Browse / Apply / Default, Record source combo y toggle
+  Recordable mode.
+
+[fig] assets/ui/ui-05-menu-audio.png
+  Tab **Audio** (accento coral): slider de volumen del flyback whine y
+  degauss thump al cambio de perfil.
+
+[fig] assets/ui/ui-06-menu-help.png
+  Tab **Help** (accento lavender + mint): tabla completa de atajos, botón
+  **Open user manual** (este HTML), créditos, versión y git SHA.
 
 [fig] assets/ui/ui-08-hud.png
   HUD de estado (Ctrl+Alt+H) activo en la esquina superior derecha — perfil,
