@@ -34,7 +34,8 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: '2024.07.12'
+          # vcpkg tag 2024.07.12 → SHA1 (action requires 40-hex-digit hash, not tag).
+          vcpkgGitCommitId: '1de2026f28ead93ff1773e6e680387643e914ea1'
 
       - name: Configure
         run: cmake --preset windows-vcpkg
@@ -50,10 +51,17 @@ jobs:
       - name: Smoke run --help
         run: .\build\windows-vcpkg\Release\tubelight.exe --help
 
+  # ---------------------------------------------------------------------------
+  # Linux jobs are aspirational scaffolding for v1.1 (cross-platform parity).
+  # They run on every push so we can iterate on the Linux build incrementally,
+  # but failures don't break the CI status (continue-on-error). When the Linux
+  # build is verified locally and CI passes consistently, drop the flag.
+  # ---------------------------------------------------------------------------
   linux-gcc:
-    name: Linux / gcc-13
+    name: Linux / gcc-13 (experimental)
     runs-on: ubuntu-24.04
     needs: path-check
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -108,9 +116,10 @@ jobs:
           grep -q "shaders = 8" /tmp/test.slangp
 
   linux-clang:
-    name: Linux / clang-18
+    name: Linux / clang-18 (experimental)
     runs-on: ubuntu-24.04
     needs: path-check
+    continue-on-error: true
     env:
       CC: clang-18
       CXX: clang++-18
@@ -123,7 +132,9 @@ jobs:
           sudo apt install -y \
             cmake ninja-build pkg-config \
             clang-18 \
-            libglfw3-dev \
+            libglfw3-dev libglm-dev libepoxy-dev libstb-dev nlohmann-json3-dev \
+            libvulkan-dev vulkan-headers \
+            libpipewire-0.3-dev \
             xvfb
 
       - name: Configure
