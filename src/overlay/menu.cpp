@@ -516,10 +516,10 @@ void Menu::build_widgets(Pipeline& pipeline,
             sio.recordable_changed = true;
         }
         if (sio.recordable) {
-            ImGui::TextDisabled("Tip: pair with Target (Ctrl+Alt+T) / Region mode or");
-            ImGui::TextDisabled("freeze (Ctrl+Alt+F) to avoid the recursive-feedback ghost.");
+            ImGui::TextDisabled("Source auto-frozen to prevent feedback-to-black.");
+            ImGui::TextDisabled("Toggle OFF then ON again to refresh the captured frame.");
         }
-        ImGui::TextDisabled("All persist between launches");
+        ImGui::TextDisabled("Recordable is per-session; the other toggles persist.");
     }
 
     ImGui::Separator();
