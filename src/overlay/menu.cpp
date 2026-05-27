@@ -200,6 +200,7 @@ public:
     ~TintedTab() {
         if (selected_) {
             ImGui::PopStyleColor(3);
+            ImGui::EndTabItem();
         }
     }
     explicit operator bool() const { return selected_; }
