@@ -233,9 +233,25 @@ WNDPROC g_orig_wndproc = nullptr;
 // and produces the recursive feedback ghost effect.
 std::atomic<bool> g_hide_nonclient{false};
 
+// When true, the subclass proc returns HTTRANSPARENT for every hit-test
+// query, causing Windows to deliver mouse events to whatever's underneath
+// our overlay (i.e. true click-through) WITHOUT requiring WS_EX_LAYERED
+// or WS_EX_TRANSPARENT — those have to interact with OpenGL composition
+// in fiddly ways. NCHITTEST is the clean low-level path: independent of
+// style bits, takes effect on the very next click.
+std::atomic<bool> g_clickthrough_effective{false};
+
 LRESULT CALLBACK tubelight_subclass_proc(HWND hwnd, UINT msg,
                                          WPARAM wp, LPARAM lp) {
     switch (msg) {
+    case WM_NCHITTEST:
+        if (g_clickthrough_effective.load()) {
+            // Tell Windows "this pixel is transparent" → the click is
+            // re-routed to whatever window is behind us in z-order.
+            // Works without WS_EX_LAYERED, doesn't fight OpenGL.
+            return HTTRANSPARENT;
+        }
+        break;
     case WM_NCCALCSIZE:
         // wp == TRUE means lp points to NCCALCSIZE_PARAMS and we're asked
         // for the *new* client rect. Returning 0 with rgrc[0] left at the
@@ -715,29 +731,13 @@ int run(const Options& opts) {
 
     auto apply_clickthrough_user = [&](bool on) {
         clickthrough_user = on;
-        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        if (on) {
-            // On Win10/11, WS_EX_TRANSPARENT alone is no longer enough to
-            // make a top-level window pass-through reliably — DWM only
-            // honours the hit-test transparency when WS_EX_LAYERED is also
-            // set. We add LAYERED + LWA_ALPHA 255 (fully opaque) here.
-            ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-            SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-        } else {
-            // Drop LAYERED on the way out so the user can drag the title
-            // bar again. LAYERED with WGL is fine to remove as long as no
-            // style swap is in flight from another path simultaneously.
-            ex &= ~(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-        }
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-        // Force the new style to take effect immediately (without this the
-        // change can lag a frame and the next click goes to the old style).
-        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
-                     SWP_NOACTIVATE | SWP_FRAMECHANGED);
-        std::fprintf(stderr, "[overlay] click-through: %s\n", on ? "ON" : "OFF");
+        // The actual effective state (which the WndProc reads) is set
+        // once per frame at the top of the main loop, factoring in
+        // menu_open (menu must be interactable, so we suppress click-
+        // through while it's open). No window style changes needed —
+        // WM_NCHITTEST returning HTTRANSPARENT handles everything.
+        std::fprintf(stderr, "[overlay] click-through requested: %s\n",
+                     on ? "ON" : "OFF");
     };
 
     // Lock GLFW's user-drag resize to match the current target aspect (if
@@ -1211,6 +1211,18 @@ int run(const Options& opts) {
     int target_lost_frames = 0;
 
     while (!glfwWindowShouldClose(window)) {
+        // Recompute the effective click-through state for the subclass
+        // hit-test handler. Always OFF while the menu is open so the
+        // user can interact with widgets; otherwise honours the user's
+        // chosen state for windowed mode + the CLI fullscreen path +
+        // target / region modes.
+        {
+            bool menu_is_open_now = has_menu && menu.is_open();
+            bool eff = (initial_fullscreen || target_active || region_active ||
+                        clickthrough_user) && !menu_is_open_now;
+            g_clickthrough_effective.store(eff);
+        }
+
         // Target-window mode: each frame, query the target's screen-space
         // client rect and snap our overlay to match. If the target has
         // moved / resized, the framebuffer-size callback fires and the

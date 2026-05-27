@@ -290,10 +290,10 @@ void Menu::build_widgets(Pipeline& pipeline,
         } else {
             static int rx = 100, ry = 100, rw = 800, rh = 600;
             ImGui::TextDisabled("Monitor-relative pixels (0,0 = top-left)");
-            ImGui::InputInt("x", &rx);
-            ImGui::InputInt("y", &ry);
-            ImGui::InputInt("w", &rw);
-            ImGui::InputInt("h", &rh);
+            ImGui::InputInt("x##region", &rx);
+            ImGui::InputInt("y##region", &ry);
+            ImGui::InputInt("w##region", &rw);
+            ImGui::InputInt("h##region", &rh);
             if (ImGui::Button("Pin to this rect", ImVec2(-1, 0))) {
                 window_actions.region_x = rx;
                 window_actions.region_y = ry;

@@ -488,6 +488,8 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
     } else {
         params_.bezel_style = 5;  // generic dark
     }
+    std::fprintf(stderr, "[overlay] bezel_style = %d for profile '%s'\n",
+                 params_.bezel_style, p.id.c_str());
 
     // Curvature → barrel + vignette. Conservative so corners aren't cut on
     // a desktop overlay, but visibly different across profiles. Skipped

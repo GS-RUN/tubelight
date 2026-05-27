@@ -39,12 +39,14 @@ uniform int   u_bezel_style;     // 0=none 1=pvm 2=beige 3=wood 4=mac 5=generic
 // ======================================================================
 
 // Asymmetric borders per style (left, top, right, bottom in window-UV).
+// Bumped substantially from the previous values so the frame is
+// unambiguously visible as a monitor casing rather than a thin line.
 vec4 bezel_borders(int style) {
-    if (style == 1) return vec4(0.07, 0.07, 0.07, 0.10);  // PVM
-    if (style == 2) return vec4(0.10, 0.10, 0.10, 0.13);  // beige terminal
-    if (style == 3) return vec4(0.10, 0.09, 0.16, 0.14);  // wood (right=knobs)
-    if (style == 4) return vec4(0.06, 0.08, 0.06, 0.22);  // Mac (thick bottom)
-    if (style == 5) return vec4(0.06, 0.06, 0.06, 0.06);  // generic
+    if (style == 1) return vec4(0.10, 0.10, 0.10, 0.15);  // PVM
+    if (style == 2) return vec4(0.13, 0.13, 0.13, 0.18);  // beige terminal
+    if (style == 3) return vec4(0.14, 0.12, 0.20, 0.18);  // wood (right=knobs)
+    if (style == 4) return vec4(0.09, 0.11, 0.09, 0.28);  // Mac (thick bottom)
+    if (style == 5) return vec4(0.08, 0.08, 0.08, 0.10);  // generic
     return vec4(0.0);
 }
 
