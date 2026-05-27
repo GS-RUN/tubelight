@@ -103,19 +103,41 @@ profiles), <https://github.com/MAME-artwork/artwork> ships per-game
 bezel art. Most files are CC. Useful if you ever add per-game arcade
 profiles. Not relevant to most current bundled profiles.
 
-### Implementation hooks (for the future)
+### PNG bezel loading (DONE — drop files in `assets/bezels/<id>.png`)
 
-If/when we switch the default to PNG-backed bezels, the Pass 6 shader
-already has the picture-rect math (`picture_min`, `picture_max`) to
-sample a per-profile bezel texture at the bezel UV. The wire-up would
-be roughly:
+The Pass 6 shader already samples an optional per-profile bezel PNG.
+On profile load, the overlay tries `assets/bezels/<profile_id>.png`
+relative to the exe. If present, it gets loaded into a `Texture2D`
+and bound as `u_bezel_tex`; the shader uses its alpha channel
+(alpha ≥ 0.5 = opaque casing, alpha < 0.5 = screen cutout) to decide
+between the photo bezel and the SDF fallback.
 
-1. Add `bezel_texture_path` to the `CRTProfile` struct + JSON schema.
-2. Load PNG via `stb_image` into a `tubelight::Texture2D`, bind to a
-   new sampler `u_bezel_tex` in Pass 6.
-3. In the bezel branch, sample `u_bezel_tex` at `v_uv`. If the alpha
-   says "transparent" (i.e. screen area of the photo), fall back to
-   the SDF result. Otherwise use the texture's RGB.
+To add a photo bezel for any bundled profile:
 
-For now we stay on path (a). Move to (b)/(c) only when you've sourced
-images with confirmed licensing.
+1. Source a CC-licensed front photo of the monitor (Wikimedia,
+   Flickr, your own camera if you have the hardware).
+2. Run `scripts/make_bezel_png.py` to crop + alpha-mask:
+   ```
+   python scripts/make_bezel_png.py <photo.jpg> assets/bezels/<id>.png \
+          --rect x1,y1,x2,y2  --size 1280,960  --feather 4
+   ```
+   where `x1,y1,x2,y2` is the screen rectangle in the source photo's
+   pixel coordinates (see the script's `--help` for the auto-detect
+   path and rotation / feather knobs).
+
+3. Restart tubelight, load the profile. You should see:
+   `[overlay] bezel image loaded: assets/bezels/<id>.png (WxH)` in
+   stderr. The shader will sample the PNG instead of (or alongside)
+   the SDF.
+
+Recommended convention: PNG should be `1280×960` with the screen
+rect centred and at approximately `(10 %, 10 %)` to `(90 %, 85 %)`
+of the PNG (matches the default PVM bezel_style borders), so the
+shader's picture rect aligns with the alpha cutout. Other styles
+have asymmetric borders (Mac Classic in particular) — if you make
+PNGs for those, match the relevant `bezel_borders()` from the
+shader.
+
+If the PNG quality is unsatisfactory for any reason (perspective
+distortion from the source photo, watermark, etc.), just delete
+the file — the SDF fallback renders automatically.

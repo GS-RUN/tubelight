@@ -6,6 +6,7 @@
 #include "core/fbo.h"
 #include "core/quad.h"
 #include "core/shader.h"
+#include "core/texture.h"
 #include "profile/crt_profile.h"
 #include "profile/signal_profile.h"
 
@@ -186,6 +187,21 @@ private:
     // resize / first frame so we don't blend with stale or garbage memory.
     FBO  history_fbo_;
     bool history_valid_ = false;
+
+    // Optional per-profile bezel PNG (loaded from
+    // assets/bezels/<profile_id>.png if it exists). When set, Pass 6
+    // samples it for pixels outside the picture rect and uses the
+    // texture's alpha channel to decide bezel-vs-picture (alpha < 0.5
+    // ⇒ bezel, alpha ≥ 0.5 ⇒ fall back to the SDF / picture). Gives
+    // users a route to ship photo-real CRT casings without code
+    // changes — just drop a PNG with the screen area cut out.
+    Texture2D bezel_image_;
+    bool      bezel_image_loaded_ = false;
+
+public:
+    bool load_bezel_image(const std::string& path);
+    void clear_bezel_image() { bezel_image_loaded_ = false; bezel_image_.destroy(); }
+    bool has_bezel_image() const { return bezel_image_loaded_; }
 };
 
 const char* pass_display_name(int pass_index);

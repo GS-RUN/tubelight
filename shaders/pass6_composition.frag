@@ -23,6 +23,8 @@ uniform vec3  u_glass_tint;
 uniform float u_glass_age;
 uniform float u_target_aspect;
 uniform int   u_bezel_style;     // 0=none 1=pvm 2=beige 3=wood 4=mac 5=generic
+uniform int   u_has_bezel_image; // 0=use SDF, 1=sample u_bezel_tex
+uniform sampler2D u_bezel_tex;   // optional photo-real bezel PNG
 
 // ======================================================================
 //  Bezels — programmatic but elaborate enough to read as actual CRT
@@ -220,6 +222,19 @@ void main() {
     // Outside the screen rect → bezel.
     if (v_uv.x < scrn_min.x || v_uv.x > scrn_max.x ||
         v_uv.y < scrn_min.y || v_uv.y > scrn_max.y) {
+        // If the host has loaded a per-profile bezel PNG, sample it as
+        // the photo-real bezel. The PNG's alpha tells us bezel vs.
+        // screen — alpha ≥ 0.5 means "this pixel is part of the
+        // monitor casing", so use the RGB straight. Alpha < 0.5 means
+        // "transparent / screen cutout"; fall back to the SDF so we
+        // still draw something there (typically the SDF dark frame).
+        if (u_has_bezel_image == 1) {
+            vec4 tex = texture(u_bezel_tex, v_uv);
+            if (tex.a >= 0.5) {
+                o_color = vec4(tex.rgb, 1.0);
+                return;
+            }
+        }
         if (u_bezel_style != 0) {
             o_color = vec4(bezel_color_full(v_uv, borders, u_bezel_style), 1.0);
         } else {

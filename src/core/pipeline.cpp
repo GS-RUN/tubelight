@@ -196,6 +196,17 @@ bool Pipeline::load_shader(int pass_index, const std::string& filename) {
     return true;
 }
 
+bool Pipeline::load_bezel_image(const std::string& path) {
+    if (bezel_image_.load_from_file(path, /*flip_vertical=*/true)) {
+        bezel_image_loaded_ = true;
+        std::fprintf(stderr, "[overlay] bezel image loaded: %s (%dx%d)\n",
+                     path.c_str(), bezel_image_.width(), bezel_image_.height());
+        return true;
+    }
+    bezel_image_loaded_ = false;
+    return false;
+}
+
 void Pipeline::resize(int width, int height) {
     if (width == output_width_ && height == output_height_) {
         return;
@@ -273,6 +284,19 @@ bool Pipeline::render_to_screen(GLuint source_tex) {
             sh.set_int("u_prev_frame", 1);
             sh.set_int("u_history_valid", history_valid_ ? 1 : 0);
             glActiveTexture(GL_TEXTURE0);
+        }
+
+        // Pass 6 samples the optional bezel image on unit 2 (if loaded).
+        if (i == 7) {
+            if (bezel_image_loaded_) {
+                glActiveTexture(GL_TEXTURE2);
+                glBindTexture(GL_TEXTURE_2D, bezel_image_.id());
+                sh.set_int("u_bezel_tex", 2);
+                sh.set_int("u_has_bezel_image", 1);
+                glActiveTexture(GL_TEXTURE0);
+            } else {
+                sh.set_int("u_has_bezel_image", 0);
+            }
         }
 
         quad_.draw();

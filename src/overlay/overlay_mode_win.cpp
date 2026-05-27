@@ -701,6 +701,10 @@ int run(const Options& opts) {
         if (p) {
             pipeline.apply_crt_profile(*p);
             std::printf("[overlay] CRT profile: %s\n", p->display_name.c_str());
+            // Optional photo-real bezel PNG at assets/bezels/<id>.png.
+            std::string bezel_path =
+                std::string("assets/bezels/") + opts.profile_id + ".png";
+            pipeline.load_bezel_image(bezel_path);
         } else {
             std::fprintf(stderr, "[overlay] CRT profile '%s' not found: %s\n",
                          opts.profile_id.c_str(), err.c_str());
@@ -1523,6 +1527,17 @@ int run(const Options& opts) {
                     pipeline.apply_crt_profile(*p);
                     base_params = pipeline.params();
                     intensity_multiplier = 1.0f;
+                    // Auto-load a per-profile bezel PNG if it exists.
+                    // Searched at assets/bezels/<id>.png next to the exe.
+                    // PNG should have alpha=0 inside the screen area and
+                    // alpha=1 (opaque) over the monitor casing.
+                    {
+                        std::string bezel_path =
+                            std::string("assets/bezels/") + current_profile_id + ".png";
+                        if (!pipeline.load_bezel_image(bezel_path)) {
+                            pipeline.clear_bezel_image();
+                        }
+                    }
                     // Trigger degauss thump on profile switch — that
                     // characteristic low rumble a CRT makes when you
                     // change input or turn it on.
