@@ -3,7 +3,7 @@
 | TUBELIGHT — Manual de Usuario  v0.1.3                                        |
 +==============================================================================+
 
-Overlay CRT de alta fidelidad para Windows — el cristal del tubo, no un filtro
+Overlay CRT de alta fidelidad para Windows (Linux próximamente) — el cristal del tubo, no un filtro
 
 Autor: Alonso J. Núñez (GS·RUN)
 Licencia: PolyForm Noncommercial 1.0.0  ·  Comercial: gsrun.editor@gmail.com
@@ -197,10 +197,10 @@ usa OBS-Wayland o gpu-screen-recorder).
 2. Instalación
 ================================================================================
 
-Tubelight v0.1.0 se distribuye como un único `tubelight.exe` (~1.2 MB) más DLLs
-de runtime (`epoxy-0.dll`, `glfw3.dll`) y la carpeta `profiles/` con los 16 CRT
-+ 7 signal. No requiere instalador; copia la carpeta donde quieras y lanza el
-ejecutable.
+Tubelight v0.1.3 (Windows; **Linux próximamente** en v1.1) se distribuye como
+un único `tubelight.exe` (~1.2 MB) más DLLs de runtime (`epoxy-0.dll`,
+`glfw3.dll`) y la carpeta `profiles/` con los 16 CRT + 7 signal. No requiere
+instalador; copia la carpeta donde quieras y lanza el ejecutable.
 
 Doble clic en `tubelight.exe` lanza el overlay en modo windowed con el último
 perfil usado (o `pvm-8220 / composite_ntsc` la primera vez). El binario abre

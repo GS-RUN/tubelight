@@ -1,11 +1,13 @@
 # Tubelight
 
-> High-fidelity CRT overlay for Windows and Linux. Aplica un shader CRT de alta fidelidad sobre cualquier ventana, juego, emulador o reproductor de vídeo del sistema.
+> High-fidelity CRT overlay para Windows. Aplica un shader CRT de alta fidelidad sobre cualquier ventana, juego, emulador o reproductor de vídeo del sistema.
+>
+> **Linux próximamente** (v1.1) — Vulkan layer + PipeWire fallback ya están en árbol pero el build CI está en obras (jobs marcados `experimental`).
 
 [![CI](https://github.com/gs-run/tubelight/actions/workflows/ci.yml/badge.svg)](https://github.com/gs-run/tubelight/actions/workflows/ci.yml)
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-blue)](LICENSE)
 
-**Estado**: pre-alpha (fase F1 del PLAN). No usable todavía.
+**Estado**: v0.1.3 publicado — overlay Windows completo (4 modos, 16 perfiles CRT + 7 signal, menú in-app, capture PNG/MP4, manual ES/EN). Descarga: [Releases](https://github.com/GS-RUN/tubelight/releases).
 
 ## Qué hace
 
@@ -41,21 +43,38 @@ Cualquier aplicación que se quiera ver con estética CRT auténtica:
 
 ## Build rápido
 
-```bash
-# Linux (Ubuntu 24.04 / Fedora 40 / Arch — ver USER_GUIDE para todas las distros)
-sudo apt install -y build-essential cmake ninja-build libglfw3-dev
-cmake --preset linux-ninja
-cmake --build build/linux-ninja
-./build/linux-ninja/tubelight
-```
+### Windows (soportado, v0.1.3)
 
 ```powershell
-# Windows (PowerShell con vcpkg integrado)
+# PowerShell con vcpkg integrado
 $env:VCPKG_ROOT = "C:\path\to\vcpkg"
 cmake --preset windows-vcpkg
 cmake --build build/windows-vcpkg --config Release
 .\build\windows-vcpkg\Release\tubelight.exe
 ```
+
+O usa el helper: `scripts\build_windows.bat`.
+
+### Linux — *próximamente* (v1.1)
+
+El árbol incluye Vulkan layer + `LD_PRELOAD` + fallback PipeWire, pero
+el build de CI aún no está verde (paquetes `vulkan-headers` /
+`libpipewire-0.3-dev` y `find_package(glm)` con clang requieren ajustes).
+Los jobs `Linux / gcc-13 (experimental)` y `Linux / clang-18
+(experimental)` están marcados `continue-on-error` mientras se itera.
+
+Si quieres trastear localmente:
+
+```bash
+sudo apt install -y build-essential cmake ninja-build \
+    libglfw3-dev libglm-dev libepoxy-dev libstb-dev nlohmann-json3-dev \
+    libvulkan-dev vulkan-headers libpipewire-0.3-dev
+cmake --preset linux-ninja
+cmake --build build/linux-ninja
+./build/linux-ninja/tubelight
+```
+
+Issues / PRs bienvenidos para empujar v1.1 a verde.
 
 ## Licencia
 

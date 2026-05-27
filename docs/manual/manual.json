@@ -9,8 +9,8 @@
     "generated_at": "2026-05-27T00:00:00Z",
     "generator_version": "app-manual-forge 0.3.0",
     "tagline": {
-      "es": "Overlay CRT de alta fidelidad para Windows — el cristal del tubo, no un filtro",
-      "en": "High-fidelity CRT overlay for Windows — the glass of the tube, not a filter"
+      "es": "Overlay CRT de alta fidelidad para Windows (Linux próximamente) — el cristal del tubo, no un filtro",
+      "en": "High-fidelity CRT overlay for Windows (Linux coming soon) — the glass of the tube, not a filter"
     },
     "author": "Alonso J. Núñez (GS·RUN)",
     "license": "PolyForm Noncommercial 1.0.0",
@@ -131,8 +131,8 @@
       "level": 1,
       "title": { "es": "2. Instalación", "en": "2. Installation" },
       "body": {
-        "es": "Tubelight v0.1.0 se distribuye como un único `tubelight.exe` (~1.2 MB) más DLLs de runtime (`epoxy-0.dll`, `glfw3.dll`) y la carpeta `profiles/` con los 16 CRT + 7 signal. No requiere instalador; copia la carpeta donde quieras y lanza el ejecutable.\n\nDoble clic en `tubelight.exe` lanza el overlay en modo windowed con el último perfil usado (o `pvm-8220 / composite_ntsc` la primera vez). El binario abre una ventana de Win32 redimensionable que muestra el área de escritorio que tiene debajo, procesada por la pipeline.",
-        "en": "Tubelight v0.1.0 ships as a single `tubelight.exe` (~1.2 MB) plus runtime DLLs (`epoxy-0.dll`, `glfw3.dll`) and the `profiles/` folder with the 16 CRT + 7 signal profiles. No installer needed; copy the folder anywhere and run the executable.\n\nDouble-clicking `tubelight.exe` launches the overlay in windowed mode with the last used profile (or `pvm-8220 / composite_ntsc` on first launch). The binary opens a resizable Win32 window that displays the desktop area underneath, processed by the pipeline."
+        "es": "Tubelight v0.1.3 (Windows; **Linux próximamente** en v1.1) se distribuye como un único `tubelight.exe` (~1.2 MB) más DLLs de runtime (`epoxy-0.dll`, `glfw3.dll`) y la carpeta `profiles/` con los 16 CRT + 7 signal. No requiere instalador; copia la carpeta donde quieras y lanza el ejecutable.\n\nDoble clic en `tubelight.exe` lanza el overlay en modo windowed con el último perfil usado (o `pvm-8220 / composite_ntsc` la primera vez). El binario abre una ventana de Win32 redimensionable que muestra el área de escritorio que tiene debajo, procesada por la pipeline.",
+        "en": "Tubelight v0.1.3 (Windows; **Linux coming soon** in v1.1) ships as a single `tubelight.exe` (~1.2 MB) plus runtime DLLs (`epoxy-0.dll`, `glfw3.dll`) and the `profiles/` folder with the 16 CRT + 7 signal profiles. No installer needed; copy the folder anywhere and run the executable.\n\nDouble-clicking `tubelight.exe` launches the overlay in windowed mode with the last used profile (or `pvm-8220 / composite_ntsc` on first launch). The binary opens a resizable Win32 window that displays the desktop area underneath, processed by the pipeline."
       },
       "subsections": [
         { "id": "requisitos",
