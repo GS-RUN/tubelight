@@ -33,9 +33,11 @@ struct Settings {
     // Click-through on plain windowed mode (Ctrl+Alt+C) — input passes
     // through to whatever's underneath while keeping the CRT effect.
     bool clickthrough_user = false;
-    // Low-latency mode: GLFW swap interval 0 (no vsync, may tear).
-    // ON by default — most overlay use cases prefer minimum input lag.
-    bool low_latency = true;
+    // Low-latency mode: GLFW swap interval 0 (no vsync, may tear) +
+    // 144 fps soft cap. Off by default — the previous "low-latency ON
+    // by default" decision turned out to saturate the CPU/GPU on
+    // some systems and slow the whole desktop to ~1 fps.
+    bool low_latency = false;
 };
 
 // Reads settings.json if present. Missing fields keep their default values.

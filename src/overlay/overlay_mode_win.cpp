@@ -1029,6 +1029,15 @@ int run(const Options& opts) {
     Pipeline::GlobalParams base_params = pipeline.params();
 
     Settings settings = load_settings();
+    // Migration: the previous build defaulted low_latency=true which
+    // caused the render loop to spin without bound and starve the
+    // rest of the desktop. Force it off once on this version so users
+    // upgrading don't keep the bad state.
+    if (settings.low_latency) {
+        std::fprintf(stderr, "[overlay] migrating settings.low_latency true → false (was making the desktop lag)\n");
+        settings.low_latency = false;
+        save_settings(settings);
+    }
     std::string effective_capture_dir =
         settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
     std::string ui_capture_dir = settings.capture_dir;
@@ -1653,6 +1662,20 @@ int run(const Options& opts) {
 
         glfwSwapBuffers(window);
         glfwPollEvents();
+
+        // Hard frame-rate cap when vsync is off. Without this the loop
+        // spins at thousands of FPS, pegging one CPU core at 100 % and
+        // the GPU at maximum — which on some systems drags the entire
+        // desktop down to a few FPS (the regression the user reported).
+        // Cap at 240 FPS by default (4.16 ms / frame), still very
+        // low-latency but leaves the system breathing room.
+        if (low_latency) {
+            static auto last_frame = std::chrono::steady_clock::now();
+            auto target = last_frame + std::chrono::microseconds(4166);
+            auto now = std::chrono::steady_clock::now();
+            if (now < target) std::this_thread::sleep_until(target);
+            last_frame = std::chrono::steady_clock::now();
+        }
 
         // Apply any hotkey signals fed by the low-level keyboard hook.
         if (g_hk_quit.load()) {
