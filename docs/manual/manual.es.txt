@@ -1,0 +1,1572 @@
+
++==============================================================================+
+| TUBELIGHT — Manual de Usuario  v0.1.0                                        |
++==============================================================================+
+
+Overlay CRT de alta fidelidad para Windows — el cristal del tubo, no un filtro
+
+Autor: Alonso J. Núñez (GS·RUN)
+Licencia: PolyForm Noncommercial 1.0.0  ·  Comercial: gsrun.editor@gmail.com
+
+--------------------------------------------------------------------------------
+ÍNDICE
+--------------------------------------------------------------------------------
+  1. Bienvenida
+    Qué es Tubelight, en una página
+    Casos de uso
+    No-objetivos (qué Tubelight NO hace, a propósito)
+  2. Instalación
+    Requisitos
+    Descarga e instalación
+    Primera ejecución
+    Desinstalar / portabilidad
+  3. Tour de la interfaz
+    Ventana overlay
+    Menú in-app (5 tabs)
+    HUD de estado y toasts
+  4. Tu primer overlay CRT
+  5. Modos de overlay
+    Windowed (default)
+    Fullscreen runtime (Ctrl+Alt+Enter, IF-safe)
+    Target window (Ctrl+Alt+T)
+    Region fija (--overlay-region)
+  6. Perfiles de CRT — catálogo de los 16 monitores
+    6.1 Sony PVM-8220 (Trinitron 8", 1985)
+    6.2 Sony PVM-20M4 (Trinitron 20", 1996)
+    6.3 Sony BVM-20F1U (Broadcast 20", Super Fine Pitch)
+    6.4 Sony GDM-FW900 (Trinitron 24" 16:10, 1998)
+    6.5 Commodore 1084S (Slot mask 14", PAL/NTSC)
+    6.6 Sharp X68000 CZ-602D (15" tube, 0.39 mm)
+    6.7 Sharp X68000 CZ-603D (14", drops 24 kHz)
+    6.8 Sharp CZ-614D (15", multisync con audio estéreo)
+    6.9 NEC MultiSync (1986, JC-1401P3A)
+    6.10 NEC MultiSync 4FG (1990, 0.28 mm fine pitch)
+    6.11 Wells-Gardner K7000 (arcade 13", 0.65 mm)
+    6.12 Generic PVM (baseline 14")
+    6.13 Terminal P31 verde (Apple //e / VT100)
+    6.14 Terminal P3 ámbar (IBM 5151 / WYSE)
+    6.15 TV B&N P4 (vintage TV 17")
+    6.16 Mac Classic (9", 1989, 1-bit P4)
+  7. Perfiles de señal — los 7 paths de la cadena
+    7.1 RF (broadcast / antena)
+    7.2 Composite NTSC (consumer RCA, NTSC 525-line)
+    7.3 Composite PAL (consumer, 625-line, EBU)
+    7.4 S-Video (Y/C, luma + chroma separados)
+    7.5 SCART RGB (RGBS, casi clean)
+    7.6 Component (YPbPr, separación diferencial)
+    7.7 RGB VGA (passthrough limpio, pixel-perfect)
+  8. Ajustes finos — anatomía del menú Image
+    8.1 Scanlines / Beam (4 sliders)
+    8.2 Phosphor mask (color CRTs)
+    8.3 Phosphor colour (monocromos)
+    8.4 Bloom / halación (color) y Phosphor glow (mono)
+    8.5 Persistence per-channel (color) y single afterglow (mono)
+    8.6 Composition (barrel + vignette + gamma + aspect + bezel)
+    8.7 Pass toggles — las 8 pasadas del pipeline
+    8.8 Guardar como preset personalizado
+  9. Capturas y grabación
+    9.1 Screenshot PNG (Ctrl+Alt+S)
+    9.2 Vídeo MP4 (Ctrl+Alt+V)
+    9.3 Record source
+    9.4 Recordable mode (Ctrl+Alt+R)
+    9.5 Carpeta de capturas + Browse picker
+  10. Audio CRT
+  11. Atajos de teclado — tabla completa
+  12. Casos de uso típicos
+    12.1 Emuladores standalone
+    12.2 RetroArch / libretro
+    12.3 Juegos retro modernos
+    12.4 Reproductores de vídeo
+    12.5 Terminales y código
+  13. Solución de problemas
+    13.1 Overlay negro / no actualiza
+    13.2 Lag percibido en lo de debajo
+    13.3 "ffmpeg not found" al grabar vídeo
+    13.4 Profile no carga
+    13.5 STATUS_STACK_BUFFER_OVERRUN al activar recordable (legacy)
+    13.6 Win+Shift+S no muestra overlay — checklist
+    13.7 Game Bar no graba overlay — checklist
+    13.8 OBS sí graba (Window Capture WGC) — instrucciones
+  14. Glosario
+  15. Créditos
+
+================================================================================
+1. Bienvenida
+================================================================================
+
+Tubelight es un **overlay CRT** que se planta encima de cualquier aplicación de
+Windows y procesa lo que muestre — un juego retro, un emulador, una terminal,
+un reproductor de vídeo, lo que sea — para que se vea como en un monitor de
+tubo de verdad: con líneas de escaneo, máscara de fósforo, halo del cristal,
+persistencia del rojo y barrido sutil del haz.
+
+No es un filtro de captura ni un shader pegado a un emulador. Es una **ventana
+real de Windows** que captura el escritorio por debajo de ella con DXGI Desktop
+Duplication, aplica una pipeline de 8 pasadas OpenGL en tiempo real y muestra
+el resultado a 60 FPS encima. Cualquier app que se ejecute debajo — DirectX,
+OpenGL, Vulkan, software puro — sale renderizada por el tubo.
+
+La palabra que define el diseño es **fidelidad**: cada uno de los 16 perfiles
+CRT está calibrado contra un manual de servicio real del fabricante, con
+cromaticidades de fósforo citadas, dot pitch verificado y persistencia por
+canal. No es "un CRT genérico con sliders": es Sony PVM-8220 vs. Sony BVM-20F1U
+vs. Sony FW900 vs. Sharp X68000 CZ-602D, cada uno con su look específico.
+
+[fig] assets/ui/hero-01.png
+  Hero shot: overlay con perfil Sony PVM-8220 + señal composite NTSC sobre la
+  testcard de referencia.
+
+--------------------------------------------------------------------------------
+Qué es Tubelight, en una página
+--------------------------------------------------------------------------------
+
+**Lo que Tubelight hace**: pintar encima de tu pantalla un cristal CRT
+realista, calibrado contra hardware histórico. Cuatro modos de uso, 16
+monitores de tubo bundle, 7 perfiles de señal (RF, composite NTSC/PAL, S-Video,
+SCART RGB, Component, RGB VGA), pipeline OpenGL 8-pass, captura PNG y vídeo MP4
+vía ffmpeg, audio CRT XAudio2.
+
+**Lo que NO hace**: emular hardware. Tubelight no sabe nada de juegos, ROMs,
+emuladores ni señal de vídeo real — sólo coge la imagen ya renderizada por otra
+app y la transforma. No es un substituto de RetroArch / Mednafen / openMSX,
+sino un compañero que añade el monitor que esas apps no traen.
+
+**Por qué importa la diferencia**: muchos "filtros CRT" suman scanlines como
+una capa con multiply. Tubelight modela cromaticidad de fósforo, máscara,
+persistencia por canal, distorsión geométrica y halación por separado, y cada
+perfil tiene los valores reales del monitor que imita. La diferencia entre un
+PVM-8220 (aperture grille, P22 estándar) y un BVM-20F1U (aperture grille Super
+Fine Pitch, P22 con calibración broadcast) es visible — porque viene de los
+manuales de servicio.
+
+--------------------------------------------------------------------------------
+Casos de uso
+--------------------------------------------------------------------------------
+
+**Emuladores standalone**: Mednafen, MAME, BlastEm, openMSX, FCEUX. Lánzalos,
+lánza Tubelight encima en modo ventana o target, elige perfil → la salida del
+emulador pasa por el tubo aunque el emulador no tenga un solo shader.
+
+**Emuladores libretro / RetroArch**: para integrar dentro del runner, exporta
+el perfil actual como preset `.slangp` con `tubelight --export-slangp
+out.slangp --profile X --signal Y` y cárgalo en RetroArch. O sólo lánza el
+overlay encima y olvídate del flujo libretro.
+
+**Juegos retro modernos**: UFO 50, Sea of Stars, Shovel Knight, Children of
+Morta, Crypt of the NecroDancer. Pixel-art rendido en panel plano nunca da el
+feel del original; pásalo por un pvm-8220 o un commodore-1084s y los pixeles
+"vibran" como tocaba.
+
+**Reproductores de vídeo**: mpv, VLC, navegador, YouTube. Útil para material de
+archivo (VHS rips, demos, MV ochenteros). El perfil tv-bw-p4 con signal `rf`
+convierte cualquier clip moderno en un televisor de tubo del 75.
+
+**Terminales y código**: cmd, PowerShell, WSL, VS Code. terminal-p31 (verde
+Apple //e) o terminal-p3-amber (ámbar IBM 5151) sobre tu editor le da ergonomía
+vintage real, sin abandonar las herramientas modernas.
+
+**Vídeo de demostración / streaming**: con el modo recordable (Ctrl+Alt+R),
+apps como Snipping Tool, Game Bar y OBS pueden grabar el overlay procesado (no
+la fuente cruda). Útil para mostrar tu setup como aparece en pantalla.
+
+--------------------------------------------------------------------------------
+No-objetivos (qué Tubelight NO hace, a propósito)
+--------------------------------------------------------------------------------
+
+- **No es un emulador**. Si quieres jugar a SMW necesitas Snes9x; Tubelight
+pinta encima.
+- **No genera señal**. No hay generador de patrones internos, ni sincronía 31
+kHz / 15 kHz. Si la app de abajo está a 144 Hz, Tubelight la procesa a 144 Hz
+(no la baja a 60).
+- **No quita lag**. El pipeline añade ~1 frame por DXGI + ~1 frame por la
+propia composición. Si te importa la latencia para juegos competitivos, el modo
+`low_latency` lo baja al mínimo (vsync off + cap 240 FPS) pero sigue siendo un
+overlay, no un wrapper.
+- **No graba la app subyacente con audio sincronizado**. Ctrl+Alt+V graba el
+overlay procesado a MP4 H.264 (vídeo). Para audio del juego usa OBS con Window
+Capture WGC (compatible con modo recordable).
+- **No emula consolas, mappers, audio de chips ni cualquier otra cosa que tu
+emulador haga**. Sólo el monitor.
+- **No persiste configuración entre cuentas de usuario**. Cada usuario tiene su
+`%APPDATA%\Tubelight\settings.json`.
+- **No es portable**. Requiere Windows 10 build 2004+ / 11 para DXGI Desktop
+Duplication moderna + DWM composite. Linux planeado para v1.1 (sin recordable;
+usa OBS-Wayland o gpu-screen-recorder).
+
+================================================================================
+2. Instalación
+================================================================================
+
+Tubelight v0.1.0 se distribuye como un único `tubelight.exe` (~1.2 MB) más DLLs
+de runtime (`epoxy-0.dll`, `glfw3.dll`) y la carpeta `profiles/` con los 16 CRT
++ 7 signal. No requiere instalador; copia la carpeta donde quieras y lanza el
+ejecutable.
+
+Doble clic en `tubelight.exe` lanza el overlay en modo windowed con el último
+perfil usado (o `pvm-8220 / composite_ntsc` la primera vez). El binario abre
+una ventana de Win32 redimensionable que muestra el área de escritorio que
+tiene debajo, procesada por la pipeline.
+
+--------------------------------------------------------------------------------
+Requisitos
+--------------------------------------------------------------------------------
+
+- **SO**: Windows 10 build 2004 (May 2020) o superior; Windows 11 recomendado.
+- **GPU**: cualquiera compatible con OpenGL 4.5 core profile (Intel HD Graphics
+4400 / 2014, NVIDIA Kepler / 2012, AMD GCN 1.0 / 2012 en adelante). Una iGPU
+moderna sobra.
+- **CPU**: un núcleo libre. La pipeline corre en GPU; la CPU sólo presenta
+frames y mueve datos por DXGI.
+- **RAM**: 200 MB de uso típico.
+- **Disco**: 5 MB para el ejecutable + DLLs + profiles. Capturas PNG ~2 MB cada
+una a 1920×1200, vídeo MP4 ~30-60 MB/min a 60 FPS.
+- **ffmpeg** (opcional): para grabación MP4 con `Ctrl+Alt+V`. Debe estar en
+PATH. Si no está, el resto funciona — la grabación queda deshabilitada con un
+toast claro.
+- **Magnification API**: incluida en Windows desde XP. Sólo se usa en modo
+recordable; no requiere instalación.
+
+--------------------------------------------------------------------------------
+Descarga e instalación
+--------------------------------------------------------------------------------
+
+**Opción A — zip de release (recomendada)**: descarga
+`tubelight-0.1.0-win64.zip` de la página de releases del repositorio privado,
+descomprime en `C:\Tools\Tubelight\` (o donde te apetezca). Doble clic en
+`tubelight.exe`.
+
+**Opción B — build local desde fuentes**: necesitas Visual Studio 2022
+BuildTools (con C++), vcpkg, CMake 3.26+. Ejecuta `scripts\build_windows.bat`
+desde la raíz del repo. El build produce
+`build\windows-vcpkg\Release\tubelight.exe` y copia DLLs + profiles al lado.
+Tarda ~3-5 min en frío, ~1 min incremental.
+
+La primera ejecución crea `%APPDATA%\Tubelight\settings.json` con defaults. Las
+capturas van a `%USERPROFILE%\Pictures\Tubelight\` por defecto; puedes
+cambiarlo en el menú Capture → Browse.
+
+[Build local Windows]
+> scripts\build_windows.bat
+
+[Verificar versión]
+> tubelight --version
+
+--------------------------------------------------------------------------------
+Primera ejecución
+--------------------------------------------------------------------------------
+
+Doble clic en `tubelight.exe`. Aparece una ventana 1280×960 movible. Lo que se
+ve dentro es la zona de escritorio que la ventana tiene debajo, ya procesada
+por la pipeline (perfil `pvm-8220` + signal `composite_ntsc` por defecto).
+
+Mueve la ventana sobre lo que quieras procesar — un emulador, un vídeo, una
+terminal. Arrastra los bordes para redimensionar; la pipeline reconfigura los
+FBOs automáticamente.
+
+`Ctrl+Alt+M` abre el menú in-app (cinco pestañas: Profile / Image / Capture /
+Audio / Help). En Profile elige el monitor CRT y la señal. En Image ajusta
+scanlines, mask, bloom, persistence. En Capture configura la carpeta de
+capturas. En Audio el flyback whine. En Help atajos y autoría.
+
+`Ctrl+Alt+Q` cierra Tubelight.
+
+--------------------------------------------------------------------------------
+Desinstalar / portabilidad
+--------------------------------------------------------------------------------
+
+Tubelight no toca el registro de Windows. Para desinstalar:
+
+1. Borra la carpeta donde está `tubelight.exe`.
+2. Borra `%APPDATA%\Tubelight\` (settings + presets de usuario).
+3. Opcional: borra `%USERPROFILE%\Pictures\Tubelight\` (capturas y vídeos).
+
+Para backup: zip de la carpeta del binario + `%APPDATA%\Tubelight\`. Restaurar
+es descomprimir donde estaban.
+
+================================================================================
+3. Tour de la interfaz
+================================================================================
+
+Tubelight tiene cuatro elementos visuales con los que el usuario interactúa: la
+**ventana overlay**, el **menú in-app** (cinco pestañas), el **HUD de estado**
+(esquina superior derecha, opcional) y los **toasts** de notificación (esquina
+inferior izquierda, efímeros).
+
+[fig] assets/ui/hero-01.png
+  Ventana overlay en modo windowed (1280×960) procesando el área del
+  escritorio que tiene debajo.
+
+! INFO: El menú está hecho con Dear ImGui. Si se hace muy grande para tu pantalla,
+  arrastra su título para moverlo. Sus posiciones no persisten todavía
+  (planeado para v1.1).
+
+--------------------------------------------------------------------------------
+Ventana overlay
+--------------------------------------------------------------------------------
+
+Por defecto, ventana Win32 redimensionable con marco, 1280×960. Lo que muestra
+es **el contenido del escritorio que tiene debajo**, ya procesado.
+
+- **Arrastra el título** para mover.
+- **Arrastra cualquier borde** para redimensionar. Durante el drag, la pipeline
+sigue procesando (sin congelar a frame final como hacen muchas apps GLFW).
+- **Doble clic en el título**: maximizar / restaurar.
+- **Ctrl+Alt+Enter**: alterna fullscreen runtime preservando el aspect ratio
+elegido (sin tocar GWL_STYLE, ver §13 sobre el bug evitado).
+- **Ctrl+Alt+C**: alterna **click-through**. Cuando está activo, los clicks
+atraviesan la ventana hacia la app de debajo. Útil cuando quieres jugar /
+editar / leer sin que Tubelight robe input. Stricto per-session: no persiste
+entre lanzamientos.
+
+--------------------------------------------------------------------------------
+Menú in-app (5 tabs)
+--------------------------------------------------------------------------------
+
+`Ctrl+Alt+M` lo abre o cierra. Estética dark con paleta de 6 acentos por
+categoría (sky / teal / amber / coral / lavender / mint) y tooltips parchment
+cream+gold que explican cada widget en castellano.
+
+**Tab Profile** (sky): dropdown CRT (16) + dropdown Signal (7) + slider Global
+intensity 0..2.0× sobre el baseline del perfil. Al cambiar de perfil, los demás
+sliders del menú Image saltan a los valores baseline del nuevo perfil.
+
+**Tab Image** (teal): grupos Scanlines / Beam, Phosphor mask, Phosphor colour
+(mono), Bloom / Halation, Persistence, Composition (barrel, vignette, gamma
+display, aspect ratio, bezel), Pass toggles (8 checkboxes). Estructura distinta
+para CRTs color vs. monocromos (ver §8).
+
+**Tab Capture** (amber): carpeta de capturas con campo + botón Browse (file
+picker nativo IFileOpenDialog) + Apply + Default. Combo Record source (overlay
+/ full monitor / custom rect).
+
+**Tab Audio** (coral): volumen master + toggle flyback whine + toggle degauss
+thump al cambio de perfil.
+
+**Tab Help** (lavender + mint): tabla de atajos, créditos, link a este manual,
+versión + git SHA.
+
+--------------------------------------------------------------------------------
+HUD de estado y toasts
+--------------------------------------------------------------------------------
+
+**HUD** (`Ctrl+Alt+H`): esquina superior derecha. Muestra perfil actual /
+signal / modo (windowed / fullscreen / target / region) en mono pequeño con
+fondo translúcido. Persiste hasta cerrarlo otra vez.
+
+**Toasts**: notificaciones efímeras (3 s) en esquina inferior izquierda.
+Aparecen al guardar screenshot, iniciar/parar grabación, cambiar profile, error
+de ffmpeg, activación de recordable mode. No bloquean input.
+
+**REC dot**: punto rojo parpadeando arriba a la izquierda mientras está
+grabando vídeo. Independiente de toasts.
+
+================================================================================
+4. Tu primer overlay CRT
+================================================================================
+
+Un recorrido de 60 segundos para ver el efecto en tu propio escritorio.
+
+1. Abre cualquier cosa pixel-art o de texto: un emulador con un juego cargado,
+una terminal con texto verde, una imagen de captura en Windows Photos, lo que
+tengas a mano. Tiene que ocupar suficiente espacio como para que un overlay
+1280×960 pueda taparlo.
+
+2. Doble clic en `tubelight.exe`. Aparece la ventana overlay. Probablemente
+esté en el centro del monitor primario; arrástrala hasta colocarla encima de tu
+contenido.
+
+3. Pulsa `Ctrl+Alt+M` para abrir el menú. En el tab Profile (icono sky azul),
+abre el dropdown CRT. Empieza por algo familiar:
+   - **pvm-8220** si quieres un monitor profesional Sony de los 80–90 muy común.
+   - **commodore-1084s** si quieres TV/monitor consumer slot-mask con ese feel
+de Amiga y home computer 80.
+   - **terminal-p31** si lo que tienes debajo es texto y quieres verde 70s.
+   - **mac-classic-white** si quieres 1-bit blanco-azulado puro (sí, posterize
+a 2 niveles, sí, se ve igual que un Mac SE en 1989).
+
+4. En el mismo tab, abre el dropdown Signal. Para juegos retro consola →
+`composite_ntsc` (lo que tu Mega Drive sacaba por RCA amarillo). Para terminal
+→ `rgb_vga` (clean, pixel-perfect). Para sentir el ruido de TV antigua → `rf`.
+
+5. Mira lo de debajo. Las scanlines son visibles, los píxeles ya no son
+ladrillos planos, el blanco tiene halo, los rojos tienen estela mínima cuando
+algo se mueve.
+
+6. Mueve el slider Global intensity en el mismo tab Profile. A `0` se desactiva
+todo el efecto (passthrough total). A `1` es el baseline calibrado del perfil.
+A `2` está exagerado para fotografía o para gente que quiere SCANLINES BIEN
+GORDAS.
+
+Ya está. El resto del manual son los detalles.
+
+[fig] assets/ui/first-02.png
+  Tubelight con PVM-8220 + composite NTSC procesando la testcard de
+  referencia.
+
+! INFO: Si arrastras la ventana muy rápido, durante el drag verás el pipeline
+  procesando a tirones (DXGI no actualiza durante mouse-capture). Suelta el
+  botón y vuelve a 60 FPS.
+
+================================================================================
+5. Modos de overlay
+================================================================================
+
+Cuatro modos, todos disponibles desde la CLI o desde el menú una vez arrancado.
+Eliges según el caso.
+
+--------------------------------------------------------------------------------
+Windowed (default)
+--------------------------------------------------------------------------------
+
+Ventana Win32 redimensionable con marco. Es el modo por defecto cuando haces
+doble clic. Útil para tener Tubelight visible mientras trabajas en otra cosa al
+lado. Soporta drag, resize, click-through, snap-to-aspect y todos los atajos.
+
+CLI: `tubelight --overlay [--size W H] [--profile X --signal Y]`
+
+[bat]
+> tubelight --overlay --profile pvm-8220 --signal composite_ntsc --size 1280 960
+
+--------------------------------------------------------------------------------
+Fullscreen runtime (Ctrl+Alt+Enter, IF-safe)
+--------------------------------------------------------------------------------
+
+Sin marco, monitor entero, encima de todo. Preserva el aspect ratio elegido en
+el tab Image (4:3, 5:4, 16:10, 16:9, 21:9, Fill).
+
+Implementación: WM_NCCALCSIZE override que colapsa título y bordes a 0 px sin
+tocar GWL_STYLE, más SetWindowPos con `monitor.height − 1` para mantener la
+línea transparente de 1 px abajo que bloquea Independent Flip de Win11 y deja
+la ventana en el path compositado DWM (necesario para que
+WDA_EXCLUDEFROMCAPTURE se respete). Ver §13 *Solución de problemas* y las
+lecciones aprendidas en `docs/manual/` por qué NO se hace de la forma "obvia".
+
+Desde CLI: `tubelight --overlay-fullscreen [--profile X --signal Y]` arranca
+directamente sin pasar por windowed.
+
+Desde overlay: `Ctrl+Alt+Enter` alterna en runtime preservando aspect.
+
+[bat]
+> tubelight --overlay-fullscreen --profile pvm-8220 --signal composite_ntsc
+
+--------------------------------------------------------------------------------
+Target window (Ctrl+Alt+T)
+--------------------------------------------------------------------------------
+
+Ata Tubelight a una ventana concreta. La ventana se mueve, Tubelight la sigue
+cada frame. La ventana se redimensiona, Tubelight se redimensiona. La ventana
+se minimiza, Tubelight se esconde.
+
+Pensado para emuladores standalone (Mednafen, openMSX, MAME, FCEUX). Lánzalos
+sin shaders, lanza Tubelight encima en target mode → ahora son monitores PVM o
+lo que elijas.
+
+Click-through automático: el target sigue recibiendo input. No interfiere con
+teclado ni ratón del juego.
+
+Dos formas de target: por título substring o por PID. Por PID es más robusto
+(no confunde con otras ventanas).
+
+[bat]
+> tubelight --overlay-target "Mednafen" --profile pvm-8220 --signal composite_ntsc
+
+[bat]
+> tubelight --overlay-target-pid 12345 --profile sharp-x68k-cz602d --signal rgb_vga
+
+--------------------------------------------------------------------------------
+Region fija (--overlay-region)
+--------------------------------------------------------------------------------
+
+Pinta sobre un rectángulo fijo del monitor sin seguir ninguna ventana. Útil
+para tener un área CRT estática (ej: "esta parte de mi setup siempre es Sega
+Mega Drive con composite NTSC") aunque las apps debajo cambien.
+
+Click-through siempre activo. No toma input.
+
+Coordenadas: x,y = esquina superior izquierda; w,h = ancho y alto. En píxeles
+del monitor 0 por defecto.
+
+[bat]
+> tubelight --overlay-region 200,150,1280,960 --profile commodore-1084s --signal composite_pal
+
+================================================================================
+6. Perfiles de CRT — catálogo de los 16 monitores
+================================================================================
+
+Tubelight bundle 16 perfiles. Cada uno trae mask type, dot pitch, diagonal,
+aspect, frecuencias de barrido, cromaticidad de fósforo y persistencia por
+canal — todo verificado contra manual de servicio o fuente equivalente
+(crtdatabase, ManualsLib, archive.org, gamesx.com, Wikipedia EIA phosphor
+table). Las URLs concretas están en el JSON de cada perfil
+(`profiles/crts/<id>.json` → campo `source.url`).
+
+La galería siguiente es la misma testcard de referencia procesada por cada
+perfil con signal `composite_ntsc`. Cambia el signal en §7 si quieres ver cómo
+varía la cadena dentro del mismo monitor.
+
+--------------------------------------------------------------------------------
+6.1 Sony PVM-8220 (Trinitron 8", 1985)
+--------------------------------------------------------------------------------
+
+Profesional broadcast pequeño, aperture grille (Trinitron), dot pitch 0.30 mm,
+8" diagonal, 4:3 nativo. Fósforo P22 estándar, primarios SMPTE-C. Persistencia
+por canal asimétrica (R lento, GB rápido → trail rojo).
+
+Look: brillante, verticales nítidas (Trinitron), scanlines marcadas (240
+visibles en NTSC), dos hilos de damping visibles a contraluz que cruzan el
+frame horizontalmente. Es el monitor más usado en testing de juegos retro NTSC
+por su precisión cromática y dot pitch fino.
+
+Fuente: crtdatabase.com/crts/sony/sony-pvm-8220 (specs),
+epanorama.net/documents/video/phosphor_decay.html (decay),
+crtdatabase.com/faq/phosphor-designations (primarios SMPTE-C).
+
+[fig] assets/profiles/prof-pvm-8220.png
+  Sony PVM-8220 + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.2 Sony PVM-20M4 (Trinitron 20", 1996)
+--------------------------------------------------------------------------------
+
+Trinitron 20" mid-90s, 4:3, dot pitch 0.31 mm. Hereda fósforo P22 y primarios
+SMPTE-C del PVM-8220 pero con tubo mayor y geometría algo más curva. Scanlines
+a 240 NTSC quedan visibles pero más sutiles que en el 8" porque la línea
+pintada es físicamente más alta. Usado en broadcast hasta entrados los 2000.
+
+[fig] assets/profiles/prof-pvm-20m4.png
+  Sony PVM-20M4 + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.3 Sony BVM-20F1U (Broadcast 20", Super Fine Pitch)
+--------------------------------------------------------------------------------
+
+Broadcast Video Monitor: la línea profesional por encima del PVM. Super Fine
+Pitch (~0.31 mm pero con geometría de grille más controlada), calibrado de
+fábrica, primarios SMPTE-C verificados por instrumento. Es el monitor que
+decidió cómo se vería SMPTE C en una sala de control en los 90.
+
+En Tubelight la diferencia con el PVM-8220 es sutil: cromaticidades casi
+iguales (vienen del mismo estándar) pero el beam focus está más alto y el bloom
+apenas existe, dando una imagen más "clínica". Fuente: ManualsLib BVM Operation
+Manual + crtdatabase BVM specs.
+
+[fig] assets/profiles/prof-sony-bvm-20f1u.png
+  Sony BVM-20F1U + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.4 Sony GDM-FW900 (Trinitron 24" 16:10, 1998)
+--------------------------------------------------------------------------------
+
+El santo grial del CRT widescreen. Trinitron 24" 16:10 (2304×1440 @ 80 Hz
+oficial; muchas unidades llegan a 2560×1600), aperture grille 0.23 mm en centro
+(0.27 mm en bordes, anotado en el JSON), primarios PC-monitor cercanos a sRGB.
+La estrella de demoscene 2000-2010.
+
+Look: cromaticidad limpia, dot pitch finísimo (las scanlines a 1080p son apenas
+visibles porque cada línea tiene muchas tríadas), beam focus altísimo.
+Tubelight asume modo PC (sin chroma subsampling), por eso se siente "clean"
+comparado con un PVM consumer. Fuente: ManualsLib FW900 service manual.
+
+[fig] assets/profiles/prof-sony-fw900.png
+  Sony GDM-FW900 + composite NTSC (caso atípico: el FW900 normalmente entra
+  por VGA — la combinación se incluye para comparar la cromaticidad).
+
+--------------------------------------------------------------------------------
+6.5 Commodore 1084S (Slot mask 14", PAL/NTSC)
+--------------------------------------------------------------------------------
+
+Monitor consumer-pro de Commodore, vendido con Amiga 500/2000. Slot mask (no
+aperture grille), dot pitch 0.45 mm originalmente — Tubelight v0.1.0 lo corrige
+a 0.25 mm porque la documentación más fiable (Service Manual 1084S-D1
+disponible en archive.org) da 0.42 mm horizontal triada / 0.25 mm vertical
+slot. 14" diagonal, PAL nativo en mercado europeo, NTSC en mercado US.
+
+Look: máscara slot visible como rejilla vertical leve, fósforo P22 consumer (un
+poco más cálido que SMPTE-C profesional), scanlines marcadas, bloom y halation
+generosos por el bezel y el cristal grueso. Es el look de Amiga 1985-1992 si lo
+conectabas a un 1084. Fuente: Commodore 1084S-D1 Service Manual (archive.org).
+
+[fig] assets/profiles/prof-commodore-1084s.png
+  Commodore 1084S + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.6 Sharp X68000 CZ-602D (15" tube, 0.39 mm)
+--------------------------------------------------------------------------------
+
+Monitor original que Sharp vendía con el X68000 Compact/Super (1989–1991). 15"
+diagonal (corregido respecto a docs anteriores que decían 14"), dot pitch 0.39
+mm, shadow mask convencional, multisync 24/31 kHz, audio estéreo. Look más
+cálido que un PVM por el fósforo consumer japonés y el filtro anti-glare del
+cristal frontal.
+
+Fuente: gamesx.com X68000 wiki + manual de servicio Sharp CZ-602D (Japanese
+repro, archive.org).
+
+[fig] assets/profiles/prof-sharp-x68k-cz602d.png
+  Sharp X68000 CZ-602D + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.7 Sharp X68000 CZ-603D (14", drops 24 kHz)
+--------------------------------------------------------------------------------
+
+Sucesor más pequeño del CZ-602D, 14", igual fósforo y máscara pero sin el modo
+24 kHz nativo (sólo 31 kHz). En Tubelight la diferencia se aprecia en scanlines
+un poco más finas y geometría menos curva.
+
+[fig] assets/profiles/prof-sharp-x68k-cz603d.png
+  Sharp X68000 CZ-603D + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.8 Sharp CZ-614D (15", multisync con audio estéreo)
+--------------------------------------------------------------------------------
+
+Versión multisync más amplia (15–38 kHz) destinada a la línea posterior X68000.
+Geometría más estable que los anteriores, mismo fósforo consumer japonés. Audio
+estéreo integrado en monitor (sin entradas RCA externas).
+
+[fig] assets/profiles/prof-sharp-cz-614d.png
+  Sharp CZ-614D + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.9 NEC MultiSync (1986, JC-1401P3A)
+--------------------------------------------------------------------------------
+
+El primer monitor multisync de la historia (NEC, 1986). 14", shadow mask
+convencional, dot pitch 0.31 mm. Inicialmente CGA/EGA/VGA compatible. Fósforo
+P22 con cromaticidad ligeramente shifted hacia verdes (era costumbre NEC).
+
+Fuente: archive.org/details/JC-1401P3A-MultiSync (manual usuario original).
+
+[fig] assets/profiles/prof-nec-multisync-1.png
+  NEC MultiSync (1986) + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.10 NEC MultiSync 4FG (1990, 0.28 mm fine pitch)
+--------------------------------------------------------------------------------
+
+Generación 1990, dot pitch 0.28 mm — uno de los más finos de su época para un
+monitor consumer. Compatibilidad SVGA. Imagen mucho más limpia que el MultiSync
+original; scanlines menos marcadas, fósforo más uniforme.
+
+Fuente: NEC MultiSync 4FG Service Manual (archive.org).
+
+[fig] assets/profiles/prof-nec-multisync-4fg.png
+  NEC MultiSync 4FG + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.11 Wells-Gardner K7000 (arcade 13", 0.65 mm)
+--------------------------------------------------------------------------------
+
+El monitor de arcade por excelencia, mediados de los 80 a 2000s. 13" diagonal,
+dot pitch 0.65 mm (gigante por estándares modernos — los píxeles son ladrillos,
+las scanlines son muros). Fósforo P22 con saturación brutal, beam focus medio,
+geometría con curvatura barril marcada.
+
+Look: la quintaesencia del arcade vertical. Si tienes MAME corriendo Defender,
+Robotron, Pac-Man, etc., este es el perfil.
+
+[fig] assets/profiles/prof-wells-gardner-k7000.png
+  Wells-Gardner K7000 + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.12 Generic PVM (baseline 14")
+--------------------------------------------------------------------------------
+
+Perfil baseline. No imita un monitor concreto, sirve como punto de partida
+neutral para empezar a tocar sliders sin sesgo. Aperture grille 0.30 mm, P22
+SMPTE-C, persistencia simétrica RGB. Si quieres ajustar TUS valores ideales y
+guardar un preset, parte de aquí.
+
+[fig] assets/profiles/prof-generic-pvm.png
+  Generic PVM + composite NTSC.
+
+--------------------------------------------------------------------------------
+6.13 Terminal P31 verde (Apple //e / VT100)
+--------------------------------------------------------------------------------
+
+Monocromo verde. Fósforo P31 con cromaticidad (0.10, 1.30, 0.20) — apenas tinte
+rojo, dominante verde brutal hacia el verde puro 525 nm, tinte azul mínimo.
+Posterize 6 niveles por defecto (caracteriza terminales pre-greyscale).
+Persistencia media: el texto se desplaza con una estela apenas perceptible.
+
+Usar con `rgb_vga` para terminal moderno, `composite_ntsc` si emulas un Apple
+//e o Commodore PET en composite.
+
+Fuente: Wikipedia EIA Phosphor Designations + Apple //e Owner's Manual.
+
+[fig] assets/profiles/prof-terminal-p31.png
+  Terminal P31 + composite NTSC: todo el color colapsa al fósforo verde.
+
+--------------------------------------------------------------------------------
+6.14 Terminal P3 ámbar (IBM 5151 / WYSE)
+--------------------------------------------------------------------------------
+
+Monocromo ámbar. Fósforo P3 con cromaticidad (1.40, 0.65, 0.05) — dominante R +
+G alto, casi nada de B. Tono cálido pensado para reducir fatiga visual en
+sesiones largas, según los criterios ergonómicos de los primeros 80 (estudios
+médicos alemanes; algunos terminales venían etiquetados "ergonomically
+optimized" y se vendían ~30% más caros).
+
+Usado en IBM 5151 (PC original mono), WYSE-50, varios terminales bancarios.
+Posterize 6 por defecto.
+
+[fig] assets/profiles/prof-terminal-p3-amber.png
+  Terminal P3 ámbar + composite NTSC: el color colapsa al ámbar IBM 5151.
+
+--------------------------------------------------------------------------------
+6.15 TV B&N P4 (vintage TV 17")
+--------------------------------------------------------------------------------
+
+Televisión blanco y negro de los 60-70. Fósforo P4 blanco-azulado (cromaticidad
+0.95, 1.00, 1.10). Posterize 0 (analógico puro, sin posterizar). Geometría más
+curva (barril alto) que un monitor profesional; vignette generoso. Pareado con
+signal `rf` da el look TV de los 70 completo.
+
+[fig] assets/profiles/prof-tv-bw-p4.png
+  TV B&N P4 + composite NTSC: color desaturado a luminancia.
+
+--------------------------------------------------------------------------------
+6.16 Mac Classic (9", 1989, 1-bit P4)
+--------------------------------------------------------------------------------
+
+El monitor del Macintosh Classic / SE / Plus. 9", fósforo P4 blanco-azulado,
+posterize **2 niveles** (1-bit puro: blanco o negro, sin grises). Para ver lo
+que se veía a usuarios Mac en 1989-1993, casi como un dithering Floyd-Steinberg
+pre-aplicado.
+
+Único perfil con posterize tan agresivo. Si lo usas sobre imágenes color, el
+efecto es brutal: todo colapsa a un patrón blanco/negro. Para fotos B/N o pixel
+art 1-bit funciona impecable.
+
+[fig] assets/profiles/prof-mac-classic-white.png
+  Mac Classic + composite NTSC: posterize a 2 niveles colapsa todo a
+  blanco-y-negro 1-bit puro.
+
+================================================================================
+7. Perfiles de señal — los 7 paths de la cadena
+================================================================================
+
+Cómo llegaba el vídeo al monitor en su época. Cada signal modela un conjunto
+distinto de artefactos físicos: ruido aditivo, chroma smear, dot crawl,
+ringing, ghosting, banding rainbow. Mismo monitor + signal distinto = imagen
+radicalmente diferente.
+
+La galería usa el PVM-8220 fijo para que la única variable sea la señal.
+
+--------------------------------------------------------------------------------
+7.1 RF (broadcast / antena)
+--------------------------------------------------------------------------------
+
+Lo peor de lo peor en calidad — y lo más nostálgico para muchos. Modulación
+analógica a banda de TV (canal 3/4 o coaxial). En Tubelight: ruido aditivo
+alto, dot crawl muy visible, ringing horizontal pronunciado, ghost leve. Es lo
+que veías al conectar la NES por adaptador RF a una TV vieja.
+
+[fig] assets/signals/sig-rf.png
+  Sony PVM-8220 con signal RF: ruido + dot crawl notables.
+
+--------------------------------------------------------------------------------
+7.2 Composite NTSC (consumer RCA, NTSC 525-line)
+--------------------------------------------------------------------------------
+
+RCA amarillo. Una sola línea para luma + chroma multiplexados. Modelos clave en
+Tubelight: **chroma smear** (los bordes de color se difuminan horizontalmente
+porque chroma va sub-sampleada), **dot crawl** (patrón estriado en bordes
+saturados — el batido entre frecuencia portadora y luma), **ringing** moderado.
+
+Es lo que sacaban Mega Drive, SNES, NES, PlayStation, N64 por defecto. Para
+juegos NTSC de consola es el signal que tu hardware veía.
+
+[fig] assets/signals/sig-composite_ntsc.png
+  Sony PVM-8220 con composite NTSC: chroma smear + dot crawl moderados.
+
+--------------------------------------------------------------------------------
+7.3 Composite PAL (consumer, 625-line, EBU)
+--------------------------------------------------------------------------------
+
+Equivalente europeo. Línea de retardo de chroma (Phase Alternating Line)
+cancela las inversiones de fase entre líneas adyacentes → menos rainbow banding
+que NTSC, más estabilidad de color. 625-line, 50 Hz. Tubelight modela menos dot
+crawl, chroma smear similar, scanlines a 288 visibles.
+
+[fig] assets/signals/sig-composite_pal.png
+  Sony PVM-8220 con composite PAL: rainbow banding mínima, dot crawl reducido.
+
+--------------------------------------------------------------------------------
+7.4 S-Video (Y/C, luma + chroma separados)
+--------------------------------------------------------------------------------
+
+Dos pins: uno para luma (Y), otro para chroma (C). Sin multiplexado = **sin dot
+crawl**, sin chroma smear horizontal (sigue habiendo subsampling vertical
+leve). Mismo ruido base que composite. Es la mejor mejora calidad/coste vs
+composite — muchos hardcore retro pillaban cables S-Video para SNES (s-video by
+default) y Saturn.
+
+[fig] assets/signals/sig-svideo.png
+  Sony PVM-8220 con S-Video: sin dot crawl, chroma limpio.
+
+--------------------------------------------------------------------------------
+7.5 SCART RGB (RGBS, casi clean)
+--------------------------------------------------------------------------------
+
+RGB analógico + sync separado, viaja por cable SCART (estándar europeo). Sin
+multiplexado, sin subsampling de chroma. Sólo queda el ruido analógico de cable
++ el shadow/aperture-grille mask del monitor. Es la salida "clean" del
+retrogaming europeo: BVM/PVM + cable SCART RGB era el setup definitivo de los
+90.
+
+[fig] assets/signals/sig-scart_rgb.png
+  Sony PVM-8220 con SCART RGB: imagen casi clean.
+
+--------------------------------------------------------------------------------
+7.6 Component (YPbPr, separación diferencial)
+--------------------------------------------------------------------------------
+
+Y + Pb + Pr en tres cables RCA. Separación luma/chroma diferencial → calidad
+equivalente a SCART RGB con cables más prácticos. Usado en consumer high-end
+EE. UU. (PlayStation 2 component, Xbox component, ciertos DVD).
+
+[fig] assets/signals/sig-component.png
+  Sony PVM-8220 con component: limpio, ligeramente más cálido que SCART RGB.
+
+--------------------------------------------------------------------------------
+7.7 RGB VGA (passthrough limpio, pixel-perfect)
+--------------------------------------------------------------------------------
+
+Sin artefactos analógicos significativos. Es lo que veías en un monitor PC del
+90+ con cable VGA estándar. Tubelight aplica esto como passthrough digital:
+cero ruido, cero smear, cero ringing. Las únicas distorsiones que verás vienen
+del **perfil CRT** (mask, scanlines, fósforo, bloom) — útil para aislar la
+contribución del monitor sin que la señal añada nada.
+
+[fig] assets/signals/sig-rgb_vga.png
+  Sony PVM-8220 con RGB VGA: passthrough limpio, sólo aporta el CRT.
+
+================================================================================
+8. Ajustes finos — anatomía del menú Image
+================================================================================
+
+El tab Image es donde se vive el 80% del tiempo después de elegir perfil. Cada
+slider modela un fenómeno físico del CRT. Lo que sigue va sub-sección por
+sub-sección con la física que hay detrás, los rangos prácticos y cuándo
+conviene cada uno.
+
+--------------------------------------------------------------------------------
+8.1 Scanlines / Beam (4 sliders)
+--------------------------------------------------------------------------------
+
+**Scanline strength** (0..1): cuánto se oscurece el espacio entre líneas. 0 =
+sin scanlines (panel plano). 1 = máximo. Realista en CRTs de consumer: 0.6–0.8.
+En monitores broadcast finos (BVM): 0.3–0.5 (porque la línea está mejor
+enfocada y casi tapa el espacio).
+
+**Beam width** (0.5..2.0): ancho del haz. <1 = haz más fino → scanlines más
+visibles, imagen más "crisp". >1 = haz más gordo → líneas se solapan, imagen
+más blanda.
+
+**Gamma** (1.8..2.6): gamma del cañón CRT (no del display). Físicamente: la
+curva voltaje→luminancia del propio tubo, distinta de la corrección de salida
+sRGB. Valor estándar EBU/SMPTE: 2.2. PVMs broadcast suelen calibrarse a 2.5 (la
+curva original NTSC). Valores altos = sombras más profundas, negro más negro.
+
+**Scanline count**: número de líneas visibles. 240 (NTSC), 288 (PAL), 480
+(VGA). Determina cuántas scanlines pinta el shader en tu resolución de ventana
+— independiente del aspect ratio.
+
+*La trampa común*: scanline count != resolución de la fuente. Si tienes una
+imagen 320×240 y eliges 480 scanlines, ves 480 líneas pero cada par de líneas
+comparte el mismo pixel fuente. Apparent fix: usar el conteo NTSC/PAL real
+(240/288) en juegos retro de consola.
+
+--------------------------------------------------------------------------------
+8.2 Phosphor mask (color CRTs)
+--------------------------------------------------------------------------------
+
+Sólo para CRTs color (queda greyed-out en mono).
+
+**Type combo**: 6 tipos de máscara modelados.
+- *shadow_mask*: rejilla de puntos R-G-B. NEC MultiSync, mayoría de TVs
+consumer.
+- *aperture_grille*: rejilla vertical (Trinitron). Verticales nítidas.
+- *slot_mask*: ranuras verticales (Commodore 1084S).
+- *diamond_mix*: variante slot con triadas en diamond (algunos Hitachi).
+- *none*: sin máscara (debug).
+- *auto*: usa el del perfil cargado.
+
+**Strength** (0..1): cuán visible es la máscara. 0 = invisible (interpolada). 1
+= máscara dura. Valores realistas: 0.4–0.7. En monitores fine-pitch (0.28 mm):
+0.2–0.4 (porque la máscara es físicamente más pequeña y se ve menos).
+
+**Pitch** (0.20..0.65 mm): tamaño de la máscara. Cambia el espaciado del patrón.
+
+--------------------------------------------------------------------------------
+8.3 Phosphor colour (monocromos)
+--------------------------------------------------------------------------------
+
+Sólo para CRTs mono (queda greyed-out en color).
+
+**Tint R/G/B** (0..2.0): cromaticidad del fósforo. Define qué color domina.
+Para P31 verde: (0.10, 1.30, 0.20). Para P3 ámbar: (1.40, 0.65, 0.05). Para P4
+blanco: (0.95, 1.00, 1.10).
+
+**Presets**: P31 verde, P3 ámbar, P4 blanco, P1 oscilo, custom. El custom
+guarda los valores en el preset al exportar.
+
+**Posterize levels** (0..16): número de niveles tonales tras aplicar el
+fósforo. 0 = analógico (sin posterizar, gradiente continuo). 2 = 1-bit (sólo
+dos niveles, Mac Classic). 6 = típico terminal pre-greyscale. 16 = 4-bit
+cuasi-continuo. Cambia el feel radicalmente.
+
+[fig] assets/fine/fine-mono-p31.png
+  Tint (0.10, 1.30, 0.20) — fósforo P31 verde.
+
+[fig] assets/fine/fine-mono-p3.png
+  Tint (1.40, 0.65, 0.05) — fósforo P3 ámbar.
+
+[fig] assets/fine/fine-mac-1bit.png
+  Posterize 2 = 1-bit puro (Mac Classic).
+
+--------------------------------------------------------------------------------
+8.4 Bloom / halación (color) y Phosphor glow (mono)
+--------------------------------------------------------------------------------
+
+**Bloom** (0..1, color): blur gaussiano de los píxeles más brillantes por
+encima de un umbral. Modela la dispersión del haz en el cañón cuando se
+sobrecarga. Realista en CRTs consumer: 0.2–0.5. En PVMs broadcast: 0.05–0.15
+(cañón mejor controlado).
+
+**Halation** (0..1, color): blur extra por canal — el rojo viaja más lejos que
+el verde/azul porque su fósforo decae más lento y porque la dispersión interna
+del cristal es asimétrica por cromaticidad. Crea ese halo rojizo alrededor de
+blancos puros. Realista: 0.1–0.4.
+
+**Phosphor glow** (0..1, mono): equivalente unificado para monocromos. Un solo
+slider porque el canal es único.
+
+--------------------------------------------------------------------------------
+8.5 Persistence per-channel (color) y single afterglow (mono)
+--------------------------------------------------------------------------------
+
+**Persistence R/G/B** (0..5 ms, color): tiempo de decaimiento del fósforo por
+canal. R del P22 ≈ 1.0 ms; G ≈ 2.0 ms; B ≈ 1.0 ms (los datos exactos están en
+`profiles/crts/<id>.json` → `phosphor.decay_ms`). Realista: usar los valores
+del perfil cargado.
+
+*Por qué importa la asimetría*: cuando algo blanco se mueve rápido (un coche en
+MotoGP, un bullet hell), la estela del frame anterior se compone con el nuevo.
+Como R decae más lento, la estela tiene tinte rojizo. Es el motion blur
+característico CRT — no se reproduce en paneles LCD/OLED si no es por shader
+explícito.
+
+**Afterglow** (0..1, mono): equivalente single-channel. Slider único para
+terminales/osciloscopios. P1 (oscilo): 0.6–0.9 (estela larga, casi
+fosforescente). P31 terminal: 0.1–0.3.
+
+--------------------------------------------------------------------------------
+8.6 Composition (barrel + vignette + gamma + aspect + bezel)
+--------------------------------------------------------------------------------
+
+**Barrel** (0..0.3): distorsión radial de la imagen. 0 = plano (LCD). 0.05 =
+leve (PVM broadcast). 0.15 = TV consumer. 0.25 = arcade vertical. Realista en
+cada perfil: ya viene cableado al baseline.
+
+**Vignette** (0..1): caída de brillo hacia esquinas. 0 = sin caída. 0.4 =
+típico PVM. 0.7 = arcade pronunciado.
+
+**Gamma display** (1.8..2.6): corrección de salida (separada del gamma CRT).
+Modifica cómo se mapean tus colores de salida al panel donde Tubelight muestra.
+Si tu panel es sRGB calibrado, 2.2 está bien. Si tu panel sobre-satura, baja a
+2.0.
+
+**Aspect ratio**: Fill / 4:3 / 5:4 / 16:10 / 16:9 / 21:9. Snap-to-aspect en el
+menú: al elegir un ratio distinto de Fill, la ventana se redimensiona
+automáticamente para mantener píxeles cuadrados, sin letterbox.
+
+**Bezel** (combo): off / soft / hard. Soft = sombra suave en bordes (sutil).
+Hard = recorte aristado. PNG photoreal queda diferido a v1.1.
+
+--------------------------------------------------------------------------------
+8.7 Pass toggles — las 8 pasadas del pipeline
+--------------------------------------------------------------------------------
+
+Cada pasada del pipeline OpenGL se puede desactivar individualmente con
+`Ctrl+Alt+1..8` o desde el menú. Permite ver qué aporta cada una.
+
+| # | Nombre | Qué hace |
+|---|---|---|
+| −1 | signal | YIQ-BW limit + dot crawl + ringing + ghosting + noise |
+| 0 | dither detect | máscara de patrones de dithering en alpha |
+| 1 | dither reconstruct | mezcla pares A/B para reconstruir gradiente |
+| 2 | beam + scanlines | haz horizontal + líneas de scan |
+| 3 | mask | máscara de fósforo (aperture/shadow/slot/etc.) |
+| 4 | bloom + halación | blur umbral + per-channel halo |
+| 5 | temporal | persistencia frame-a-frame (identity en v0.1.0, real en v1.1) |
+| 6 | composition | barrel + vignette + gamma + aspect + bezel |
+
+`Ctrl+Alt+0` reactiva todas tras tener algunas off.
+
+Pass 5 (temporal) está como **identity** en v0.1.0 — la persistencia se modela
+en pass 4 pero el ping-pong FBO frame-a-frame real está diferido. En v1.1
+dejará estelas con decay correcto incluso entre frames.
+
+[fig] assets/fine/fine-flat.png
+  Generic PVM con signal RGB VGA: passthrough clean. Útil como referencia.
+
+--------------------------------------------------------------------------------
+8.8 Guardar como preset personalizado
+--------------------------------------------------------------------------------
+
+El botón "Save preset" en el menú Image vuelca los valores actuales (perfil +
+signal + todos los sliders) a
+`%APPDATA%\Tubelight\profiles\crts\<nombre>.json`. Aparece en el dropdown CRT
+como `[custom] <nombre>` al lanzar Tubelight.
+
+Para compartir: copiar ese JSON y mandarlo. El receptor lo coloca en su
+`%APPDATA%\Tubelight\profiles\crts\` y le aparece como custom.
+
+Formato: mismo schema que los bundle (`schemas/crt_profile.schema.json`).
+Puedes editarlos a mano con cualquier editor de texto.
+
+================================================================================
+9. Capturas y grabación
+================================================================================
+
+Tres mecanismos: screenshot PNG, vídeo MP4 con audio CRT opcional, modo
+recordable para que apps externas (Snipping Tool, Game Bar, OBS) puedan
+capturar el overlay.
+
+--------------------------------------------------------------------------------
+9.1 Screenshot PNG (Ctrl+Alt+S)
+--------------------------------------------------------------------------------
+
+Guarda el framebuffer post-pipeline en
+`%USERPROFILE%\Pictures\Tubelight\tubelight-YYYYMMDD-HHMMSS.png` (o en la
+carpeta que hayas configurado). El encode PNG corre en thread detached para no
+congelar el main loop 1-2 s a 1920×1200.
+
+La imagen guardada es lo que ves — el contenido procesado, no la fuente cruda.
+
+Toast en lower-left confirma con la ruta del PNG.
+
+--------------------------------------------------------------------------------
+9.2 Vídeo MP4 (Ctrl+Alt+V)
+--------------------------------------------------------------------------------
+
+Toggle. Primera pulsación inicia grabación, segunda la detiene. Requiere
+`ffmpeg` en PATH. Tubelight pipea raw RGB24 60 FPS al stdin de ffmpeg con args
+`-vf vflip` y output H.264 / yuv420p. Bitrate ~10 Mbps; ~30-60 MB por minuto.
+
+Durante grabación, REC dot rojo parpadeando upper-left. Para parar, Ctrl+Alt+V
+otra vez. Toast con la ruta del MP4.
+
+*Si ffmpeg no está*: el primer Ctrl+Alt+V muestra un toast "ffmpeg not found in
+PATH" y deshabilita futuras pulsaciones hasta que lo instales y reinicies.
+
+--------------------------------------------------------------------------------
+9.3 Record source
+--------------------------------------------------------------------------------
+
+Combo en tab Capture. Define qué pinta dentro del MP4:
+- *overlay* (default): el contenido procesado por Tubelight, mismo tamaño que
+la ventana overlay.
+- *full monitor*: la pantalla entera del monitor 0 incluyendo lo que rodea al
+overlay.
+- *custom rect*: un rectángulo arbitrario en coordenadas de monitor (campo de
+texto x,y,w,h en el menú).
+
+El modo *full monitor* y *custom rect* usan BGRA del DXGI Duplication
+directamente (sin pasar por el pipeline) — útil para grabar áreas que el
+overlay no procesa.
+
+--------------------------------------------------------------------------------
+9.4 Recordable mode (Ctrl+Alt+R)
+--------------------------------------------------------------------------------
+
+Modo opt-in (default OFF) que permite a apps externas (Snipping Tool, Game Bar,
+OBS Display Capture) ver el overlay procesado. La complejidad real está en *por
+qué* es necesario:
+
+En Windows 10/11 con DWM, **todas las APIs de captura desktop-level comparten
+un único bit binario de exclusión** (WDA_EXCLUDEFROMCAPTURE). Por defecto
+Tubelight lo tiene ON para evitar feedback loop (si Tubelight no se excluye,
+DXGI Duplication captura su propio output → cadena CRT atenúa → colapso a negro
+tras pocos frames).
+
+Ctrl+Alt+R hace dos cosas atómicas:
+1. Quita WDA_EXCLUDEFROMCAPTURE → recorders externos ven el overlay.
+2. Cambia la captura INTERNA de Tubelight de DXGI a **Magnification API** con
+filtro `MagSetWindowFilterList(MW_FILTERMODE_EXCLUDE, [overlay_hwnd])`. Mag es
+la única API Win32 que provee per-capturer exclusion (es pre-DWM,
+accesibilidad). Así Tubelight ignora su propio HWND y no hay feedback.
+
+Límites: la API Mag está marcada "deprecated since Win10" en documentación de
+Microsoft (sigue funcional en Win11 26200; si MS la pula, migrar a la
+sucesora). El framerate efectivo de la Mag callback es 30-60 Hz dependiendo del
+driver. Recordable mode es per-session y no persiste (evita el problema de
+arrancar con overlay congelado por una mala combinación de settings).
+
+**Cómo usarlo paso a paso para grabar con Snipping Tool**:
+1. Lanza Tubelight overlay encima de tu juego.
+2. Pulsa `Ctrl+Alt+R`. Toast confirma "Recordable mode ON".
+3. Win+Shift+S → selecciona la región del overlay → la captura sale procesada
+por CRT.
+
+--------------------------------------------------------------------------------
+9.5 Carpeta de capturas + Browse picker
+--------------------------------------------------------------------------------
+
+Tab Capture → campo de texto con la ruta + botón Browse → file picker nativo
+Windows (IFileOpenDialog). Apply commits el cambio. Default vuelve a
+`%USERPROFILE%\Pictures\Tubelight\`.
+
+La carpeta se crea si no existe. Persistencia en
+`%APPDATA%\Tubelight\settings.json`.
+
+================================================================================
+10. Audio CRT
+================================================================================
+
+Tubelight genera audio CRT realista vía XAudio2 (Win32 nativo). Por defecto
+OFF; activar en tab Audio.
+
+**Flyback whine**: ~15.7 kHz (NTSC) o 15.6 kHz (PAL), modulado por luminancia
+media del frame. Es el silbido agudo característico de los CRTs en marcha.
+Imperceptible para muchos adultos (audición >40 años suele tener cutoff < 14
+kHz); muy presente en grabaciones con micros de campo. Audibilidad alta en
+menores de 30 con audífonos sensibles.
+
+**Modulación por luminancia**: cuando el frame medio es brillante, el cañón
+consume más → el flyback transformer trabaja más → whine más fuerte. Tubelight
+lee el luminancia media del último frame y modula amplitud ±20%.
+
+**Degauss thump**: cuando cambias de perfil CRT, suena un thump grave + click
+de relay (~80 ms total). Modela el ciclo de desmagnetización que un CRT real
+ejecuta al encenderse. Toggle separado.
+
+================================================================================
+11. Atajos de teclado — tabla completa
+================================================================================
+
+Todos los atajos globales usan modificador `Ctrl+Alt+`. Implementados con
+low-level keyboard hook (no glfwSetKeyCallback) para funcionar incluso cuando
+Tubelight no tiene foco.
+
+**Control**:
+- `Ctrl+Alt+Q` — quit
+- `Ctrl+Alt+M` — toggle menú in-app
+- `Ctrl+Alt+F` — toggle freeze frame (debug-friendly, no se flipea por
+autorepeat)
+- `Ctrl+Alt+Enter` — toggle fullscreen runtime preservando aspect
+- `Ctrl+Alt+T` — attach/detach foreground window (target mode)
+- `Ctrl+Alt+H` — toggle HUD status (top-right)
+- `Ctrl+Alt+C` — toggle click-through (windowed mode)
+
+**Captura**:
+- `Ctrl+Alt+S` — screenshot PNG (async encode)
+- `Ctrl+Alt+V` — toggle grabación MP4 (necesita ffmpeg)
+- `Ctrl+Alt+R` — toggle recordable mode (Snipping Tool / Game Bar / OBS pueden
+ver el overlay)
+
+**Pipeline**:
+- `Ctrl+Alt+0` — re-enable all passes
+- `Ctrl+Alt+1` .. `Ctrl+Alt+8` — toggle pass individual (-1 signal .. 6
+composition)
+
+En modo `--shader-only` (debug): teclas directas sin modificador.
+- `ESC` quit
+- `1..8` toggle pass
+- `0` enable all
+- `R` reload shaders
+
+================================================================================
+12. Casos de uso típicos
+================================================================================
+
+Recipe-book por tipo de contenido. Cada combinación incluye perfil + signal
+recomendados, aspect ratio sugerido, y notas opcionales.
+
+--------------------------------------------------------------------------------
+12.1 Emuladores standalone
+--------------------------------------------------------------------------------
+
+**Mednafen** (PCE / NES / SNES / SMS / GG / Saturn / PSX): perfil `pvm-8220` +
+signal `composite_ntsc` para mercado US, `commodore-1084s` + `composite_pal`
+para PAL. Aspect: 4:3. Modo: `--overlay-target Mednafen` o
+`--overlay-target-pid <PID>`.
+
+**MAME** (arcade vertical o horizontal): perfil `wells-gardner-k7000` + signal
+`composite_ntsc` (US arcades) o `rgb_vga` (CRTs PC para Neo Geo en MVS).
+Aspect: depende del juego (3:4 vertical, 4:3 horizontal). Modo: target o
+region.
+
+**openMSX**: perfil `commodore-1084s` (consumer monitors lo más parecido al
+setup MSX europeo) + signal `composite_pal`. Aspect: 4:3.
+
+**BlastEm** (Mega Drive): perfil `pvm-20m4` (broadcast 20") + signal
+`composite_ntsc`. Mega Drive sacaba composite por defecto; algunos sets podían
+sacar RGB SCART en PAL. Aspect: 4:3.
+
+**FCEUX / Nestopia** (NES): perfil `pvm-8220` + signal `composite_ntsc`. La NES
+sacaba composite muy ruidoso; si quieres autenticidad total, usa signal `rf`
+(lo que veían los niños 1985 con la TV conectada por antena).
+
+**Snes9x** (SNES): perfil `pvm-8220` + signal `svideo`. La SNES sacaba S-Video
+nativo si tenías el cable correcto. Aspect: 4:3 (algunos juegos PAL son 5:4).
+
+--------------------------------------------------------------------------------
+12.2 RetroArch / libretro
+--------------------------------------------------------------------------------
+
+Opción A — overlay encima de RetroArch: lanzar RetroArch sin shaders, lanzar
+Tubelight en target mode encima. Funciona pero pierdes integración con state
+save shaders de RetroArch.
+
+Opción B — exportar preset `.slangp` desde Tubelight para cargarlo en RetroArch:
+
+```
+tubelight --export-slangp my-pvm.slangp --profile pvm-8220 --signal
+composite_ntsc
+```
+
+Copia el `.slangp` y los `.slang` shaders generados a la carpeta `shaders/` de
+RetroArch y carga el preset desde Settings → Video → Shaders → Load Preset.
+Esta opción es menos fiel que el overlay (RetroArch ejecuta los shaders en su
+pipeline propio, no el de Tubelight) pero se integra con savestate, threaded
+video, etc.
+
+--------------------------------------------------------------------------------
+12.3 Juegos retro modernos
+--------------------------------------------------------------------------------
+
+Pixel art o low-poly intencionalmente "retro" — UFO 50, Sea of Stars, Shovel
+Knight, Crypt of the NecroDancer, Stardew Valley, Eastward, Hyper Light
+Drifter, Celeste, Children of Morta.
+
+PVM-8220 + composite NTSC para feel consola US.
+Commodore 1084S + composite PAL para feel home computer europeo.
+Wells-Gardner K7000 + rgb_vga para feel arcade.
+Terminal P31 + rgb_vga si quieres una vibra absurda CRT-monochrome sobre tu
+pixel art moderno (no era el medium original pero se ve bien).
+
+Aspect: el del juego (la mayoría son 16:9 nativo; los pixel-art son 16:9 con
+barras o 4:3 escalado).
+
+--------------------------------------------------------------------------------
+12.4 Reproductores de vídeo
+--------------------------------------------------------------------------------
+
+**Material de archivo VHS / TV 70-80**: perfil `tv-bw-p4` o `commodore-1084s` +
+signal `rf`. Brutal sobre demos antiguos, telenoticias retro, anuncios.
+
+**MV / clips musicales antiguos**: perfil `pvm-20m4` o `bvm-20f1u` + signal
+`composite_ntsc`. Para material de archivo broadcast.
+
+**YouTube / streaming moderno**: cualquier perfil + signal `rgb_vga` o
+`component`. Tubelight no degradará la imagen.
+
+--------------------------------------------------------------------------------
+12.5 Terminales y código
+--------------------------------------------------------------------------------
+
+**PowerShell / cmd / WSL**: perfil `terminal-p31` (verde) o `terminal-p3-amber`
+(ámbar) + signal `rgb_vga`. Posterize 6 default. Persistencia 0.1-0.3 para que
+el cursor parpadeante deje halo mínimo.
+
+**VS Code / editores**: igual. Si quieres el feel "hacker 1985" sin renunciar a
+las extensiones modernas, perfil terminal-p31 con bloom alto y persistencia
+0.3-0.4 da el look de Matrix sin caricaturizar.
+
+**Terminal de servidor remoto via SSH**: igual que local. Tubelight no sabe ni
+le importa que sea remoto.
+
+================================================================================
+13. Solución de problemas
+================================================================================
+
+Los problemas más comunes y cómo resolverlos. Si tu caso no está aquí, abre un
+issue en el repo privado.
+
+--------------------------------------------------------------------------------
+13.1 Overlay negro / no actualiza
+--------------------------------------------------------------------------------
+
+Síntoma: la ventana de Tubelight se ve negra o congelada en el primer frame.
+
+Causa típica 1: **modo recordable activado previamente + WDA dropped + DXGI
+loop**. v0.1.0 fuerza recordable OFF al arrancar para corregir esto. Si tienes
+un build viejo, edita `%APPDATA%\Tubelight\settings.json` y pon `"recordable":
+false`.
+
+Causa 2: **otro overlay encima** (Discord overlay, Nvidia Shadowplay, Steam
+overlay). DWM compone primero y Tubelight ve el composite de todos. Desactiva
+esos overlays.
+
+Causa 3: **driver GL viejo**. Tubelight necesita OpenGL 4.5 core. Actualiza el
+driver GPU.
+
+--------------------------------------------------------------------------------
+13.2 Lag percibido en lo de debajo
+--------------------------------------------------------------------------------
+
+Síntoma: el juego/terminal de debajo va con un frame de retraso.
+
+Causa: Tubelight añade ~1 frame DXGI + ~1 frame compositing. A 60 Hz = ~33 ms.
+Es esperado.
+
+Mitigación: activa `low_latency` en tab Image (vsync OFF + cap 240 FPS).
+Latencia baja a ~4-8 ms a costa de más uso de GPU. **Cuidado**: si pones
+`low_latency=true` y luego desactivas el cap manualmente, el main loop spineará
+a miles de FPS, saturando CPU+GPU. v0.1.0 fuerza cap 240 si low_latency está
+ON.
+
+--------------------------------------------------------------------------------
+13.3 "ffmpeg not found" al grabar vídeo
+--------------------------------------------------------------------------------
+
+Síntoma: Ctrl+Alt+V muestra toast `ffmpeg not found in PATH`.
+
+Fix: instala ffmpeg via winget (`winget install Gyan.FFmpeg`), chocolatey o
+descarga manual desde gyan.dev. Reinicia Tubelight tras instalar (PATH se
+cachea por proceso).
+
+[powershell]
+PS> winget install Gyan.FFmpeg
+
+--------------------------------------------------------------------------------
+13.4 Profile no carga
+--------------------------------------------------------------------------------
+
+Síntoma: dropdown CRT cargas un perfil y nada cambia / toast con error de
+validación.
+
+Fix: validar el JSON con `tubelight --validate-profile
+profiles/crts/<id>.json`. Te dice exactamente qué campo está mal o no cumple el
+schema. Comparar contra un bundle perfil para ver qué pinta tiene un JSON
+correcto.
+
+[bat]
+> tubelight --validate-profile profiles/crts/pvm-8220.json
+
+--------------------------------------------------------------------------------
+13.5 STATUS_STACK_BUFFER_OVERRUN al activar recordable (legacy)
+--------------------------------------------------------------------------------
+
+Síntoma: en builds pre-v0.1.0 final, activar recordable mode crasheaba la app
+con `/GS` stack-canary fail (`STATUS_STACK_BUFFER_OVERRUN`).
+
+Fix: v0.1.0 final lo arregló moviendo el MagCapture a heap-allocated unique_ptr
+(estaba stack-allocated junto al canary), llamando `cpu_buffer_.resize()` ANTES
+de `MagSetImageScalingCallback`, añadiendo destructor que llama `shutdown()` y
+haciendo `filter_hwnds_[1]` miembro persistente. Si estás en build viejo,
+actualiza.
+
+--------------------------------------------------------------------------------
+13.6 Win+Shift+S no muestra overlay — checklist
+--------------------------------------------------------------------------------
+
+1. ¿Activaste `Ctrl+Alt+R` (recordable mode)? Sin él, Snipping Tool ve la app
+de debajo, no el overlay.
+2. ¿El toast confirmó "Recordable mode ON"?
+3. ¿Tubelight está realmente encima del área que estás capturando? Mueve la
+ventana o usa overlay-fullscreen.
+4. Si todo OK y aún sale el contenido sin procesar: cierra Snipping Tool,
+espera 2 s, vuelve a intentar (la app cachea estado).
+
+--------------------------------------------------------------------------------
+13.7 Game Bar no graba overlay — checklist
+--------------------------------------------------------------------------------
+
+Mismo problema y misma solución que §13.6 — Game Bar captura por DXGI Desktop
+Duplication o Windows.Graphics.Capture; ambos respetan WDA_EXCLUDEFROMCAPTURE.
+
+Fix: activa `Ctrl+Alt+R` antes de empezar a grabar con Game Bar (Win+G →
+Capture → Record).
+
+--------------------------------------------------------------------------------
+13.8 OBS sí graba (Window Capture WGC) — instrucciones
+--------------------------------------------------------------------------------
+
+OBS Studio 28+ con la fuente "Window Capture" en modo WGC (Windows Graphics
+Capture) funciona con recordable mode. Pasos:
+
+1. Activa `Ctrl+Alt+R` en Tubelight.
+2. En OBS: Source → Add → Window Capture.
+3. Window: selecciona la ventana de Tubelight (`Tubelight 0.1.0 — overlay`).
+4. Capture Method: `Windows 10 (1903 and up)`.
+5. Verifica que sale el contenido procesado en el preview.
+
+Nota: "Display Capture" (la fuente que captura el escritorio entero) tampoco
+verá Tubelight a no ser que esté recordable mode ON.
+
+================================================================================
+14. Glosario
+================================================================================
+
+Términos técnicos usados a lo largo del manual. Las definiciones detalladas
+viven en el panel lateral de tooltips del HTML; aquí va el índice. El cuerpo
+del manual los marca con subrayado punteado.
+
+================================================================================
+15. Créditos
+================================================================================
+
+**Autor**: Alonso J. Núñez (GS·RUN).
+**Repositorio**: https://github.com/GS-RUN/tubelight (PRIVATE).
+**Licencia**: PolyForm Noncommercial 1.0.0. Para uso comercial:
+`gsrun.editor@gmail.com`.
+
+**Fuentes citadas en perfiles CRT**:
+- crtdatabase.com (specs y phosphor designations).
+- ManualsLib (BVM-20F1U, NEC 4FG, FW900 service manuals).
+- archive.org (Commodore 1084S-D1 Service Manual; X68000 CZ-602D Japanese
+repro).
+- gamesx.com X68000 wiki (Sharp X68k phosphor data).
+- Wikipedia EIA Phosphor Designations table.
+- Sony PVM-8220 operation manual + crtdatabase entry.
+- epanorama.net/documents/video/phosphor_decay.html (decay ranges).
+
+**Tecnologías usadas**:
+- [Dear ImGui](https://github.com/ocornut/imgui) (menú in-app).
+- [GLFW](https://www.glfw.org/) (ventana + input + GL context).
+- [libepoxy](https://github.com/anholt/libepoxy) (GL function loader).
+- [GLM](https://github.com/g-truc/glm) (matemáticas).
+- [nlohmann/json](https://github.com/nlohmann/json) (parsing de profiles).
+- [stb_image](https://github.com/nothings/stb) (carga de PNG, encode de
+screenshots).
+- [MinHook](https://github.com/TsudaKageyu/minhook) (low-level keyboard hook).
+- Windows Magnification API (recordable mode).
+- Windows XAudio2 (CRT audio).
+- Windows DXGI Desktop Duplication (capture).
+- OpenGL 4.5 core profile (pipeline).
+
+**Construido contra hardware histórico real**. Si quieres calibrar Tubelight
+contra un CRT que no está bundle, manda fotos macro + manual de servicio.
+
+================================================================================
+GLOSARIO COMPLETO
+================================================================================
+
+  Aperture grille
+  Estructura de máscara CRT formada por hilos verticales finos (Trinitron).
+  Da color brillante y verticales nítidas, a costa de horizontales más
+  blandas y dos finos hilos de amortiguación visibles a contraluz.
+
+  Shadow mask
+  Lámina perforada situada detrás del fósforo en CRTs convencionales. Cada
+  triada R-G-B comparte un agujero; el patrón se ve como un rejilla de puntos
+  en zonas brillantes.
+
+  Slot mask
+  Variante a medio camino entre shadow mask y aperture grille: ranuras
+  verticales en lugar de puntos o hilos. Típico de televisores y monitores de
+  los 80–90 (Commodore 1084, muchos PVM consumer).
+
+  P22
+  Fósforo estándar de TV color en Europa y EE. UU. Tres componentes (R, G, B)
+  con decaimientos relativos distintos: el rojo persiste más que verde/azul,
+  lo que produce el característico arrastre rojizo en movimiento rápido.
+
+  P31
+  Fósforo verde estándar (Apple //e, VT100, osciloscopios). Persistencia
+  media, pico en 525 nm. Cromaticidad muy saturada hacia el verde puro.
+
+  P3
+  Fósforo ámbar usado en terminales IBM 5151 y WYSE. Cromaticidad cálida (R
+  alta, G media), reduce fatiga visual en sesiones largas según los criterios
+  ergonómicos de los 80.
+
+  P4
+  Fósforo blanco de TV blanco y negro. Equilibrio cercano a blanco-azulado
+  natural. Aparece en TVs B/N y Macintosh Classic.
+
+  P1
+  Fósforo verde de osciloscopio, persistencia larga. Hace que un trazo rápido
+  deje estela visible muchos milisegundos.
+
+  Persistencia
+  Tiempo durante el cual el fósforo sigue emitiendo luz después de que el haz
+  pase por encima. Determina el arrastre del movimiento (motion trail). Por
+  canal: el R lento del P22 genera la estela rojiza típica.
+
+  Scanline
+  Cada una de las líneas horizontales pintadas por el haz CRT en cada frame.
+  NTSC: 240 visibles, PAL: 288, VGA: 480.
+
+  Dot pitch
+  Distancia entre tríadas de fósforo de la máscara (en mm). Más fino = más
+  resolución efectiva. PVM-8220: 0.30 mm; BVM-20F1U: 0.31 mm Super Fine
+  Pitch; NEC 4FG: 0.28 mm.
+
+  Gamma CRT
+  Curva no lineal del cañón del CRT (≈2.2–2.5). Convierte el voltaje del haz
+  en luminancia. Distinto del gamma display moderno (sRGB ≈ 2.2). Tubelight
+  la modela por separado de la corrección de salida.
+
+  Trinitron
+  Tecnología Sony de aperture grille, dominante en monitores profesionales y
+  de gaming desde los 80. Visible: imagen brillante, verticales nítidas, dos
+  hilos de amortiguación cruzando horizontalmente.
+
+  Halation
+  Halo difuso alrededor de zonas brillantes causado por reflexión interna del
+  vidrio y dispersión en el fósforo. Distinto al bloom: la halation es más
+  roja porque el R viaja más lejos.
+
+  Bloom
+  Sangrado de luminancia en zonas saturadas: los píxeles brillantes parecen
+  crecer en tamaño. En CRT real lo causa la dispersión del haz; en Tubelight
+  es un blur gaussiano umbral-dependiente.
+
+  Barrel
+  Curvatura geométrica de la imagen, más pronunciada en TVs antiguos y
+  arcade. Tubelight la aplica como distorsión radial sutil (configurable).
+
+  Viñeta
+  Caída de brillo hacia las esquinas. En CRT físico la causa la geometría del
+  tubo y el bezel. Sutil en PVMs, muy marcada en arcades.
+
+  Bezel
+  Marco físico del CRT. Tubelight v0.1.0 lo omite por defecto (overlay quiere
+  ser el cristal, no el mueble). Soporte de bezel PNG planeado para v1.1.
+
+  WDA_EXCLUDEFROMCAPTURE
+  Flag de DWM (Win10 build 2004+) que excluye una ventana de TODOS los
+  capturadores desktop-level (Snipping Tool, Game Bar, OBS Display Capture).
+  Es binario, no per-capturer. Tubelight la usa por defecto para evitar
+  feedback loop al capturar lo que tiene debajo.
+
+  Magnification API
+  API Win32 de accesibilidad pre-DWM, única vía documentada para excluir UNA
+  ventana concreta de SU PROPIO capturador (no del resto del sistema). El
+  modo recordable de Tubelight la usa.
+
+  DXGI Desktop Duplication
+  API de DirectX para capturar el composite del escritorio DWM con latencia
+  muy baja (~1 frame). Tubelight la usa para extraer el contenido que va a
+  procesar el pipeline. Funciona con cualquier app (DX/GL/Vulkan) porque
+  captura el composite final de DWM.
+
+  Posterize
+  Reducción del número de niveles tonales. Tubelight lo usa para emular
+  pantallas 1-bit (Mac Classic = 2 niveles), terminales (6) y oscilo de
+  fósforo P1. 0 = analógico (sin posterización).
+
+  Voltage bloom
+  Aumento dinámico del beam-width cuando el frame medio es muy brillante: el
+  cañón se sobrecarga, el haz se ensancha, la imagen se ablanda. Real en CRTs
+  físicos; pendiente como efecto opcional en v1.1.
+
+  Primarios SMPTE-C
+  Coordenadas xy de los fósforos R/G/B definidos por SMPTE para NTSC
+  profesional 525-line. Distintos de Rec.601, EBU PAL y de los fósforos
+  reales de cada CRT.
+
+  DWM
+  Desktop Window Manager: el compositor del escritorio de Windows desde
+  Vista. Renderiza cada ventana a su propio buffer y compone el resultado con
+  efectos. Toda captura desktop-level (excepto Magnification API) pasa por
+  DWM, lo que tiene implicaciones para el modo recordable.
+
+--------------------------------------------------------------------------------
+Generado por app-manual-forge 0.3.0 el 2026-05-27T00:00:00Z  ·  git 9098717
+--------------------------------------------------------------------------------

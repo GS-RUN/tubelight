@@ -10,6 +10,14 @@
 #include <cstdio>
 #include <filesystem>
 
+#ifdef _WIN32
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+  #endif
+  #include <windows.h>
+  #include <shellapi.h>
+#endif
+
 #ifdef TUBELIGHT_HAS_IMGUI
 #include <imgui.h>
 // vcpkg installs the backend headers at the include root; upstream Dear
@@ -827,6 +835,50 @@ void Menu::build_widgets(Pipeline& pipeline,
         if (TintedTab _ttab{"Help", pal::lavender(), pal::lavender()}) {
             ImGui::TextDisabled("Tubelight v0.1.0-alpha");
             ImGui::TextDisabled("https://github.com/GS-RUN/tubelight");
+
+            // -- Open user manual ---------------------------------------
+            // The single-file HTML lives in docs/manual/manual.html
+            // relative to the binary. Resolve once and open with the
+            // OS shell so the user's default browser handles it.
+            ImGui::PushStyleColor(ImGuiCol_Button,        pal::mint(0.30f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, pal::mint(0.55f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  pal::mint(0.85f));
+            if (ImGui::Button("Open user manual (manual.html)", ImVec2(-1, 0))) {
+#ifdef _WIN32
+                std::error_code ec;
+                fs::path exe_dir;
+                wchar_t buf[MAX_PATH] = {};
+                if (GetModuleFileNameW(nullptr, buf, MAX_PATH) > 0) {
+                    exe_dir = fs::path(buf).parent_path();
+                } else {
+                    exe_dir = fs::current_path(ec);
+                }
+                // Search common layouts: dev tree, release zip, sibling.
+                const fs::path candidates[] = {
+                    exe_dir / "docs" / "manual" / "manual.html",
+                    exe_dir.parent_path() / "docs" / "manual" / "manual.html",
+                    exe_dir.parent_path().parent_path() / "docs" / "manual" / "manual.html",
+                    exe_dir / "manual" / "manual.html",
+                    exe_dir / "manual.html",
+                };
+                fs::path target;
+                for (const auto& p : candidates) {
+                    if (fs::exists(p, ec)) { target = p; break; }
+                }
+                if (!target.empty()) {
+                    ShellExecuteW(nullptr, L"open", target.wstring().c_str(),
+                                  nullptr, nullptr, SW_SHOWNORMAL);
+                } else {
+                    // Fallback to the public GitHub release page.
+                    ShellExecuteW(nullptr, L"open",
+                                  L"https://github.com/GS-RUN/tubelight",
+                                  nullptr, nullptr, SW_SHOWNORMAL);
+                }
+#endif
+            }
+            ImGui::PopStyleColor(3);
+            tl_tooltip("Abre el manual de usuario en HTML en tu navegador por defecto. Si no encuentra el archivo local, abre el repo en GitHub.");
+
             ImGui::Separator();
             ImGui::Text("Keyboard shortcuts (Ctrl+Alt + ...):");
             ImGui::BulletText("M  toggle menu");
