@@ -291,6 +291,15 @@ corner, optional) and the **toast notifications** (bottom-left, ephemeral).
   Overlay window in windowed mode (1280×960) processing the desktop area
   below it.
 
+[fig] assets/ui/ui-02-menu-profile.png
+  In-app menu open (Ctrl+Alt+M) on the Profile tab: CRT dropdown (16
+  monitors) + Signal dropdown (7 signals) + Intensity slider. The testcard
+  remains pipeline-processed behind the menu.
+
+[fig] assets/ui/ui-08-hud.png
+  Status HUD (Ctrl+Alt+H) enabled in the top-right corner — current profile,
+  signal and mode in small mono.
+
 ! INFO: The menu is built with Dear ImGui. If it grows too large for your screen,
   drag its title bar to move it. Its positions don't persist yet (planned for
   v1.1).
@@ -419,6 +428,9 @@ CLI: `tubelight --overlay [--size W H] [--profile X --signal Y]`
 [bat]
 > tubelight --overlay --profile pvm-8220 --signal composite_ntsc --size 1280 960
 
+[fig] assets/ui/hero-01.png
+  Default windowed mode — resizable window over the content.
+
 --------------------------------------------------------------------------------
 Runtime fullscreen (Ctrl+Alt+Enter, IF-safe)
 --------------------------------------------------------------------------------
@@ -440,6 +452,10 @@ From overlay: `Ctrl+Alt+Enter` toggles at runtime preserving aspect.
 
 [bat]
 > tubelight --overlay-fullscreen --profile pvm-8220 --signal composite_ntsc
+
+[fig] assets/ui/mode-02-fullscreen.png
+  Runtime fullscreen: overlay covers the whole monitor preserving the chosen
+  aspect ratio.
 
 --------------------------------------------------------------------------------
 Target window (Ctrl+Alt+T)
@@ -480,6 +496,10 @@ monitor 0 by default.
 
 [bat]
 > tubelight --overlay-region 200,150,1280,960 --profile commodore-1084s --signal composite_pal
+
+[fig] assets/ui/mode-04-region.png
+  Region mode: fixed rectangle (200,200,800,600) over the testcard with
+  Commodore 1084S + composite PAL — click-through always on.
 
 ================================================================================
 6. CRT profiles — catalog of the 16 monitors

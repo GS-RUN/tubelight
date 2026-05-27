@@ -41,13 +41,23 @@ if (-not (Test-Path $Testcard)) {
 
 # 3) Arranca viewer en background. Esperamos a que aparezca.
 Write-Host "Lanzando viewer 'TubelightTestcard'..."
+# Kill orphan viewers + stale stop file
+Get-Process powershell -ErrorAction SilentlyContinue |
+    Where-Object { $_.MainWindowTitle -eq "TubelightTestcard" } |
+    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+Remove-Item "$rawDir\..\viewer.stop" -Force -ErrorAction SilentlyContinue
+
 $viewer = Start-Process -FilePath "powershell" -ArgumentList @(
-    "-ExecutionPolicy","Bypass",
-    "-WindowStyle","Hidden",
+    "-NoProfile","-ExecutionPolicy","Bypass",
     "-File",$ViewerScript,
     "-Image",$Testcard
-) -PassThru -WindowStyle Hidden
-Start-Sleep -Seconds 3
+) -PassThru
+# Polling: hasta 8s para que la ventana esté creada
+for ($i=0; $i -lt 16; $i++) {
+    Start-Sleep -Milliseconds 500
+    $vp = Get-Process -Id $viewer.Id -ErrorAction SilentlyContinue
+    if ($vp -and $vp.MainWindowTitle -eq "TubelightTestcard") { break }
+}
 
 # Verificar que la ventana del viewer existe vía Get-Process (más fiable
 # que FindWindowA con .NET unicode strings).

@@ -204,7 +204,13 @@
       "screenshots": [
         { "src": "assets/ui/hero-01.png",
           "alt": { "es": "Ventana overlay con perfil PVM-8220.", "en": "Overlay window with PVM-8220 profile." },
-          "caption": { "es": "Ventana overlay en modo windowed (1280×960) procesando el área del escritorio que tiene debajo.", "en": "Overlay window in windowed mode (1280×960) processing the desktop area below it." } }
+          "caption": { "es": "Ventana overlay en modo windowed (1280×960) procesando el área del escritorio que tiene debajo.", "en": "Overlay window in windowed mode (1280×960) processing the desktop area below it." } },
+        { "src": "assets/ui/ui-02-menu-profile.png",
+          "alt": { "es": "Menú ImGui abierto en el tab Profile sobre la testcard procesada.", "en": "ImGui menu open on the Profile tab over the processed testcard." },
+          "caption": { "es": "Menú in-app abierto (Ctrl+Alt+M) en el tab Profile: dropdown CRT (16 monitores) + dropdown Signal (7 señales) + slider Intensity. La testcard sigue procesada por la pipeline detrás del menú.", "en": "In-app menu open (Ctrl+Alt+M) on the Profile tab: CRT dropdown (16 monitors) + Signal dropdown (7 signals) + Intensity slider. The testcard remains pipeline-processed behind the menu." } },
+        { "src": "assets/ui/ui-08-hud.png",
+          "alt": { "es": "HUD activado en esquina superior derecha mostrando perfil/signal/mode.", "en": "HUD enabled in the top-right corner showing profile/signal/mode." },
+          "caption": { "es": "HUD de estado (Ctrl+Alt+H) activo en la esquina superior derecha — perfil, signal y modo actuales en mono pequeño.", "en": "Status HUD (Ctrl+Alt+H) enabled in the top-right corner — current profile, signal and mode in small mono." } }
       ],
       "tips": [
         { "kind": "info",
@@ -250,6 +256,11 @@
           },
           "code": [
             { "lang": "bat", "src": "tubelight --overlay --profile pvm-8220 --signal composite_ntsc --size 1280 960", "terminal": true, "prompt": "> " }
+          ],
+          "screenshots": [
+            { "src": "assets/ui/hero-01.png",
+              "alt": { "es": "Modo windowed.", "en": "Windowed mode." },
+              "caption": { "es": "Modo windowed default — ventana redimensionable encima del contenido.", "en": "Default windowed mode — resizable window over the content." } }
           ]
         },
         { "id": "mode-fullscreen",
@@ -260,6 +271,11 @@
           },
           "code": [
             { "lang": "bat", "src": "tubelight --overlay-fullscreen --profile pvm-8220 --signal composite_ntsc", "terminal": true, "prompt": "> " }
+          ],
+          "screenshots": [
+            { "src": "assets/ui/mode-02-fullscreen.png",
+              "alt": { "es": "Modo fullscreen sobre la testcard.", "en": "Fullscreen mode over the testcard." },
+              "caption": { "es": "Fullscreen runtime: el overlay cubre todo el monitor manteniendo el aspect ratio elegido.", "en": "Runtime fullscreen: overlay covers the whole monitor preserving the chosen aspect ratio." } }
           ]
         },
         { "id": "mode-target",
@@ -281,6 +297,11 @@
           },
           "code": [
             { "lang": "bat", "src": "tubelight --overlay-region 200,150,1280,960 --profile commodore-1084s --signal composite_pal", "terminal": true, "prompt": "> " }
+          ],
+          "screenshots": [
+            { "src": "assets/ui/mode-04-region.png",
+              "alt": { "es": "Modo region: rect 800×600 sobre la testcard procesado por Commodore 1084S + composite PAL.", "en": "Region mode: 800×600 rect over the testcard processed by Commodore 1084S + composite PAL." },
+              "caption": { "es": "Region mode: rectángulo fijo (200,200,800,600) sobre la testcard con perfil Commodore 1084S + composite PAL — click-through siempre activo.", "en": "Region mode: fixed rectangle (200,200,800,600) over the testcard with Commodore 1084S + composite PAL — click-through always on." } }
           ]
         }
       ]
