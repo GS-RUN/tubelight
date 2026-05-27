@@ -214,19 +214,25 @@ private:
 // generous padding. Called after each widget instead of
 // ImGui::SetItemTooltip so we control the styling.
 void tl_tooltip(const char* text) {
-    // Push the distinct presentation styles BEFORE the tooltip helper:
-    // BeginItemTooltip handles the "is the previous item hovered + has
-    // the short delay elapsed" check internally and opens a tooltip
-    // popup if so. The pushed styles are in scope during the popup's
-    // creation, so its background / border / text colour reflect them.
-    // Push/pop counts are balanced regardless of whether the tooltip
-    // actually opens this frame.
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.16f, 0.18f, 0.22f, 0.97f));
-    ImGui::PushStyleColor(ImGuiCol_Border,  pal::sky(0.55f));
-    ImGui::PushStyleColor(ImGuiCol_Text,    ImVec4(0.91f, 0.93f, 0.95f, 1.00f));
+    // Tooltips deliberately use a WARM PARCHMENT palette that's a
+    // different colour family from the rest of the UI (cool dark
+    // grey + cool accents). Cream background with near-black text
+    // and a deep gold border reads as a Post-it style annotation
+    // pasted on top of the menu — instant visual separation from
+    // the chrome, no ambiguity about "is this a control or info".
+    //
+    // Cream is a tone the rest of the UI never uses, so when a
+    // tooltip pops up there's zero chance of mistaking it for an
+    // interactive element.
+    const ImVec4 cream  (0.96f, 0.91f, 0.74f, 0.98f); // bg
+    const ImVec4 ink    (0.12f, 0.09f, 0.04f, 1.00f); // text
+    const ImVec4 gold   (0.66f, 0.50f, 0.10f, 1.00f); // border
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, cream);
+    ImGui::PushStyleColor(ImGuiCol_Border,  gold);
+    ImGui::PushStyleColor(ImGuiCol_Text,    ink);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,    ImVec2(12, 9));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,   5.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,   3.0f);
     if (ImGui::BeginItemTooltip()) {
         ImGui::PushTextWrapPos(360.0f);
         ImGui::TextUnformatted(text);
@@ -482,7 +488,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                 tl_tooltip("Geometria de fosforos:\n"
                                       "Shadow=triadico TV consumer, Aperture=Trinitron rayas verticales,\n"
                                       "Slot=mezcla (1084S), Diamond=PVM Sony.");
-                ImGui::SliderFloat("Strength",  &P.mask_strength,  0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Strength##mask",  &P.mask_strength,  0.0f, 1.0f, "%.2f");
                 tl_tooltip("Cuan visible es la rejilla de subpixeles RGB.\n"
                                       "0=invisible, 1=cada subpixel separado. Default 0.22.");
                 ImGui::SliderFloat("Pitch (px)", &P.mask_pitch_px, 1.0f, 10.0f, "%.1f");
@@ -526,7 +532,7 @@ void Menu::build_widgets(Pipeline& pipeline,
 
             // ---- Bloom / glow ----
             if (!mono_locked && ImGui::CollapsingHeader("Bloom / halation")) {
-                ImGui::SliderFloat("Bloom",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Bloom##color",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
                 tl_tooltip("Sangrado de zonas brillantes a oscuras\n"
                                       "(sobreexcitacion del haz electronico).");
                 ImGui::SliderFloat("Halation", &P.halation_strength, 0.0f, 1.0f, "%.2f");
@@ -534,13 +540,13 @@ void Menu::build_widgets(Pipeline& pipeline,
                                       "(luz rebotando dentro del vidrio del tubo).");
             }
             if (mono_locked && ImGui::CollapsingHeader("Phosphor glow")) {
-                ImGui::SliderFloat("Bloom",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Bloom##glow",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
                 tl_tooltip("Bloom del fosforo. Mono tubes solo bloom, no halacion.");
             }
 
             // ---- Persistence ----
             if (!mono_locked && ImGui::CollapsingHeader("Phosphor persistence (per-channel)")) {
-                ImGui::SliderFloat("Strength",  &P.persistence_strength, 0.0f, 0.95f, "%.2f");
+                ImGui::SliderFloat("Strength##pers_c",  &P.persistence_strength, 0.0f, 0.95f, "%.2f");
                 tl_tooltip("Cuanto rastro deja el fosforo entre frames.\n"
                                       "0=sin rastro, 0.95=largo (osciloscopio).");
                 ImGui::SliderFloat("R ratio",   &P.persistence_ratio_r,  0.0f, 1.0f, "%.2f");
@@ -552,7 +558,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                 ImGui::TextDisabled("P22 colour CRT: R~1.0, G~0.5, B~0.5 (warm trail)");
             }
             if (mono_locked && ImGui::CollapsingHeader("Phosphor persistence (afterglow)")) {
-                ImGui::SliderFloat("Strength", &P.persistence_strength, 0.0f, 0.95f, "%.2f");
+                ImGui::SliderFloat("Strength##pers_m", &P.persistence_strength, 0.0f, 0.95f, "%.2f");
                 tl_tooltip("Persistencia del fosforo monocromo.\n"
                                       "P31/P4 cortos (~0). P3 medio (~0.3). P1 largo (~0.7).");
             }
