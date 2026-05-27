@@ -1403,34 +1403,32 @@ int run(const Options& opts) {
     TL_CKPT("15 pre-load_settings");
     Settings settings = load_settings();
     TL_CKPT("16 post-load_settings");
-    // Migration: the previous build defaulted low_latency=true which
-    // caused the render loop to spin without bound and starve the
-    // rest of the desktop. Force it off once on this version so users
-    // upgrading don't keep the bad state.
     if (settings.low_latency) {
-        std::fprintf(stderr, "[overlay] migrating settings.low_latency true → false (was making the desktop lag)\n");
+        std::fprintf(stderr, "[overlay] migrating settings.low_latency true → false\n");
         settings.low_latency = false;
         save_settings(settings);
     }
-    // Migration: click-through-at-startup was footgun — if it persists
-    // ON, the user can't interact with the title bar / X button on the
-    // next launch and gets stuck (Ctrl+Alt+M / Ctrl+Alt+C still rescue,
-    // but it's still surprising). Force off + don't persist between
-    // sessions. It stays a per-session toggle from now on.
+    TL_CKPT("16.1 post-migrate-low_latency");
     if (settings.clickthrough_user) {
-        std::fprintf(stderr, "[overlay] migrating settings.clickthrough_user true → false (no longer auto-applied at startup)\n");
+        std::fprintf(stderr, "[overlay] migrating settings.clickthrough_user true → false\n");
         settings.clickthrough_user = false;
         save_settings(settings);
     }
+    TL_CKPT("16.2 post-migrate-clickthrough");
+    TL_CKPT("16.3 pre-default_capture_dir");
     std::string effective_capture_dir =
         settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
+    TL_CKPT("16.4 post-effective_capture_dir");
     std::string ui_capture_dir = settings.capture_dir;
+    TL_CKPT("16.5 post-ui_capture_dir");
     bool hud_visible    = settings.hud_visible;
     bool  audio_enabled = settings.crt_audio_enabled;
     float audio_volume  = settings.crt_audio_volume;
     bool  low_latency   = settings.low_latency;
     bool  recordable    = settings.recordable;
+    TL_CKPT("16.6 post-locals-assignment");
     g_recordable_mode.store(recordable);
+    TL_CKPT("16.7 post-g_recordable_mode-store");
     // Helper applied whenever recordable changes. Lazy-inits the
     // Magnification API source on first activation (cost: ~3-5 ms +
     // one extra invisible host HWND while ON) and flips WDA. Keeping
@@ -1448,14 +1446,17 @@ int run(const Options& opts) {
         }
         apply_capture_affinity(hwnd);
     };
-    // Honour persisted recordable=true now that the helper exists.
+    TL_CKPT("16.8 post-apply_recordable_mode-lambda-defn");
     if (recordable) apply_recordable_mode(true);
+    TL_CKPT("16.9 post-if-recordable");
     glfwSwapInterval(low_latency ? 0 : 1);
+    TL_CKPT("16.10 post-glfwSwapInterval");
     int   rec_source    = settings.record_source;
     int   rec_rx        = settings.record_rect_x;
     int   rec_ry        = settings.record_rect_y;
     int   rec_rw        = settings.record_rect_w;
     int   rec_rh        = settings.record_rect_h;
+    TL_CKPT("16.11 post-rec-ints");
     // Apply persisted click-through at startup (windowed mode only).
     // Click-through is now strictly a per-session toggle — never auto-
     // applied on launch even if it was on when the user last quit. The
