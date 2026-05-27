@@ -436,29 +436,38 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
         for (int i = 0; i < kPassCount; ++i) set_pass_enabled(i, true);
         switch (p.phosphor_type) {
             case PhosphorType::P31: // bright green (Apple II / VT100 class)
-                // P31 chromaticity ≈ (0.260, 0.530) — yellow-green.
-                // Previous (0.10, 1.30, 0.20) was too saturated and
-                // boosted green past unity. Softer values render
-                // closer to a real photo of the tube.
-                params_.phosphor_color_r = 0.30f;
-                params_.phosphor_color_g = 1.05f;
-                params_.phosphor_color_b = 0.40f;
+                // P31 chromaticity ≈ (0.260, 0.530) — yellow-green. The
+                // colour the user actually saw on a real tube was MUCH
+                // more saturated than the (1931 CIE xy) chromaticity
+                // suggests once you account for the dark surround and
+                // photopic sensitivity peak. Values boosted from the
+                // washed-out (0.30, 1.05, 0.40) per user feedback.
+                params_.phosphor_color_r = 0.12f;
+                params_.phosphor_color_g = 1.30f;
+                params_.phosphor_color_b = 0.18f;
                 break;
             case PhosphorType::P3:  // amber (IBM 5151 / HP)
-                // P3 chromaticity ≈ (0.485, 0.490) — orange-amber.
-                params_.phosphor_color_r = 1.05f;
-                params_.phosphor_color_g = 0.70f;
-                params_.phosphor_color_b = 0.15f;
+                // P3 chromaticity ≈ (0.485, 0.490) — orange-amber. The
+                // visible look is closer to a deep amber/orange than
+                // the soft pastel the previous (1.05, 0.70, 0.15) gave.
+                params_.phosphor_color_r = 1.30f;
+                params_.phosphor_color_g = 0.55f;
+                params_.phosphor_color_b = 0.05f;
                 break;
             case PhosphorType::P1:  // deep green oscilloscope tube
-                params_.phosphor_color_r = 0.15f;
-                params_.phosphor_color_g = 1.10f;
-                params_.phosphor_color_b = 0.25f;
+                // Deeper, more saturated green than P31 — oscope tubes
+                // were tuned for long persistence + visibility on a
+                // bright lab room. Push green higher, red lower.
+                params_.phosphor_color_r = 0.05f;
+                params_.phosphor_color_g = 1.35f;
+                params_.phosphor_color_b = 0.20f;
                 break;
             case PhosphorType::P4:  // B&W: analog TV by default → no posterize.
-                params_.phosphor_color_r = 0.95f;
+                // P4 is a cool-white phosphor with a slight blue cast
+                // on real tubes (visible in B&W TV photographs).
+                params_.phosphor_color_r = 0.92f;
                 params_.phosphor_color_g = 1.00f;
-                params_.phosphor_color_b = 1.05f;
+                params_.phosphor_color_b = 1.10f;
                 params_.posterize_levels = is_mac_classic ? 2 : 0;
                 break;
             default: break;

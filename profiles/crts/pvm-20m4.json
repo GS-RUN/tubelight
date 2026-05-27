@@ -6,7 +6,7 @@
 
   "tube": {
     "mask_type": "aperture_grille",
-    "dot_pitch_mm": null,
+    "dot_pitch_mm": 0.55,
     "screen_curvature": "flat",
     "diagonal_inches": 20,
     "aspect_native": "4:3",

@@ -315,40 +315,85 @@ void Menu::build_widgets(Pipeline& pipeline,
     auto& P = pipeline.params();
     const bool mono_locked = (P.monochrome == 1);
 
-    // Scanlines / mask / bloom / composition sliders only matter for
-    // colour CRTs. For monochrome profiles the locked preset already
-    // set them to known-good values; exposing the sliders just lets
-    // the user accidentally break the look. Show a one-liner instead.
+    // Sliders are gated by mono_locked because colour CRTs and monochrome
+    // CRTs have a fundamentally different set of physically-meaningful
+    // controls:
+    //
+    //   * Colour CRTs (P22) have a shadow / aperture / slot MASK and
+    //     three per-phosphor decays — so we expose mask Type/Strength/
+    //     Pitch and per-channel R/G/B persistence ratios.
+    //
+    //   * Monochrome CRTs (P31 green, P3 amber, P1 oscope, P4 B&W TV,
+    //     Mac Classic) have NO mask (a single continuous phosphor
+    //     layer) and a SINGLE decay constant — so mask controls are
+    //     meaningless. What they DO have, and what's the actual visual
+    //     dial on a real tube, is the phosphor COLOUR (tint) and the
+    //     phosphor PERSISTENCE (afterglow). Expose those instead.
     if (mono_locked) {
-        ImGui::TextDisabled("Monochrome preset locked. Only Intensity adjustable.");
-        ImGui::TextDisabled("Switch CRT to a colour profile to unlock sliders.");
+        ImGui::TextDisabled("Monochrome CRT: shadow-mask / per-channel persistence");
+        ImGui::TextDisabled("hidden (single-phosphor tubes have no mask). Tint and");
+        ImGui::TextDisabled("scanline controls are below.");
     }
 
-    if (!mono_locked && ImGui::CollapsingHeader("Scanlines / beam", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::CollapsingHeader("Scanlines / beam", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SliderFloat("Scanline strength", &P.scanline_strength, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Beam width",        &P.beam_width,        0.5f, 3.0f, "%.2f");
         ImGui::SliderFloat("CRT gamma",         &P.gamma_crt,         1.8f, 3.0f, "%.2f");
         ImGui::SliderFloat("Scanline count",    &P.scanline_count,    60.0f, 800.0f, "%.0f");
-        ImGui::TextDisabled("240=NTSC, 288=PAL, 480=VGA");
+        ImGui::TextDisabled("240=NTSC, 288=PAL, 350=terminal, 480=VGA");
     }
 
-    if (!mono_locked && ImGui::CollapsingHeader("Phosphor mask")) {
+    if (!mono_locked && ImGui::CollapsingHeader("Phosphor mask (colour CRT)")) {
         ImGui::Combo("Type", &P.mask_type, kMaskTypeLabels, 7);
         ImGui::SliderFloat("Strength",  &P.mask_strength,  0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Pitch (px)", &P.mask_pitch_px, 1.0f, 10.0f, "%.1f");
+    }
+
+    if (mono_locked && ImGui::CollapsingHeader("Phosphor colour (monochrome)",
+                                                ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderFloat("R tint", &P.phosphor_color_r, 0.0f, 1.5f, "%.2f");
+        ImGui::SliderFloat("G tint", &P.phosphor_color_g, 0.0f, 1.5f, "%.2f");
+        ImGui::SliderFloat("B tint", &P.phosphor_color_b, 0.0f, 1.5f, "%.2f");
+        // Preset buttons restoring the per-phosphor factory tint. Values
+        // match the apply_crt_profile() defaults in pipeline.cpp.
+        if (ImGui::Button("P31 green")) {
+            P.phosphor_color_r = 0.12f; P.phosphor_color_g = 1.30f; P.phosphor_color_b = 0.18f;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("P3 amber")) {
+            P.phosphor_color_r = 1.30f; P.phosphor_color_g = 0.55f; P.phosphor_color_b = 0.05f;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("P1 oscope")) {
+            P.phosphor_color_r = 0.05f; P.phosphor_color_g = 1.35f; P.phosphor_color_b = 0.20f;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("P4 white")) {
+            P.phosphor_color_r = 0.92f; P.phosphor_color_g = 1.00f; P.phosphor_color_b = 1.10f;
+        }
+        ImGui::SliderInt("Posterize levels", &P.posterize_levels, 0, 8);
+        ImGui::TextDisabled("0 = continuous (analog), 2 = 1-bit (Mac Classic), 4-6 = terminal");
     }
 
     if (!mono_locked && ImGui::CollapsingHeader("Bloom / halation")) {
         ImGui::SliderFloat("Bloom",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Halation", &P.halation_strength, 0.0f, 1.0f, "%.2f");
     }
+    if (mono_locked && ImGui::CollapsingHeader("Phosphor glow")) {
+        ImGui::SliderFloat("Bloom",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
+        ImGui::TextDisabled("Mono tubes have no triad halation — just bloom.");
+    }
 
-    if (!mono_locked && ImGui::CollapsingHeader("Phosphor persistence")) {
+    if (!mono_locked && ImGui::CollapsingHeader("Phosphor persistence (per-channel)")) {
         ImGui::SliderFloat("Strength",  &P.persistence_strength, 0.0f, 0.95f, "%.2f");
         ImGui::SliderFloat("R ratio",   &P.persistence_ratio_r,  0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("G ratio",   &P.persistence_ratio_g,  0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("B ratio",   &P.persistence_ratio_b,  0.0f, 1.0f, "%.2f");
         ImGui::TextDisabled("P22 colour CRT: R~1.0, G~0.5, B~0.5 (warm trail)");
+    }
+    if (mono_locked && ImGui::CollapsingHeader("Phosphor persistence (afterglow)")) {
+        ImGui::SliderFloat("Strength", &P.persistence_strength, 0.0f, 0.95f, "%.2f");
+        ImGui::TextDisabled("Single phosphor → single decay; per-channel hidden.");
     }
 
     if (ImGui::CollapsingHeader("Composition")) {

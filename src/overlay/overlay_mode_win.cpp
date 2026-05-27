@@ -433,6 +433,17 @@ public:
             return false;
         }
 
+        // Latency win: AcquireNextFrame returns success even when only
+        // the mouse cursor moved (no desktop pixel change). LastPresentTime
+        // is 0 in that case. Skip CopyResource + Map + memcpy entirely
+        // when there's no real content update — saves ~2-5 ms per frame
+        // when the desktop is idle, and avoids unnecessarily re-uploading
+        // identical pixels to the GL source texture.
+        if (info.LastPresentTime.QuadPart == 0) {
+            dup_->ReleaseFrame();
+            return true; // new_frame stays false, caller re-uses last
+        }
+
         ComPtr<ID3D11Texture2D> frame_tex;
         res.As(&frame_tex);
 
@@ -1718,8 +1729,12 @@ int run(const Options& opts) {
             // DXGI only delivers frames when the desktop changes.
             // Until we have a first frame, block longer so the screen
             // isn't pure black while we wait for the next natural
-            // redraw (cursor blink, DWM tick, etc).
-            DWORD timeout = have_initial ? 16 : 250;
+            // redraw (cursor blink, DWM tick, etc). After that, poll
+            // with a near-zero timeout so we add only ~1 ms of capture
+            // lag on top of DXGI's inherent ~1-frame compositor latency.
+            // The vsync swap below caps the loop to monitor refresh, so
+            // the small timeout doesn't spin a CPU core.
+            DWORD timeout = have_initial ? 1 : 250;
             if (!grab_source(capture, mag_capture, new_frame, timeout)) {
                 std::fprintf(stderr, "[overlay] capture lost â€” full re-init...\n");
                 capture.shutdown();
