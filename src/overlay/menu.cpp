@@ -833,7 +833,7 @@ void Menu::build_widgets(Pipeline& pipeline,
 
         // ====================== HELP TAB ======================
         if (TintedTab _ttab{"Help", pal::lavender(), pal::lavender()}) {
-            ImGui::TextDisabled("Tubelight v0.1.0-alpha");
+            ImGui::TextDisabled("Tubelight v0.1.1");
             ImGui::TextDisabled("https://github.com/GS-RUN/tubelight");
 
             // -- Open user manual ---------------------------------------

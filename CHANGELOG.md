@@ -11,9 +11,55 @@ Versioning: [SemVer 2.0](https://semver.org/).
   for v1.1 — see specs/PLAN.LOCKED.md F7 T7.2.
 - PipeWire screencast capture is scaffolding only; D-Bus portal session
   and stream consumption ship in v1.1.
-- ImGui control panel is not built; configuration is via CLI flags only.
 - M1 (<2 ms hook latency) is unverified — requires a real target run with
   AMD FLM or equivalent. Hook bodies are passthrough today.
+- Magnification API source rect (`src/overlay/overlay_mode_win.cpp:674`)
+  is hardcoded to monitor rect — not updated when overlay-target rect
+  changes at runtime via `Ctrl+Alt+T`. Workaround: use the CLI flag
+  `--overlay-target <title>` which initializes correctly. Fix deferred
+  to v0.2.0.
+
+## [0.1.1] — 2026-05-27
+
+### Added
+- **Bilingual user manual (ES/EN)** under `docs/manual/`:
+  single-file interactive HTML (307 KB) with sidebar + scroll-spy, substring
+  search, lang/theme toggles, lightbox, glossary tooltips, frame strips,
+  print stylesheet (WCAG AA). Plus printable PDF (1.68 MB), 80-col TXT,
+  single-source bilingual JSON (`manual.json`, 15 sections, 25 glossary
+  terms). 42 calibrated screenshots anchored to a known testcard window.
+- **Help → Open user manual button** in the in-app menu
+  (`src/overlay/menu.cpp`): resolves `docs/manual/manual.html` via five
+  candidate paths (dev tree, release zip, sibling layouts) and opens with
+  `ShellExecuteW`; fallback to the GitHub repository URL if the local file
+  is missing.
+- **Reproducible capture pipeline** (`docs/manual/scripts/`):
+  `make_testcard.ps1` (PowerShell + System.Drawing generates the
+  reference 1280×960 test pattern), `testcard_viewer.ps1` (WinForms
+  viewer with a known window title for `--overlay-target` to anchor on),
+  `testcard_viewer_fs.ps1` (fullscreen variant for mode-02 demo),
+  `capture_all.ps1` (drives the profile/signal/fine galleries),
+  `capture_ui.ps1` (drives menu + HUD + mode shots).
+- **Manual generators** (`docs/manual/`):
+  `build_manual.mjs` (TXT + HTML from JSON, glossary tooltip injection,
+  ANSI terminal renderer), `build_pdf.mjs` (Playwright A4 print, requires
+  `npm i playwright + chromium`), `validate-manual.mjs` (CI gate: bilingual
+  completeness, screenshot files exist on disk, alt non-empty, code blocks
+  have `lang`, git_sha present in meta).
+- `docs/manual/INTEGRATION.md` documenting the menu integration.
+
+### Changed
+- **License**: MIT → PolyForm Noncommercial 1.0.0. Author:
+  Alonso J. Núñez (GS·RUN). Commercial contact: `gsrun.editor@gmail.com`.
+- `src/main.cpp` and `src/overlay/menu.cpp` bumped from "0.1.0-alpha" to
+  "0.1.1" in user-facing version strings.
+- `.gitignore` excludes `docs/manual/node_modules/` and
+  `docs/manual/package-lock.json` (regenerable via `npm i` in that dir).
+
+### Fixed
+- `src/overlay/menu.cpp` `WIN32_LEAN_AND_MEAN` guarded redefinition
+  silences MSVC C4005 warning when the macro is already defined on the
+  command line.
 
 ## [0.1.0-alpha] — 2026-05-26
 
