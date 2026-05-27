@@ -716,10 +716,27 @@ int run(const Options& opts) {
     auto apply_clickthrough_user = [&](bool on) {
         clickthrough_user = on;
         LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        if (on) ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
-        else    ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        if (on) {
+            // On Win10/11, WS_EX_TRANSPARENT alone is no longer enough to
+            // make a top-level window pass-through reliably — DWM only
+            // honours the hit-test transparency when WS_EX_LAYERED is also
+            // set. We add LAYERED + LWA_ALPHA 255 (fully opaque) here.
+            ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+            SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+        } else {
+            // Drop LAYERED on the way out so the user can drag the title
+            // bar again. LAYERED with WGL is fine to remove as long as no
+            // style swap is in flight from another path simultaneously.
+            ex &= ~(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        }
         SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        // Force the new style to take effect immediately (without this the
+        // change can lag a frame and the next click goes to the old style).
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                     SWP_NOACTIVATE | SWP_FRAMECHANGED);
         std::fprintf(stderr, "[overlay] click-through: %s\n", on ? "ON" : "OFF");
     };
 
@@ -1146,7 +1163,8 @@ int run(const Options& opts) {
         "Ctrl+Alt+F freeze | Ctrl+Alt+Enter fullscreen | "
         "Ctrl+Alt+T track foreground | Ctrl+Alt+C click-through | "
         "Ctrl+Alt+H toggle HUD | Ctrl+Alt+S screenshot | "
-        "Ctrl+Alt+V video | Ctrl+Alt+0 all-on | Ctrl+Alt+1..8 toggle pass\n");
+        "Ctrl+Alt+V video\n"
+        "[overlay] (debug) Ctrl+Alt+0 all passes on | Ctrl+Alt+1..8 toggle individual pass\n");
 
     double t0 = glfwGetTime();
     bool have_initial = true;

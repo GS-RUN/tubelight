@@ -2,17 +2,25 @@
 
 Tubelight v1.0 ships with **programmatic SDF bezels** rendered entirely in
 the Pass 6 composition shader — no external image assets, zero licensing
-worries, scale-clean at any resolution. Five styles cover the bundled
-profile categories:
+worries, scale-clean at any resolution.
 
-| Style id | Look | Auto-picked for |
-|----------|------|-----------------|
-| 0 — none              | Plain black bars (legacy behaviour) | `--bezel-style 0` only |
-| 1 — pvm metal black   | Matte black metal, recessed screen well | PVM-8220, BVM-20F1U, FW900, etc. |
-| 2 — beige plastic     | Cream / beige terminal plastic | terminal-p31, terminal-p3-amber |
-| 3 — wood console      | Warm wood tone, thick frame | tv-bw-p4 (1960s-70s console TV) |
-| 4 — compact Mac       | White plastic, light sheen | mac-classic-white, apple-lisa |
-| 5 — generic dark      | Dark grey | commodore-1084s, nec-multisync, others |
+The current bezels are **thick frames with per-style detail** (asymmetric
+borders for Mac Classic, channel knobs + speaker grille for the wood TV,
+red power LED for PVM, etc.). If after iterating you still want photo-
+real images of the specific bundled monitors, see the alternative routes
+below — they require sourcing CC-licensed photos by hand because most
+hardware imagery is rights-restricted.
+
+Five styles cover the bundled profile categories:
+
+| Style id | Look | Border width (L/T/R/B) | Detail elements | Auto-picked for |
+|----------|------|------------------------|-----------------|-----------------|
+| 0 — none              | Plain black bars (legacy)               | n/a              | none                                      | `--bezel-style 0` only |
+| 1 — pvm metal black   | Matte black metal, recessed well        | 7 / 7 / 7 / 10 % | red power LED + brand strip               | PVM-8220, BVM-20F1U, FW900 |
+| 2 — beige plastic     | Cream / beige terminal plastic          | 10/10/10/13 %    | branding ridge + embossed power button    | terminal-p31, terminal-p3-amber |
+| 3 — wood console      | Warm wood tone with horizontal grain    | 10/9/16/14 %     | 2 channel knobs + speaker grille bars     | tv-bw-p4 |
+| 4 — compact Mac       | White plastic, asymmetric (thick bottom)| 6 / 8 / 6 / 22 % | rainbow Apple strip + floppy slot + badge | mac-classic-white, apple-lisa |
+| 5 — generic dark      | Dark grey, subtle gradient              | 6 / 6 / 6 / 6  % | green power LED                           | commodore-1084s, NEC, others |
 
 The style is picked automatically from the active profile's id / phosphor
 type when you load it. To override at runtime, pop the menu (Ctrl+Alt+M),
