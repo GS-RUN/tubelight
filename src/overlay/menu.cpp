@@ -47,73 +47,121 @@ constexpr const char* kMaskTypeLabels[] = {
     "Diamond", "CGWG Mix", "Dot Trio"
 };
 
-// Apply the phosphor-green-on-black "CRT terminal" colour theme + a
-// terminal-flat 1 px rounding style. Called once at init. Designed to
-// match the Tubelight branding (deep CRT black + saturated phosphor
-// green primary + amber accent for hot/active states).
+// Modern dark theme inspired by VS Code / Figma / professional audio
+// plugins: neutral dark grey base, off-white text (not pure white →
+// gentler on eyes during long sessions), a single calm blue accent
+// reserved for active states (selected tab, slider grab being dragged,
+// active button, checkmark). Generous padding + soft rounded corners.
+// Called once at init. The CRT look stays where it belongs — in the
+// shader output, not in the chrome that sits on top of it.
 void apply_tubelight_theme(ImGuiStyle& style) {
     auto& c = style.Colors;
-    const ImVec4 phos       = ImVec4(0.00f, 1.00f, 0.255f, 1.00f); // #00FF41
-    const ImVec4 phos_dim   = ImVec4(0.00f, 0.65f, 0.16f,  1.00f);
-    const ImVec4 amber      = ImVec4(1.00f, 0.69f, 0.00f,  1.00f); // #FFB000
-    const ImVec4 amber_dim  = ImVec4(0.55f, 0.38f, 0.00f,  1.00f);
-    const ImVec4 bg         = ImVec4(0.02f, 0.03f, 0.02f,  0.93f);
-    const ImVec4 bg_frame   = ImVec4(0.04f, 0.07f, 0.04f,  1.00f);
-    const ImVec4 bg_hover   = ImVec4(0.06f, 0.12f, 0.06f,  1.00f);
-    const ImVec4 bg_active  = ImVec4(0.08f, 0.18f, 0.08f,  1.00f);
-    const ImVec4 sep        = ImVec4(0.00f, 0.35f, 0.10f,  1.00f);
-    const ImVec4 text_dim   = ImVec4(0.00f, 0.55f, 0.14f,  1.00f);
 
-    c[ImGuiCol_WindowBg]            = bg;
-    c[ImGuiCol_ChildBg]             = bg;
-    c[ImGuiCol_PopupBg]             = ImVec4(0.03f, 0.06f, 0.03f, 0.96f);
-    c[ImGuiCol_Border]              = sep;
-    c[ImGuiCol_FrameBg]             = bg_frame;
-    c[ImGuiCol_FrameBgHovered]      = bg_hover;
-    c[ImGuiCol_FrameBgActive]       = bg_active;
-    c[ImGuiCol_TitleBg]             = ImVec4(0.04f, 0.10f, 0.04f, 1.00f);
-    c[ImGuiCol_TitleBgActive]       = ImVec4(0.06f, 0.18f, 0.06f, 1.00f);
-    c[ImGuiCol_TitleBgCollapsed]    = ImVec4(0.03f, 0.07f, 0.03f, 1.00f);
-    c[ImGuiCol_MenuBarBg]           = ImVec4(0.03f, 0.07f, 0.03f, 1.00f);
-    c[ImGuiCol_ScrollbarBg]         = bg_frame;
-    c[ImGuiCol_ScrollbarGrab]       = phos_dim;
-    c[ImGuiCol_ScrollbarGrabHovered]= phos;
-    c[ImGuiCol_ScrollbarGrabActive] = amber;
-    c[ImGuiCol_CheckMark]           = amber;
-    c[ImGuiCol_SliderGrab]          = phos_dim;
-    c[ImGuiCol_SliderGrabActive]    = amber;
-    c[ImGuiCol_Button]              = ImVec4(0.04f, 0.18f, 0.06f, 1.00f);
-    c[ImGuiCol_ButtonHovered]       = ImVec4(0.06f, 0.28f, 0.09f, 1.00f);
-    c[ImGuiCol_ButtonActive]        = amber_dim;
-    c[ImGuiCol_Header]              = ImVec4(0.04f, 0.14f, 0.05f, 1.00f);
-    c[ImGuiCol_HeaderHovered]       = ImVec4(0.06f, 0.22f, 0.08f, 1.00f);
-    c[ImGuiCol_HeaderActive]        = ImVec4(0.08f, 0.30f, 0.10f, 1.00f);
-    c[ImGuiCol_Separator]           = sep;
-    c[ImGuiCol_SeparatorHovered]    = phos;
-    c[ImGuiCol_SeparatorActive]     = amber;
-    c[ImGuiCol_Tab]                 = ImVec4(0.03f, 0.10f, 0.04f, 1.00f);
-    c[ImGuiCol_TabHovered]          = ImVec4(0.06f, 0.22f, 0.08f, 1.00f);
-    c[ImGuiCol_TabActive]           = ImVec4(0.05f, 0.20f, 0.07f, 1.00f);
-    c[ImGuiCol_TabUnfocused]        = ImVec4(0.02f, 0.07f, 0.03f, 1.00f);
-    c[ImGuiCol_TabUnfocusedActive]  = ImVec4(0.04f, 0.14f, 0.05f, 1.00f);
-    c[ImGuiCol_Text]                = phos;
-    c[ImGuiCol_TextDisabled]        = text_dim;
-    c[ImGuiCol_TextSelectedBg]      = ImVec4(0.00f, 0.35f, 0.10f, 0.5f);
+    // Single accent. Soft, modern, blue-leaning (think VS Code highlight).
+    const ImVec4 accent      = ImVec4(0.42f, 0.65f, 0.92f, 1.00f);
+    const ImVec4 accent_soft = ImVec4(0.42f, 0.65f, 0.92f, 0.50f);
 
-    style.WindowRounding    = 1.0f;
-    style.FrameRounding     = 1.0f;
-    style.GrabRounding      = 1.0f;
-    style.ScrollbarRounding = 1.0f;
-    style.TabRounding       = 0.0f;
-    style.PopupRounding     = 1.0f;
-    style.FramePadding      = ImVec2(6, 4);
-    style.ItemSpacing       = ImVec2(8, 6);
-    style.ItemInnerSpacing  = ImVec2(6, 4);
-    style.WindowPadding     = ImVec2(10, 10);
-    style.WindowBorderSize  = 1.0f;
+    // Text — off-white, slightly cool. Pure-white at long viewing
+    // distances feels harsh; a few percent of grey helps.
+    c[ImGuiCol_Text]                = ImVec4(0.86f, 0.87f, 0.89f, 1.00f);
+    c[ImGuiCol_TextDisabled]        = ImVec4(0.50f, 0.52f, 0.56f, 1.00f);
+    c[ImGuiCol_TextSelectedBg]      = ImVec4(0.42f, 0.65f, 0.92f, 0.35f);
+
+    // Window backgrounds — three close shades for depth without high
+    // contrast. Window slightly translucent so the CRT output stays
+    // visible behind the menu (Tubelight is an overlay app — the
+    // user should still see what they're tweaking).
+    c[ImGuiCol_WindowBg]            = ImVec4(0.11f, 0.12f, 0.14f, 0.96f);
+    c[ImGuiCol_ChildBg]             = ImVec4(0.11f, 0.12f, 0.14f, 0.00f);
+    c[ImGuiCol_PopupBg]             = ImVec4(0.13f, 0.14f, 0.17f, 0.98f);
+
+    // No harsh borders — depth comes from background tone differences.
+    c[ImGuiCol_Border]              = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    c[ImGuiCol_BorderShadow]        = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+
+    // Frame (inputs, sliders, combos) — elevated above window.
+    c[ImGuiCol_FrameBg]             = ImVec4(0.18f, 0.19f, 0.22f, 1.00f);
+    c[ImGuiCol_FrameBgHovered]      = ImVec4(0.22f, 0.24f, 0.28f, 1.00f);
+    c[ImGuiCol_FrameBgActive]       = ImVec4(0.26f, 0.29f, 0.34f, 1.00f);
+
+    // Title bar — slightly elevated from window background.
+    c[ImGuiCol_TitleBg]             = ImVec4(0.13f, 0.14f, 0.17f, 1.00f);
+    c[ImGuiCol_TitleBgActive]       = ImVec4(0.16f, 0.18f, 0.21f, 1.00f);
+    c[ImGuiCol_TitleBgCollapsed]    = ImVec4(0.10f, 0.11f, 0.13f, 0.80f);
+
+    c[ImGuiCol_MenuBarBg]           = ImVec4(0.13f, 0.14f, 0.17f, 1.00f);
+
+    // Scrollbar — neutral until the user is actually dragging.
+    c[ImGuiCol_ScrollbarBg]         = ImVec4(0.11f, 0.12f, 0.14f, 0.50f);
+    c[ImGuiCol_ScrollbarGrab]       = ImVec4(0.35f, 0.38f, 0.43f, 1.00f);
+    c[ImGuiCol_ScrollbarGrabHovered]= ImVec4(0.42f, 0.46f, 0.52f, 1.00f);
+    c[ImGuiCol_ScrollbarGrabActive] = accent;
+
+    // Active-state pops use the accent.
+    c[ImGuiCol_CheckMark]           = accent;
+    c[ImGuiCol_SliderGrab]          = ImVec4(0.45f, 0.48f, 0.54f, 1.00f);
+    c[ImGuiCol_SliderGrabActive]    = accent;
+
+    // Buttons — match the frame palette so they don't shout.
+    c[ImGuiCol_Button]              = ImVec4(0.21f, 0.23f, 0.27f, 1.00f);
+    c[ImGuiCol_ButtonHovered]       = ImVec4(0.26f, 0.29f, 0.34f, 1.00f);
+    c[ImGuiCol_ButtonActive]        = accent;
+
+    // Collapsing headers — slightly more saturated than buttons so the
+    // visual hierarchy reads correctly (header > button > frame).
+    c[ImGuiCol_Header]              = ImVec4(0.18f, 0.20f, 0.24f, 1.00f);
+    c[ImGuiCol_HeaderHovered]       = ImVec4(0.22f, 0.25f, 0.30f, 1.00f);
+    c[ImGuiCol_HeaderActive]        = ImVec4(0.26f, 0.29f, 0.34f, 1.00f);
+
+    // Separators — barely visible, just enough to group.
+    c[ImGuiCol_Separator]           = ImVec4(0.20f, 0.22f, 0.26f, 1.00f);
+    c[ImGuiCol_SeparatorHovered]    = accent_soft;
+    c[ImGuiCol_SeparatorActive]     = accent;
+
+    // Tabs
+    c[ImGuiCol_Tab]                 = ImVec4(0.13f, 0.14f, 0.17f, 1.00f);
+    c[ImGuiCol_TabHovered]          = ImVec4(0.22f, 0.25f, 0.30f, 1.00f);
+    c[ImGuiCol_TabActive]           = ImVec4(0.18f, 0.20f, 0.24f, 1.00f);
+    c[ImGuiCol_TabUnfocused]        = ImVec4(0.11f, 0.12f, 0.14f, 1.00f);
+    c[ImGuiCol_TabUnfocusedActive]  = ImVec4(0.14f, 0.16f, 0.19f, 1.00f);
+
+    // Resize grip + nav highlight + drag-drop target — all accent at
+    // different alphas so the same colour signals "interactive".
+    c[ImGuiCol_ResizeGrip]          = ImVec4(0.30f, 0.32f, 0.37f, 0.50f);
+    c[ImGuiCol_ResizeGripHovered]   = accent_soft;
+    c[ImGuiCol_ResizeGripActive]    = accent;
+    c[ImGuiCol_DragDropTarget]      = accent;
+    c[ImGuiCol_NavHighlight]        = accent;
+    c[ImGuiCol_NavWindowingHighlight] = ImVec4(0.42f, 0.65f, 0.92f, 0.70f);
+    c[ImGuiCol_NavWindowingDimBg]   = ImVec4(0.05f, 0.05f, 0.05f, 0.35f);
+
+    c[ImGuiCol_ModalWindowDimBg]    = ImVec4(0.05f, 0.05f, 0.05f, 0.40f);
+
+    // Style — modern radius + comfortable padding.
+    style.WindowRounding    = 6.0f;
+    style.ChildRounding     = 4.0f;
+    style.FrameRounding     = 4.0f;
+    style.GrabRounding      = 4.0f;
+    style.ScrollbarRounding = 6.0f;
+    style.TabRounding       = 4.0f;
+    style.PopupRounding     = 4.0f;
+
+    style.WindowPadding     = ImVec2(14, 12);
+    style.FramePadding      = ImVec2(8, 5);
+    style.ItemSpacing       = ImVec2(10, 7);
+    style.ItemInnerSpacing  = ImVec2(6, 5);
+    style.CellPadding       = ImVec2(6, 4);
+
+    style.WindowBorderSize  = 0.0f;
+    style.ChildBorderSize   = 0.0f;
     style.FrameBorderSize   = 0.0f;
     style.TabBorderSize     = 0.0f;
-    style.GrabMinSize       = 10.0f;
+    style.PopupBorderSize   = 0.0f;
+
+    style.GrabMinSize       = 12.0f;
+    style.ScrollbarSize     = 14.0f;
+
+    style.WindowTitleAlign  = ImVec2(0.5f, 0.5f);
 }
 
 void collect_profiles_in_dirs(const std::vector<std::string>& dirs,
@@ -257,7 +305,7 @@ void Menu::build_widgets(Pipeline& pipeline,
     ImGui::SetNextWindowSize(ImVec2(520, 760), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints(ImVec2(440, 420), ImVec2(900, 1400));
 
-    if (!ImGui::Begin("TUBELIGHT // overlay control",
+    if (!ImGui::Begin("Tubelight",
                       &open_, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
