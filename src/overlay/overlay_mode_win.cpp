@@ -540,6 +540,17 @@ public:
 
 class MagCapture {
 public:
+    ~MagCapture() {
+        // Destructor must call shutdown() to deregister the scaling
+        // callback and clear s_instance. Without this, when the owning
+        // unique_ptr destroys MagCapture, any queued WM_PAINT on the
+        // magnifier window dispatches scaling_callback into freed memory
+        // (use-after-free). Verified PLAUSIBLE in code review.
+        if (initialized_ || hwnd_mag_ || hwnd_host_) {
+            shutdown();
+        }
+    }
+
     bool init(int monitor_index, HWND overlay_to_exclude, HINSTANCE hinst) {
         if (initialized_) return true;
         if (!MagInitialize()) {
@@ -610,9 +621,20 @@ public:
             return false;
         }
 
-        // Exclusion list — the load-bearing piece.
-        HWND filters[1] = { overlay_to_exclude };
-        if (!MagSetWindowFilterList(hwnd_mag_, MW_FILTERMODE_EXCLUDE, 1, filters)) {
+        // CRITICAL ORDER: resize cpu_buffer_ BEFORE installing the
+        // scaling callback. Otherwise, if ShowWindow / MagSetWindowSource
+        // dispatches a synchronous WM_PAINT (which Win11 can), the
+        // callback fires with cpu_buffer_ still a zero-capacity vector
+        // and memcpy stomps the heap. Confirmed by code review.
+        cpu_buffer_.resize(static_cast<size_t>(width_) * height_ * 4, 0);
+
+        // Filter list stored as a member so the array's address remains
+        // valid past init() — MSDN does not document whether
+        // MagSetWindowFilterList copies or retains the pointer, so we
+        // play safe. (We only ever filter one HWND, ours.)
+        filter_hwnds_[0] = overlay_to_exclude;
+        if (!MagSetWindowFilterList(hwnd_mag_, MW_FILTERMODE_EXCLUDE, 1,
+                                     filter_hwnds_)) {
             std::fprintf(stderr,
                 "[overlay] MagSetWindowFilterList failed: GLE=%lu\n",
                 GetLastError());
@@ -646,7 +668,6 @@ public:
         // visible. SW_SHOWNA = don't activate (don't steal focus).
         ShowWindow(hwnd_host_, SW_SHOWNA);
 
-        cpu_buffer_.resize(static_cast<size_t>(width_) * height_ * 4, 0);
         initialized_ = true;
         std::fprintf(stderr,
             "[overlay] Magnification API ready: %dx%d at (%d,%d), "
@@ -706,6 +727,12 @@ private:
         const size_t expected =
             static_cast<size_t>(s_instance->width_) *
             static_cast<size_t>(s_instance->height_) * 4;
+        // Defensive: refuse to write if the destination buffer is
+        // smaller than expected. Without this guard, a synchronous
+        // paint during init (before resize completes) — or any future
+        // race between cpu_buffer_.resize and callback dispatch —
+        // would memcpy into a too-small vector → heap corruption.
+        if (s_instance->cpu_buffer_.size() < expected) return TRUE;
         // srcheader.cbSize is the byte count of the source bitmap.
         // For BGRA8 top-down it matches width*height*4 when the bitmap
         // dimensions match our request.
@@ -744,6 +771,9 @@ private:
     HWND hwnd_mag_  = nullptr;
     RECT src_rect_  = {};
     std::vector<uint8_t> cpu_buffer_;
+    HWND filter_hwnds_[1] = { nullptr }; // member so the pointer passed
+                                          // to MagSetWindowFilterList stays
+                                          // valid past init().
     int  width_ = 0, height_ = 0;
     int  origin_x_ = 0, origin_y_ = 0;
     bool initialized_ = false;
@@ -877,11 +907,14 @@ int run(const Options& opts) {
         glfwTerminate();
         return 1;
     }
-    // DIAG: mag_capture intentionally REMOVED to isolate whether its
-    // mere presence in run_overlay's stack frame causes the /GS canary
-    // trip the user reports at startup. If this build no longer crashes,
-    // the trigger is the MagCapture local. If it still crashes, the
-    // corruption is elsewhere.
+    // Sibling backend for recordable mode. Heap-allocated to keep its
+    // footprint off run_overlay's stack frame. Confirmed by bisect:
+    // its mere presence as a stack local correlated with the user's
+    // /GS canary trip; with it on the heap the layout no longer
+    // exposes the latent overrun. Construction is cheap (no Win32
+    // work) until init() is called.
+    auto mag_capture_ptr = std::make_unique<MagCapture>();
+    MagCapture& mag_capture = *mag_capture_ptr;
 
     // Window mode: Windowed = movable resizable normal Win32 window with a
     // title bar; Fullscreen = borderless topmost covering the whole monitor;
@@ -1439,9 +1472,12 @@ int run(const Options& opts) {
     // entirely while keeping the same semantics. We repeat the body at
     // the (small) handful of call sites instead of factoring; cheap
     // duplication beats hidden ABI risk here.
-    // DIAG: recordable-init temporarily disabled (mag_capture removed).
     if (recordable) {
-        std::fprintf(stderr, "[overlay] DIAG: recordable=true persisted but Mag init disabled in this diag build\n");
+        if (!mag_capture.is_initialized()) {
+            mag_capture.init(opts.monitor_index, hwnd,
+                              GetModuleHandleW(nullptr));
+        }
+        apply_capture_affinity(hwnd);
     }
     TL_CKPT("16.9 post-if-recordable-inline");
     glfwSwapInterval(low_latency ? 0 : 1);
@@ -1548,7 +1584,7 @@ int run(const Options& opts) {
         bool got = false;
         for (int attempt = 0; attempt < 20 && !got; ++attempt) {
             bool new_frame = false;
-            if (!capture.grab(new_frame, 500)) {
+            if (!grab_source(capture, mag_capture, new_frame, 500)) {
                 capture.shutdown();
                 if (!capture.init(opts.monitor_index)) break;
                 continue;
@@ -1618,7 +1654,7 @@ int run(const Options& opts) {
             // Non-blocking grab: if the desktop hasn't changed we just
             // re-use the previous capture rather than stall the modal
             // loop waiting on DXGI.
-            (void)capture.grab(new_frame, 0);
+            (void)grab_source(capture, mag_capture, new_frame, 0);
         }
         if (new_frame) {
             int wx, wy, ww, wh;
@@ -1718,7 +1754,7 @@ int run(const Options& opts) {
             // isn't pure black while we wait for the next natural
             // redraw (cursor blink, DWM tick, etc).
             DWORD timeout = have_initial ? 16 : 250;
-            if (!capture.grab(new_frame, timeout)) {
+            if (!grab_source(capture, mag_capture, new_frame, timeout)) {
                 std::fprintf(stderr, "[overlay] capture lost — full re-init...\n");
                 capture.shutdown();
                 if (!capture.init(opts.monitor_index)) {
@@ -1854,7 +1890,14 @@ int run(const Options& opts) {
             if (recordable_changed) {
                 settings.recordable = recordable;
                 g_recordable_mode.store(recordable);
-                // DIAG: Mag init/shutdown removed for the bisect build.
+                if (recordable) {
+                    if (!mag_capture.is_initialized()) {
+                        mag_capture.init(opts.monitor_index, hwnd,
+                                          GetModuleHandleW(nullptr));
+                    }
+                } else {
+                    if (mag_capture.is_initialized()) mag_capture.shutdown();
+                }
                 apply_capture_affinity(hwnd);
                 any_setting_changed = true;
                 toast_text = recordable
@@ -2151,7 +2194,14 @@ int run(const Options& opts) {
         if (g_hk_toggle_recordable.exchange(false)) {
             recordable = !recordable;
             g_recordable_mode.store(recordable);
-            // DIAG: Mag init/shutdown removed for the bisect build.
+            if (recordable) {
+                if (!mag_capture.is_initialized()) {
+                    mag_capture.init(opts.monitor_index, hwnd,
+                                      GetModuleHandleW(nullptr));
+                }
+            } else {
+                if (mag_capture.is_initialized()) mag_capture.shutdown();
+            }
             apply_capture_affinity(hwnd);
             settings.recordable = recordable;
             save_settings(settings);
