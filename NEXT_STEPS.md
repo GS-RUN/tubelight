@@ -15,6 +15,7 @@ Repo: **https://github.com/GS-RUN/tubelight** (PRIVATE) — `main` builds and ru
 - `Ctrl+Alt+F` — freeze / unfreeze the captured frame (autorepeat debounce)
 - `Ctrl+Alt+S` — save PNG screenshot of the rendered overlay
 - `Ctrl+Alt+V` — start / stop MP4 video recording (ffmpeg subprocess)
+- `Ctrl+Alt+R` — toggle **recordable mode**. Default OFF: the overlay sets `WDA_EXCLUDEFROMCAPTURE` so DXGI Desktop Duplication doesn't loop our own output back into the source (the original feedback-ghost reason). When ON: Windows 11 Snipping Tool, Xbox Game Bar, OBS, etc. *can* see the overlay and record it. Trade-off: if you're capturing the full desktop with the overlay covering it, Tubelight's own source capture will include the overlay output → recursive ghost at the overlay's rect. Mitigations: pair with Target (Ctrl+Alt+T) / Region mode (overlay sits over a specific app whose region Tubelight reads) or Freeze (Ctrl+Alt+F).
 - `Ctrl+Alt+0` — re-enable all 8 passes
 - `Ctrl+Alt+1..8` — toggle individual pass on/off
 
@@ -27,6 +28,7 @@ Repo: **https://github.com/GS-RUN/tubelight** (PRIVATE) — `main` builds and ru
 - **Composition**: barrel, vignette, display gamma, **Aspect ratio combo** (Fill window / 4:3 / 5:4 / 16:10 / 16:9 / 21:9).
 - **Pass toggles**: checkboxes for all 8 passes.
 - **Captures**: capture folder (text input + **Browse...** native Windows folder picker + Apply + Default). Settings persist in `%APPDATA%\Tubelight\settings.json`.
+- **Recordable by Snipping Tool / Game Bar / OBS** — checkbox + Ctrl+Alt+R. Persists; shows as `[rec-able]` in the status HUD when active.
 
 ### Visual feedback HUD
 - Toast in lower-left corner when a screenshot saves / video starts or stops / capture folder changes (auto-fades in 2.5 s).

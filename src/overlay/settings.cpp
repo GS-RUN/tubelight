@@ -75,6 +75,9 @@ Settings load_settings() {
         if (j.contains("low_latency") && j.at("low_latency").is_boolean()) {
             s.low_latency = j.at("low_latency").get<bool>();
         }
+        if (j.contains("recordable") && j.at("recordable").is_boolean()) {
+            s.recordable = j.at("recordable").get<bool>();
+        }
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[overlay] settings parse error: %s\n", e.what());
     }
@@ -92,6 +95,7 @@ void save_settings(const Settings& s) {
                                s.record_rect_w, s.record_rect_h };
     j["clickthrough_user"] = s.clickthrough_user;
     j["low_latency"]       = s.low_latency;
+    j["recordable"]        = s.recordable;
     std::ofstream out(settings_file_path());
     if (!out.is_open()) {
         std::fprintf(stderr, "[overlay] could not write %s\n", settings_file_path().c_str());

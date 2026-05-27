@@ -93,6 +93,22 @@ std::atomic<bool> g_hk_toggle_fullscreen{false};
 std::atomic<bool> g_hk_toggle_target{false};
 std::atomic<bool> g_hk_toggle_hud{false};
 std::atomic<bool> g_hk_toggle_clickthrough{false};
+std::atomic<bool> g_hk_toggle_recordable{false};
+
+// True when the user has turned on "recordable" mode (Ctrl+Alt+R or the
+// menu checkbox). Read by apply_capture_affinity() so every code path
+// that re-asserts the affinity flag honours the current state. Sticky
+// across mode changes (fullscreen ↔ windowed ↔ target ↔ region).
+std::atomic<bool> g_recordable_mode{false};
+
+// Centralised wrapper: pick WDA_NONE (overlay shows up in external
+// captures, used while the user is recording with Snipping Tool / Game
+// Bar / OBS) vs WDA_EXCLUDEFROMCAPTURE (the default — prevents DXGI
+// Desktop Duplication from feedback-looping the overlay's own output).
+inline void apply_capture_affinity(HWND hwnd) {
+    SetWindowDisplayAffinity(hwnd,
+        g_recordable_mode.load() ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
+}
 
 // Track which interesting keys are currently held so we only fire on the
 // initial WM_KEYDOWN, never on the (potentially-many) auto-repeats that
@@ -134,6 +150,7 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
             g_hk_toggle_clickthrough = true;
             std::fprintf(stderr, "[overlay] LL hook fired Ctrl+Alt+C\n");
         }
+        else if (vk == 'R')                       g_hk_toggle_recordable = true;
         else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
         else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
         else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
@@ -672,7 +689,7 @@ int run(const Options& opts) {
 
     // Exclude the overlay from screen capture (avoid feedback loop where
     // DXGI would otherwise include our own rendered output in its grab).
-    SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+    apply_capture_affinity(hwnd);
 
     if (fullscreen_active || target_mode || region_active) {
         // Click-through topmost. WDA_EXCLUDEFROMCAPTURE keeps DXGI from
@@ -798,7 +815,7 @@ int run(const Options& opts) {
         SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
                      SWP_NOACTIVATE | SWP_FRAMECHANGED);
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_capture_affinity(hwnd);
         std::fprintf(stderr, on ? "[overlay] click-through ON (WS_EX_TRANSPARENT)\n"
                                 : "[overlay] click-through OFF\n");
         toast_text  = on
@@ -938,7 +955,7 @@ int run(const Options& opts) {
             SetWindowPos(hwnd, HWND_TOPMOST, tx, ty, tw, th,
                          SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         }
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_capture_affinity(hwnd);
 
         char buf[256] = {};
         GetWindowTextA(target, buf, sizeof(buf) - 1);
@@ -965,7 +982,7 @@ int run(const Options& opts) {
         glfwSetWindowPos(window,  saved_win_x, saved_win_y);
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_capture_affinity(hwnd);
         apply_aspect_lock();
         std::fprintf(stderr, "[overlay] target detached\n");
     };
@@ -991,7 +1008,7 @@ int run(const Options& opts) {
         SetWindowPos(hwnd, HWND_TOPMOST,
                      capture.origin_x() + rx, capture.origin_y() + ry, rw, rh,
                      SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_capture_affinity(hwnd);
         std::fprintf(stderr, "[overlay] region attached at (%d,%d) %dx%d\n",
                      rx, ry, rw, rh);
     };
@@ -1007,7 +1024,7 @@ int run(const Options& opts) {
         glfwSetWindowPos(window,  saved_win_x, saved_win_y);
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_capture_affinity(hwnd);
         apply_aspect_lock();
         std::fprintf(stderr, "[overlay] region detached\n");
     };
@@ -1106,6 +1123,12 @@ int run(const Options& opts) {
     bool  audio_enabled = settings.crt_audio_enabled;
     float audio_volume  = settings.crt_audio_volume;
     bool  low_latency   = settings.low_latency;
+    bool  recordable    = settings.recordable;
+    g_recordable_mode.store(recordable);
+    // The initial WDA_EXCLUDEFROMCAPTURE was applied during window setup
+    // before settings were loaded; re-apply now in case the user had
+    // recordable=true persisted from a previous run.
+    apply_capture_affinity(hwnd);
     glfwSwapInterval(low_latency ? 0 : 1);
     int   rec_source    = settings.record_source;
     int   rec_rx        = settings.record_rect_x;
@@ -1168,6 +1191,7 @@ int run(const Options& opts) {
     g_hk_freeze_toggle = false;
     g_hk_all_on = false;
     g_hk_toggle_pass = -1;
+    g_hk_toggle_recordable = false;
 
     std::atomic<DWORD> hk_tid{0};
     std::atomic<HHOOK> hk_handle{nullptr};
@@ -1246,6 +1270,7 @@ int run(const Options& opts) {
         "[overlay] hotkeys: Ctrl+Alt+Q quit | Ctrl+Alt+M menu | "
         "Ctrl+Alt+F freeze | Ctrl+Alt+Enter fullscreen | "
         "Ctrl+Alt+T track foreground | Ctrl+Alt+C click-through | "
+        "Ctrl+Alt+R recordable (external recorders) | "
         "Ctrl+Alt+H toggle HUD | Ctrl+Alt+S screenshot | "
         "Ctrl+Alt+V video\n"
         "[overlay] (debug) Ctrl+Alt+0 all passes on | Ctrl+Alt+1..8 toggle individual pass\n");
@@ -1456,12 +1481,14 @@ int run(const Options& opts) {
             bool clickthrough_changed = false;
             bool record_changed = false;
             bool low_latency_changed = false;
+            bool recordable_changed = false;
             Menu::SettingsIO sio{
                 hud_visible, hud_changed,
                 audio_enabled, audio_volume, audio_changed,
                 clickthrough_user, clickthrough_changed,
                 rec_source, rec_rx, rec_ry, rec_rw, rec_rh, record_changed,
                 low_latency, low_latency_changed,
+                recordable, recordable_changed,
             };
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
                                intensity_multiplier, want_quit_from_menu,
@@ -1498,6 +1525,19 @@ int run(const Options& opts) {
                 settings.low_latency = low_latency;
                 glfwSwapInterval(low_latency ? 0 : 1);
                 any_setting_changed = true;
+            }
+            if (recordable_changed) {
+                settings.recordable = recordable;
+                g_recordable_mode.store(recordable);
+                apply_capture_affinity(hwnd);
+                any_setting_changed = true;
+                toast_text = recordable
+                    ? "RECORDABLE: ON  (Snipping Tool / Game Bar can see overlay; expect feedback ghost if not in target/region mode)"
+                    : "RECORDABLE: OFF (external recorders won't see overlay)";
+                toast_time = std::chrono::steady_clock::now();
+                std::fprintf(stderr, "[overlay] recordable %s (WDA_%s)\n",
+                             recordable ? "ON" : "OFF",
+                             recordable ? "NONE" : "EXCLUDEFROMCAPTURE");
             }
             if (any_setting_changed) save_settings(settings);
             if (cap_changed) {
@@ -1569,6 +1609,7 @@ int run(const Options& opts) {
                     mode_line = "Mode: Windowed";
                     if (clickthrough_user) mode_line += " (click-through)";
                 }
+                if (recordable) mode_line += " [rec-able]";
 
                 std::string profile_line = "Profile: " +
                     (current_profile_id.empty() ? std::string("(default)")
@@ -1783,6 +1824,20 @@ int run(const Options& opts) {
             if (!initial_fullscreen && !fullscreen_active && !target_active && !region_active) {
                 apply_clickthrough_user(!clickthrough_user);
             }
+        }
+        if (g_hk_toggle_recordable.exchange(false)) {
+            recordable = !recordable;
+            g_recordable_mode.store(recordable);
+            apply_capture_affinity(hwnd);
+            settings.recordable = recordable;
+            save_settings(settings);
+            toast_text = recordable
+                ? "RECORDABLE: ON  (Snipping Tool / Game Bar can see overlay; expect feedback ghost if not in target/region mode)"
+                : "RECORDABLE: OFF (external recorders won't see overlay)";
+            toast_time = std::chrono::steady_clock::now();
+            std::fprintf(stderr, "[overlay] recordable %s via hotkey (WDA_%s)\n",
+                         recordable ? "ON" : "OFF",
+                         recordable ? "NONE" : "EXCLUDEFROMCAPTURE");
         }
         // Screenshot: read the framebuffer AFTER the pipeline rendered but
         // BEFORE swap, so we capture exactly what the user sees. The PNG

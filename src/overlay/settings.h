@@ -38,6 +38,14 @@ struct Settings {
     // by default" decision turned out to saturate the CPU/GPU on
     // some systems and slow the whole desktop to ~1 fps.
     bool low_latency = false;
+    // When true, the overlay drops WDA_EXCLUDEFROMCAPTURE so external
+    // screen recorders (Win11 Snipping Tool, Xbox Game Bar, OBS, etc.)
+    // can see it. Off by default because the Tubelight DXGI source
+    // capture then includes our own output → recursive ghost at the
+    // overlay's rect. Recommended use: combine with target / region
+    // mode (overlay sits over a specific window) or freeze (Ctrl+Alt+F)
+    // so the source doesn't update from the now-self-including desktop.
+    bool recordable = false;
 };
 
 // Reads settings.json if present. Missing fields keep their default values.
