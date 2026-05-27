@@ -88,6 +88,12 @@ public:
         // Low-latency mode (vsync off; off by default it already is).
         bool&  low_latency;
         bool&  low_latency_changed;
+        // Recordable mode: drops WDA_EXCLUDEFROMCAPTURE on the overlay
+        // and routes the internal source capture through Magnification
+        // API with our HWND in the filter-exclude list, so external
+        // recorders see us while our own pipeline doesn't.
+        bool&  recordable;
+        bool&  recordable_changed;
     };
 
     void build_widgets(Pipeline& pipeline,

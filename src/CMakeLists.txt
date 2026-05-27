@@ -30,7 +30,7 @@ add_library(tubelight_core STATIC
 )
 
 if(WIN32)
-    target_link_libraries(tubelight_core PUBLIC d3d11 dxgi ole32 shell32 uuid xaudio2)
+    target_link_libraries(tubelight_core PUBLIC d3d11 dxgi ole32 shell32 uuid xaudio2 Magnification)
 endif()
 
 if(imgui_FOUND)

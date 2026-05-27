@@ -38,6 +38,17 @@ struct Settings {
     // by default" decision turned out to saturate the CPU/GPU on
     // some systems and slow the whole desktop to ~1 fps.
     bool low_latency = false;
+    // Recordable mode (Ctrl+Alt+R). When true:
+    //   - The overlay drops WDA_EXCLUDEFROMCAPTURE so external screen
+    //     recorders (Win11 Snipping Tool, Xbox Game Bar, OBS Display
+    //     Capture) can see + record it.
+    //   - The internal source capture switches from DXGI Desktop
+    //     Duplication to the Magnification API with our HWND in the
+    //     filter-exclude list. That is the only per-capturer exclusion
+    //     mechanism Windows exposes (DWM-level WDA is binary across
+    //     all capturers), so it's how we avoid feeding the CRT shader
+    //     its own output while still being visible to external tools.
+    bool recordable = false;
 };
 
 // Reads settings.json if present. Missing fields keep their default values.

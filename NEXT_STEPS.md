@@ -15,6 +15,7 @@ Repo: **https://github.com/GS-RUN/tubelight** (PRIVATE) — `main` builds and ru
 - `Ctrl+Alt+F` — freeze / unfreeze the captured frame (autorepeat debounce)
 - `Ctrl+Alt+S` — save PNG screenshot of the rendered overlay
 - `Ctrl+Alt+V` — start / stop MP4 video recording (ffmpeg subprocess)
+- `Ctrl+Alt+R` — toggle **recordable mode**. Default OFF: overlay sets `WDA_EXCLUDEFROMCAPTURE` and uses DXGI Desktop Duplication for source. When ON: drops the WDA flag so Win11 Snipping Tool / Xbox Game Bar / OBS / `ffmpeg gdigrab` can record the overlay, AND switches source capture from DXGI to the **Magnification API** with the overlay's HWND in `MagSetWindowFilterList(MW_FILTERMODE_EXCLUDE, ...)`. Mag is the only Win32 mechanism that provides *per-capturer* exclusion (WDA is binary across DWM), so external recorders go through DWM and see the overlay normally while our internal source still ignores us → no feedback, overlay stays live. Source updates at ~30-60 Hz (Mag callback overhead). Persists between launches.
 - `Ctrl+Alt+0` — re-enable all 8 passes
 - `Ctrl+Alt+1..8` — toggle individual pass on/off
 

@@ -163,6 +163,7 @@ void Menu::build_widgets(Pipeline& pipeline,
     sio.clickthrough_changed = false;
     sio.record_changed = false;
     sio.low_latency_changed = false;
+    sio.recordable_changed = false;
     bool& hud_visible    = sio.hud_visible;
     bool& audio_enabled  = sio.audio_enabled;
     float& audio_volume  = sio.audio_volume;
@@ -509,6 +510,14 @@ void Menu::build_widgets(Pipeline& pipeline,
         }
         if (ImGui::Checkbox("Low-latency mode (vsync off)", &sio.low_latency)) {
             sio.low_latency_changed = true;
+        }
+        if (ImGui::Checkbox("Recordable by Snipping Tool / Game Bar / OBS — Ctrl+Alt+R",
+                            &sio.recordable)) {
+            sio.recordable_changed = true;
+        }
+        if (sio.recordable) {
+            ImGui::TextDisabled("Source switched to Magnification API w/ self-filter:");
+            ImGui::TextDisabled("overlay live + visible to external recorders, no feedback.");
         }
         ImGui::TextDisabled("All persist between launches");
     }

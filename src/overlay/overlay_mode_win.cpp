@@ -59,6 +59,7 @@
 
 #include <d3d11.h>
 #include <dxgi1_2.h>
+#include <magnification.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -93,6 +94,27 @@ std::atomic<bool> g_hk_toggle_fullscreen{false};
 std::atomic<bool> g_hk_toggle_target{false};
 std::atomic<bool> g_hk_toggle_hud{false};
 std::atomic<bool> g_hk_toggle_clickthrough{false};
+std::atomic<bool> g_hk_toggle_recordable{false};
+
+// True while the user has recordable mode on (Ctrl+Alt+R or menu).
+// Read by apply_capture_affinity() so every code path that re-asserts
+// the WDA flag honours the current state. Sticky across mode changes
+// (windowed ↔ fullscreen ↔ target ↔ region).
+std::atomic<bool> g_recordable_mode{false};
+
+// Picks WDA_NONE (overlay shows up in external captures while recording
+// with Snipping Tool / Game Bar / OBS) vs WDA_EXCLUDEFROMCAPTURE (the
+// default — keeps DXGI Desktop Duplication from feedback-looping our
+// own output). The feedback-prevention story while recordable is on is
+// handled separately, by swapping the source capture backend to the
+// Magnification API with our HWND in its filter-exclude list — see
+// MagCapture below. WDA itself is binary across DWM, no per-capturer
+// dial; the Magnification API is the only Win32 mechanism that does
+// give per-capturer exclusion.
+inline void apply_capture_affinity(HWND hwnd) {
+    SetWindowDisplayAffinity(hwnd,
+        g_recordable_mode.load() ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
+}
 
 // Track which interesting keys are currently held so we only fire on the
 // initial WM_KEYDOWN, never on the (potentially-many) auto-repeats that
@@ -134,6 +156,7 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
             g_hk_toggle_clickthrough = true;
             std::fprintf(stderr, "[overlay] LL hook fired Ctrl+Alt+C\n");
         }
+        else if (vk == 'R')                       g_hk_toggle_recordable = true;
         else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
         else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
         else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
@@ -474,7 +497,283 @@ private:
     int width_ = 0, height_ = 0;
     int origin_x_ = 0, origin_y_ = 0;
     int monitor_index_ = 0;
+
+public:
+    // Used by the Magnification-API fallback: it writes its captured
+    // BGRA bitmap into our cpu_buffer_ so existing call sites that read
+    // capture.pixels() work transparently whichever backend is active.
+    std::vector<uint8_t>& mutable_cpu_buffer() { return cpu_buffer_; }
 };
+
+// ---------------------------------------------------------------------------
+// MagCapture — Magnification-API-based source capture
+//
+// Why this exists: when "recordable mode" is on, we drop
+// WDA_EXCLUDEFROMCAPTURE from the overlay so Snipping Tool / Game Bar /
+// OBS can record it. But DXGI Desktop Duplication then also sees the
+// overlay → CRT pipeline ingests its own output → brightness collapses
+// to black within a few frames (each shader pass attenuates). WDA is
+// binary across DWM; there is no API to tell DWM "exclude window X from
+// THIS capturer". The Magnification API is the only Win32 mechanism
+// that does provide per-capturer exclusion via MagSetWindowFilterList,
+// so we use it as the internal source while recordable is on. External
+// recorders go through DWM composition (which sees our overlay
+// normally) and capture us untouched.
+//
+// Lifecycle:
+//   - MagInitialize() once, on the GLFW thread (must match the thread
+//     that owns the magnifier window).
+//   - A host top-level window holds the magnifier child. The host is
+//     visible but WS_EX_LAYERED + alpha=0 → effectively invisible.
+//   - MagSetWindowFilterList(MW_FILTERMODE_EXCLUDE, [overlay_hwnd]) is
+//     the load-bearing call.
+//   - MagSetImageScalingCallback receives the source bitmap each time
+//     the magnifier paints (we trigger one paint per grab via
+//     InvalidateRect + UpdateWindow on the magnifier child).
+//   - Format is BGRA8 top-down, same as DxgiCapture's CPU buffer.
+//   - MagSetImageScalingCallback is documented as "deprecated" since
+//     Win10 but remains functional in Win11; if Microsoft ever pulls
+//     it, we'd migrate to GetMagnifierAPIFrame or whatever replacement
+//     ships. As of Win11 26200 it works.
+// ---------------------------------------------------------------------------
+
+class MagCapture {
+public:
+    bool init(int monitor_index, HWND overlay_to_exclude, HINSTANCE hinst) {
+        if (initialized_) return true;
+        if (!MagInitialize()) {
+            std::fprintf(stderr, "[overlay] MagInitialize failed: GLE=%lu\n",
+                         GetLastError());
+            return false;
+        }
+        // Find the monitor rect — best-effort enumeration of HMONITORs.
+        // For monitor_index == 0 we use the primary; otherwise fall back
+        // to EnumDisplayMonitors. Tubelight currently only ever uses 0
+        // in practice but keep this consistent with DxgiCapture's API.
+        RECT mon_rect;
+        if (!find_monitor_rect(monitor_index, mon_rect)) {
+            // Fallback to virtual screen if EnumDisplayMonitors fails.
+            mon_rect.left   = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            mon_rect.top    = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            mon_rect.right  = mon_rect.left + GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            mon_rect.bottom = mon_rect.top  + GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        }
+        width_    = mon_rect.right  - mon_rect.left;
+        height_   = mon_rect.bottom - mon_rect.top;
+        origin_x_ = mon_rect.left;
+        origin_y_ = mon_rect.top;
+
+        // Register a unique host window class once per process.
+        WNDCLASSEXW wc = {};
+        wc.cbSize        = sizeof(WNDCLASSEXW);
+        wc.lpfnWndProc   = DefWindowProcW;
+        wc.hInstance     = hinst;
+        wc.lpszClassName = L"TubelightMagHost";
+        wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
+        RegisterClassExW(&wc); // ignore "class already exists" on re-init
+
+        // Host: invisible (alpha 0), topmost, click-through, no-activate.
+        // Sized to the monitor so the magnifier child has somewhere to
+        // paint at 1:1. Position = monitor origin.
+        hwnd_host_ = CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT |
+            WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+            L"TubelightMagHost", L"Tubelight Mag Host",
+            WS_POPUP,
+            origin_x_, origin_y_, width_, height_,
+            nullptr, nullptr, hinst, nullptr);
+        if (!hwnd_host_) {
+            std::fprintf(stderr,
+                "[overlay] mag host CreateWindow failed: GLE=%lu\n",
+                GetLastError());
+            MagUninitialize();
+            return false;
+        }
+        // alpha=0 → fully transparent. DWM still composes it (so the
+        // magnifier paints), but nothing visible reaches the user or
+        // external capturers.
+        SetLayeredWindowAttributes(hwnd_host_, 0, 0, LWA_ALPHA);
+
+        // Magnifier child. WC_MAGNIFIER is registered by MagInitialize.
+        hwnd_mag_ = CreateWindowW(
+            WC_MAGNIFIERW, L"MagnifierChild",
+            WS_CHILD | WS_VISIBLE,
+            0, 0, width_, height_,
+            hwnd_host_, nullptr, hinst, nullptr);
+        if (!hwnd_mag_) {
+            std::fprintf(stderr,
+                "[overlay] WC_MAGNIFIER CreateWindow failed: GLE=%lu\n",
+                GetLastError());
+            DestroyWindow(hwnd_host_); hwnd_host_ = nullptr;
+            MagUninitialize();
+            return false;
+        }
+
+        // Exclusion list — the load-bearing piece.
+        HWND filters[1] = { overlay_to_exclude };
+        if (!MagSetWindowFilterList(hwnd_mag_, MW_FILTERMODE_EXCLUDE, 1, filters)) {
+            std::fprintf(stderr,
+                "[overlay] MagSetWindowFilterList failed: GLE=%lu\n",
+                GetLastError());
+        }
+
+        // Install the image-scaling callback. We rely on the static
+        // s_instance pointer because Magnification API doesn't pass a
+        // user-data parameter to the callback. Only one MagCapture is
+        // expected to be live per process — assert this.
+        if (s_instance != nullptr) {
+            std::fprintf(stderr,
+                "[overlay] MagCapture: second instance, refusing\n");
+            DestroyWindow(hwnd_mag_);  hwnd_mag_  = nullptr;
+            DestroyWindow(hwnd_host_); hwnd_host_ = nullptr;
+            MagUninitialize();
+            return false;
+        }
+        s_instance = this;
+        if (!MagSetImageScalingCallback(hwnd_mag_, &MagCapture::scaling_callback)) {
+            std::fprintf(stderr,
+                "[overlay] MagSetImageScalingCallback failed: GLE=%lu\n",
+                GetLastError());
+        }
+
+        // Source rect = full monitor (screen coords).
+        src_rect_ = mon_rect;
+        MagSetWindowSource(hwnd_mag_, src_rect_);
+
+        // Show the host (with alpha=0). The magnifier child only paints
+        // if its window is visible, and that requires the host to be
+        // visible. SW_SHOWNA = don't activate (don't steal focus).
+        ShowWindow(hwnd_host_, SW_SHOWNA);
+
+        cpu_buffer_.resize(static_cast<size_t>(width_) * height_ * 4, 0);
+        initialized_ = true;
+        std::fprintf(stderr,
+            "[overlay] Magnification API ready: %dx%d at (%d,%d), "
+            "excluding overlay HWND %p\n",
+            width_, height_, origin_x_, origin_y_,
+            static_cast<void*>(overlay_to_exclude));
+        return true;
+    }
+
+    void shutdown() {
+        if (hwnd_mag_) {
+            MagSetImageScalingCallback(hwnd_mag_, nullptr);
+            DestroyWindow(hwnd_mag_);
+            hwnd_mag_ = nullptr;
+        }
+        if (hwnd_host_) {
+            DestroyWindow(hwnd_host_);
+            hwnd_host_ = nullptr;
+        }
+        if (initialized_) {
+            MagUninitialize();
+            initialized_ = false;
+        }
+        s_instance = nullptr;
+    }
+
+    // Triggers one paint cycle on the magnifier; the scaling callback
+    // fires synchronously inside UpdateWindow and writes into cpu_buffer_.
+    bool grab(bool& new_frame) {
+        if (!initialized_) { new_frame = false; return false; }
+        callback_fired_ = false;
+        // Re-asserting the source rect each frame both forces a refresh
+        // and is the documented way to drive a fresh capture.
+        MagSetWindowSource(hwnd_mag_, src_rect_);
+        InvalidateRect(hwnd_mag_, nullptr, FALSE);
+        UpdateWindow(hwnd_mag_);
+        new_frame = callback_fired_;
+        return true;
+    }
+
+    int width()    const { return width_; }
+    int height()   const { return height_; }
+    int origin_x() const { return origin_x_; }
+    int origin_y() const { return origin_y_; }
+    const uint8_t* pixels() const { return cpu_buffer_.data(); }
+    bool is_initialized() const { return initialized_; }
+
+private:
+    static BOOL CALLBACK scaling_callback(HWND /*hwnd*/, void* srcdata,
+                                          MAGIMAGEHEADER srcheader,
+                                          void* /*destdata*/,
+                                          MAGIMAGEHEADER /*destheader*/,
+                                          RECT /*unclipped*/,
+                                          RECT /*clipped*/,
+                                          HRGN /*dirty*/) {
+        if (!s_instance || !srcdata) return TRUE;
+        const size_t expected =
+            static_cast<size_t>(s_instance->width_) *
+            static_cast<size_t>(s_instance->height_) * 4;
+        // srcheader.cbSize is the byte count of the source bitmap.
+        // For BGRA8 top-down it matches width*height*4 when the bitmap
+        // dimensions match our request.
+        if (srcheader.width == static_cast<UINT>(s_instance->width_) &&
+            srcheader.height == static_cast<UINT>(s_instance->height_)) {
+            std::memcpy(s_instance->cpu_buffer_.data(), srcdata,
+                        std::min<size_t>(srcheader.cbSize, expected));
+            s_instance->callback_fired_ = true;
+        }
+        return TRUE;
+    }
+
+    struct EnumCtx { int wanted; int current; RECT out; bool found; };
+    static BOOL CALLBACK monitor_enum_proc(HMONITOR hmon, HDC, LPRECT, LPARAM lp) {
+        auto* c = reinterpret_cast<EnumCtx*>(lp);
+        if (c->current == c->wanted) {
+            MONITORINFO mi = { sizeof(MONITORINFO) };
+            if (GetMonitorInfoW(hmon, &mi)) {
+                c->out   = mi.rcMonitor;
+                c->found = true;
+            }
+            return FALSE;
+        }
+        ++c->current;
+        return TRUE;
+    }
+    static bool find_monitor_rect(int index, RECT& out) {
+        EnumCtx ctx{ index, 0, {}, false };
+        EnumDisplayMonitors(nullptr, nullptr, &monitor_enum_proc,
+                            reinterpret_cast<LPARAM>(&ctx));
+        if (ctx.found) { out = ctx.out; return true; }
+        return false;
+    }
+
+    HWND hwnd_host_ = nullptr;
+    HWND hwnd_mag_  = nullptr;
+    RECT src_rect_  = {};
+    std::vector<uint8_t> cpu_buffer_;
+    int  width_ = 0, height_ = 0;
+    int  origin_x_ = 0, origin_y_ = 0;
+    bool initialized_ = false;
+    bool callback_fired_ = false;
+    static MagCapture* s_instance;
+};
+
+MagCapture* MagCapture::s_instance = nullptr;
+
+// Dispatcher: while g_recordable_mode is true and mag has initialised
+// successfully, drive grabs through the Mag backend and mirror its
+// pixel buffer into the DxgiCapture's cpu_buffer_ so existing
+// upload_subregion_to_source() / pixel-read call sites stay unchanged.
+// Otherwise route through DXGI Desktop Duplication as before.
+bool grab_source(DxgiCapture& dxgi, MagCapture& mag,
+                 bool& new_frame, DWORD timeout_ms) {
+    if (g_recordable_mode.load() && mag.is_initialized()) {
+        bool ok = mag.grab(new_frame);
+        if (ok && new_frame) {
+            // Mirror Mag pixels into DXGI's CPU buffer.
+            auto& dst = dxgi.mutable_cpu_buffer();
+            const size_t n = static_cast<size_t>(mag.width()) *
+                              static_cast<size_t>(mag.height()) * 4;
+            if (dst.size() >= n) {
+                std::memcpy(dst.data(), mag.pixels(), n);
+            }
+        }
+        return ok;
+    }
+    return dxgi.grab(new_frame, timeout_ms);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -577,6 +876,10 @@ int run(const Options& opts) {
         glfwTerminate();
         return 1;
     }
+    // Sibling backend for recordable mode. Not initialised yet —
+    // the apply_recordable_mode() helper below brings it up on demand,
+    // so the cost is zero unless the user actually toggles Ctrl+Alt+R.
+    MagCapture mag_capture;
 
     // Window mode: Windowed = movable resizable normal Win32 window with a
     // title bar; Fullscreen = borderless topmost covering the whole monitor;
@@ -672,7 +975,7 @@ int run(const Options& opts) {
 
     // Exclude the overlay from screen capture (avoid feedback loop where
     // DXGI would otherwise include our own rendered output in its grab).
-    SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+    apply_capture_affinity(hwnd);
 
     if (fullscreen_active || target_mode || region_active) {
         // Click-through topmost. WDA_EXCLUDEFROMCAPTURE keeps DXGI from
@@ -798,7 +1101,7 @@ int run(const Options& opts) {
         SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
                      SWP_NOACTIVATE | SWP_FRAMECHANGED);
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_capture_affinity(hwnd);
         std::fprintf(stderr, on ? "[overlay] click-through ON (WS_EX_TRANSPARENT)\n"
                                 : "[overlay] click-through OFF\n");
         toast_text  = on
@@ -938,7 +1241,7 @@ int run(const Options& opts) {
             SetWindowPos(hwnd, HWND_TOPMOST, tx, ty, tw, th,
                          SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         }
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_capture_affinity(hwnd);
 
         char buf[256] = {};
         GetWindowTextA(target, buf, sizeof(buf) - 1);
@@ -965,7 +1268,7 @@ int run(const Options& opts) {
         glfwSetWindowPos(window,  saved_win_x, saved_win_y);
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_capture_affinity(hwnd);
         apply_aspect_lock();
         std::fprintf(stderr, "[overlay] target detached\n");
     };
@@ -991,7 +1294,7 @@ int run(const Options& opts) {
         SetWindowPos(hwnd, HWND_TOPMOST,
                      capture.origin_x() + rx, capture.origin_y() + ry, rw, rh,
                      SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_capture_affinity(hwnd);
         std::fprintf(stderr, "[overlay] region attached at (%d,%d) %dx%d\n",
                      rx, ry, rw, rh);
     };
@@ -1007,7 +1310,7 @@ int run(const Options& opts) {
         glfwSetWindowPos(window,  saved_win_x, saved_win_y);
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        apply_capture_affinity(hwnd);
         apply_aspect_lock();
         std::fprintf(stderr, "[overlay] region detached\n");
     };
@@ -1106,6 +1409,27 @@ int run(const Options& opts) {
     bool  audio_enabled = settings.crt_audio_enabled;
     float audio_volume  = settings.crt_audio_volume;
     bool  low_latency   = settings.low_latency;
+    bool  recordable    = settings.recordable;
+    g_recordable_mode.store(recordable);
+    // Helper applied whenever recordable changes. Lazy-inits the
+    // Magnification API source on first activation (cost: ~3-5 ms +
+    // one extra invisible host HWND while ON) and flips WDA. Keeping
+    // Mag initialised even after toggling off is fine but uses ~36 MB
+    // for a 1080p backing buffer — we tear it down on disable.
+    auto apply_recordable_mode = [&](bool on) {
+        g_recordable_mode.store(on);
+        if (on) {
+            if (!mag_capture.is_initialized()) {
+                mag_capture.init(opts.monitor_index, hwnd,
+                                  GetModuleHandleW(nullptr));
+            }
+        } else {
+            if (mag_capture.is_initialized()) mag_capture.shutdown();
+        }
+        apply_capture_affinity(hwnd);
+    };
+    // Honour persisted recordable=true now that the helper exists.
+    if (recordable) apply_recordable_mode(true);
     glfwSwapInterval(low_latency ? 0 : 1);
     int   rec_source    = settings.record_source;
     int   rec_rx        = settings.record_rect_x;
@@ -1168,6 +1492,7 @@ int run(const Options& opts) {
     g_hk_freeze_toggle = false;
     g_hk_all_on = false;
     g_hk_toggle_pass = -1;
+    g_hk_toggle_recordable = false;
 
     std::atomic<DWORD> hk_tid{0};
     std::atomic<HHOOK> hk_handle{nullptr};
@@ -1203,7 +1528,7 @@ int run(const Options& opts) {
         bool got = false;
         for (int attempt = 0; attempt < 20 && !got; ++attempt) {
             bool new_frame = false;
-            if (!capture.grab(new_frame, 500)) {
+            if (!grab_source(capture, mag_capture, new_frame, 500)) {
                 capture.shutdown();
                 if (!capture.init(opts.monitor_index)) break;
                 continue;
@@ -1246,6 +1571,7 @@ int run(const Options& opts) {
         "[overlay] hotkeys: Ctrl+Alt+Q quit | Ctrl+Alt+M menu | "
         "Ctrl+Alt+F freeze | Ctrl+Alt+Enter fullscreen | "
         "Ctrl+Alt+T track foreground | Ctrl+Alt+C click-through | "
+        "Ctrl+Alt+R recordable (Snipping Tool / Game Bar / OBS) | "
         "Ctrl+Alt+H toggle HUD | Ctrl+Alt+S screenshot | "
         "Ctrl+Alt+V video\n"
         "[overlay] (debug) Ctrl+Alt+0 all passes on | Ctrl+Alt+1..8 toggle individual pass\n");
@@ -1272,7 +1598,7 @@ int run(const Options& opts) {
             // Non-blocking grab: if the desktop hasn't changed we just
             // re-use the previous capture rather than stall the modal
             // loop waiting on DXGI.
-            (void)capture.grab(new_frame, 0);
+            (void)grab_source(capture, mag_capture, new_frame, 0);
         }
         if (new_frame) {
             int wx, wy, ww, wh;
@@ -1368,7 +1694,7 @@ int run(const Options& opts) {
             // isn't pure black while we wait for the next natural
             // redraw (cursor blink, DWM tick, etc).
             DWORD timeout = have_initial ? 16 : 250;
-            if (!capture.grab(new_frame, timeout)) {
+            if (!grab_source(capture, mag_capture, new_frame, timeout)) {
                 std::fprintf(stderr, "[overlay] capture lost — full re-init...\n");
                 capture.shutdown();
                 if (!capture.init(opts.monitor_index)) {
@@ -1456,12 +1782,14 @@ int run(const Options& opts) {
             bool clickthrough_changed = false;
             bool record_changed = false;
             bool low_latency_changed = false;
+            bool recordable_changed = false;
             Menu::SettingsIO sio{
                 hud_visible, hud_changed,
                 audio_enabled, audio_volume, audio_changed,
                 clickthrough_user, clickthrough_changed,
                 rec_source, rec_rx, rec_ry, rec_rw, rec_rh, record_changed,
                 low_latency, low_latency_changed,
+                recordable, recordable_changed,
             };
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
                                intensity_multiplier, want_quit_from_menu,
@@ -1498,6 +1826,15 @@ int run(const Options& opts) {
                 settings.low_latency = low_latency;
                 glfwSwapInterval(low_latency ? 0 : 1);
                 any_setting_changed = true;
+            }
+            if (recordable_changed) {
+                settings.recordable = recordable;
+                apply_recordable_mode(recordable);
+                any_setting_changed = true;
+                toast_text = recordable
+                    ? "RECORDABLE: ON  (overlay live + visible to Snipping Tool / Game Bar / OBS)"
+                    : "RECORDABLE: OFF (external recorders won't see overlay)";
+                toast_time = std::chrono::steady_clock::now();
             }
             if (any_setting_changed) save_settings(settings);
             if (cap_changed) {
@@ -1569,6 +1906,7 @@ int run(const Options& opts) {
                     mode_line = "Mode: Windowed";
                     if (clickthrough_user) mode_line += " (click-through)";
                 }
+                if (recordable) mode_line += " [rec-able]";
 
                 std::string profile_line = "Profile: " +
                     (current_profile_id.empty() ? std::string("(default)")
@@ -1783,6 +2121,16 @@ int run(const Options& opts) {
             if (!initial_fullscreen && !fullscreen_active && !target_active && !region_active) {
                 apply_clickthrough_user(!clickthrough_user);
             }
+        }
+        if (g_hk_toggle_recordable.exchange(false)) {
+            recordable = !recordable;
+            apply_recordable_mode(recordable);
+            settings.recordable = recordable;
+            save_settings(settings);
+            toast_text = recordable
+                ? "RECORDABLE: ON  (overlay live + visible to Snipping Tool / Game Bar / OBS)"
+                : "RECORDABLE: OFF (external recorders won't see overlay)";
+            toast_time = std::chrono::steady_clock::now();
         }
         // Screenshot: read the framebuffer AFTER the pipeline rendered but
         // BEFORE swap, so we capture exactly what the user sees. The PNG
