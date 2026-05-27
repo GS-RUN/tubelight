@@ -1,6 +1,6 @@
 # Next Steps — for the next session
 
-Repo: **https://github.com/GS-RUN/tubelight** (PRIVATE) — `main` builds and runs end-to-end on Windows with the full overlay + menu + capture pipeline.
+Repo: **https://github.com/GS-RUN/tubelight** — `main` builds and runs end-to-end on Windows with the full overlay + menu + capture pipeline.
 
 ## Pendiente con planificación cerrada — manual de usuario
 

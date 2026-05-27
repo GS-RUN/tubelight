@@ -19,6 +19,26 @@ Versioning: [SemVer 2.0](https://semver.org/).
   `--overlay-target <title>` which initializes correctly. Fix deferred
   to v0.2.0.
 
+## [0.1.3] — 2026-05-27
+
+### Changed
+- **Repo is now public**. User manual updated across all instances to
+  remove "PRIVATE" / "private repo" wording:
+  - `docs/manual/manual.json` §2 (download): now points users to the
+    public [Releases page](https://github.com/GS-RUN/tubelight/releases)
+    in both ES and EN; the outdated `tubelight-0.1.0-win64.zip` example
+    replaced with `tubelight-<version>-win64.zip` so future bumps don't
+    desync the docs.
+  - `docs/manual/manual.json` §13 (troubleshooting): "open an issue in
+    the private repo" → "open a [GitHub issue](.../issues)" in both ES
+    and EN, with the actual issues URL.
+  - `docs/manual/manual.json` §15 (credits): repo URL no longer tagged
+    `(PRIVATE)` in either language.
+  - `NEXT_STEPS.md`: removed `(PRIVATE)` tag from the repo line.
+- `manual.json` `meta.version` / `meta.git_tag` bumped to `0.1.3`.
+- Regenerated `manual.html`, `manual.pdf`, `manual.es.txt`,
+  `manual.en.txt` from the cleaned source.
+
 ## [0.1.2] — 2026-05-27
 
 ### Fixed

@@ -1,6 +1,6 @@
 
 +==============================================================================+
-| TUBELIGHT — Manual de Usuario  v0.1.0                                        |
+| TUBELIGHT — Manual de Usuario  v0.1.3                                        |
 +==============================================================================+
 
 High-fidelity CRT overlay for Windows — the glass of the tube, not a filter
@@ -228,9 +228,10 @@ mode; no install needed.
 Download and install
 --------------------------------------------------------------------------------
 
-**Option A — release zip (recommended)**: download `tubelight-0.1.0-win64.zip`
-from the private repo Releases page, unzip into `C:\Tools\Tubelight\` (or
-wherever you like). Double-click `tubelight.exe`.
+**Option A — release zip (recommended)**: download the latest
+`tubelight-<version>-win64.zip` from the [Releases
+page](https://github.com/GS-RUN/tubelight/releases), unzip into
+`C:\Tools\Tubelight\` (or wherever you like). Double-click `tubelight.exe`.
 
 **Option B — local build from source**: requires Visual Studio 2022 BuildTools
 (with C++), vcpkg, CMake 3.26+. Run `scripts\build_windows.bat` from the repo
@@ -1295,8 +1296,8 @@ cares that it's remote.
 13. Troubleshooting
 ================================================================================
 
-Most common problems and how to fix them. If yours isn't here, open an issue in
-the private repo.
+Most common problems and how to fix them. If yours isn't here, open a [GitHub
+issue](https://github.com/GS-RUN/tubelight/issues).
 
 --------------------------------------------------------------------------------
 13.1 Overlay black / not updating
@@ -1421,7 +1422,7 @@ dotted underline.
 ================================================================================
 
 **Author**: Alonso J. Núñez (GS·RUN).
-**Repo**: https://github.com/GS-RUN/tubelight (PRIVATE).
+**Repo**: https://github.com/GS-RUN/tubelight.
 **License**: PolyForm Noncommercial 1.0.0. Commercial use:
 `gsrun.editor@gmail.com`.
 
@@ -1575,5 +1576,5 @@ FULL GLOSSARY
   implications for recordable mode.
 
 --------------------------------------------------------------------------------
-Generado por app-manual-forge 0.3.0 el 2026-05-27T00:00:00Z  ·  git 9098717
+Generado por app-manual-forge 0.3.0 el 2026-05-27T00:00:00Z  ·  git HEAD
 --------------------------------------------------------------------------------

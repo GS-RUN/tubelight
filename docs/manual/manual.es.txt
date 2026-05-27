@@ -1,6 +1,6 @@
 
 +==============================================================================+
-| TUBELIGHT — Manual de Usuario  v0.1.0                                        |
+| TUBELIGHT — Manual de Usuario  v0.1.3                                        |
 +==============================================================================+
 
 Overlay CRT de alta fidelidad para Windows — el cristal del tubo, no un filtro
@@ -230,10 +230,10 @@ recordable; no requiere instalación.
 Descarga e instalación
 --------------------------------------------------------------------------------
 
-**Opción A — zip de release (recomendada)**: descarga
-`tubelight-0.1.0-win64.zip` de la página de releases del repositorio privado,
-descomprime en `C:\Tools\Tubelight\` (o donde te apetezca). Doble clic en
-`tubelight.exe`.
+**Opción A — zip de release (recomendada)**: descarga el
+`tubelight-<versión>-win64.zip` más reciente de la [página de
+releases](https://github.com/GS-RUN/tubelight/releases), descomprime en
+`C:\Tools\Tubelight\` (o donde te apetezca). Doble clic en `tubelight.exe`.
 
 **Opción B — build local desde fuentes**: necesitas Visual Studio 2022
 BuildTools (con C++), vcpkg, CMake 3.26+. Ejecuta `scripts\build_windows.bat`
@@ -1321,7 +1321,7 @@ le importa que sea remoto.
 ================================================================================
 
 Los problemas más comunes y cómo resolverlos. Si tu caso no está aquí, abre un
-issue en el repo privado.
+[issue en GitHub](https://github.com/GS-RUN/tubelight/issues).
 
 --------------------------------------------------------------------------------
 13.1 Overlay negro / no actualiza
@@ -1448,7 +1448,7 @@ del manual los marca con subrayado punteado.
 ================================================================================
 
 **Autor**: Alonso J. Núñez (GS·RUN).
-**Repositorio**: https://github.com/GS-RUN/tubelight (PRIVATE).
+**Repositorio**: https://github.com/GS-RUN/tubelight.
 **Licencia**: PolyForm Noncommercial 1.0.0. Para uso comercial:
 `gsrun.editor@gmail.com`.
 
@@ -1605,5 +1605,5 @@ GLOSARIO COMPLETO
   DWM, lo que tiene implicaciones para el modo recordable.
 
 --------------------------------------------------------------------------------
-Generado por app-manual-forge 0.3.0 el 2026-05-27T00:00:00Z  ·  git 9098717
+Generado por app-manual-forge 0.3.0 el 2026-05-27T00:00:00Z  ·  git HEAD
 --------------------------------------------------------------------------------
