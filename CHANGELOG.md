@@ -19,6 +19,25 @@ Versioning: [SemVer 2.0](https://semver.org/).
   `--overlay-target <title>` which initializes correctly. Fix deferred
   to v0.2.0.
 
+## [0.1.2] — 2026-05-27
+
+### Fixed
+- **Personal path leakage cleanup** (per CONSTITUTION C1):
+  - `docs/manual/INTEGRATION.md` no longer references `D:\AgentWorkspace\`;
+    capture scripts now described as auto-locating via `$PSScriptRoot`.
+  - All five `docs/manual/scripts/*.ps1` (`make_testcard`, `testcard_viewer`,
+    `testcard_viewer_fs`, `capture_all`, `capture_ui`) replaced hardcoded
+    `D:\AgentWorkspace\Tubelight\...` defaults with `$PSScriptRoot`-relative
+    auto-detection (repo root resolved as `..\..\..` from `scripts/`).
+  - `NEXT_STEPS.md` "Manual de usuario" section purged of personal paths;
+    points to released `docs/manual/` artifacts instead.
+- **Removed**: `docs/manual/PENDING.md` (obsolete v0.1.1 planning doc).
+
+### Notes
+- Affects only repo cleanliness; no behaviour change in `tubelight.exe`.
+- v0.1.1 release zip kept on GitHub for history (0 downloads at supersede
+  time); v0.1.2 is the recommended download.
+
 ## [0.1.1] — 2026-05-27
 
 ### Added

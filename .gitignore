@@ -51,3 +51,4 @@ shaders/cache/
 # User manual: Node deps + lockfile (regenerable via npm i in docs/manual/)
 docs/manual/node_modules/
 docs/manual/package-lock.json
+dist/

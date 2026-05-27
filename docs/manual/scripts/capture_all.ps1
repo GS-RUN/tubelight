@@ -20,11 +20,17 @@ param(
     [string]$Only = "all",   # all | profiles | signals | ui | fine
     [int]$WaitFirstFrameMs = 3500,
     [int]$WaitSaveMs = 1500,
-    [string]$ExePath = "D:\AgentWorkspace\Tubelight\tubelight.exe",
-    [string]$AssetsRoot = "D:\AgentWorkspace\Tubelight\docs\manual\assets",
-    [string]$Testcard = "D:\AgentWorkspace\Tubelight\docs\manual\assets\raw\testcard.png",
-    [string]$ViewerScript = "D:\AgentWorkspace\Tubelight\docs\manual\scripts\testcard_viewer.ps1"
+    [string]$ExePath,
+    [string]$AssetsRoot,
+    [string]$Testcard,
+    [string]$ViewerScript
 )
+# Paths relativos al script (docs/manual/scripts/) → repo root = ../../..
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+if (-not $ExePath)       { $ExePath       = Join-Path $repoRoot "tubelight.exe" }
+if (-not $AssetsRoot)    { $AssetsRoot    = Join-Path $repoRoot "docs\manual\assets" }
+if (-not $Testcard)      { $Testcard      = Join-Path $AssetsRoot "raw\testcard.png" }
+if (-not $ViewerScript)  { $ViewerScript  = Join-Path $PSScriptRoot "testcard_viewer.ps1" }
 
 # 1) capture_dir → carpeta temporal exclusiva
 $rawDir = Join-Path $AssetsRoot "raw\captures"

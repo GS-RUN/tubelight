@@ -8,10 +8,14 @@ param(
     [int]$WaitHotkeyMs = 700,
     [int]$WaitSaveMs = 1300,
     [int]$WaitTabMs = 700,
-    [string]$ExePath = "D:\AgentWorkspace\Tubelight\tubelight.exe",
-    [string]$AssetsRoot = "D:\AgentWorkspace\Tubelight\docs\manual\assets",
-    [string]$ViewerScript = "D:\AgentWorkspace\Tubelight\docs\manual\scripts\testcard_viewer.ps1"
+    [string]$ExePath,
+    [string]$AssetsRoot,
+    [string]$ViewerScript
 )
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+if (-not $ExePath)      { $ExePath      = Join-Path $repoRoot "tubelight.exe" }
+if (-not $AssetsRoot)   { $AssetsRoot   = Join-Path $repoRoot "docs\manual\assets" }
+if (-not $ViewerScript) { $ViewerScript = Join-Path $PSScriptRoot "testcard_viewer.ps1" }
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"

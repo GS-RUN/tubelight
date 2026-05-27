@@ -4,15 +4,20 @@
 # --overlay-target "TubelightTestcard" para procesar SOLO esta imagen,
 # evitando capturar el escritorio entero.
 #
-# Cierre: leer un archivo trigger D:\AgentWorkspace\Tubelight\docs\manual\
-# assets\raw\viewer.stop. Cuando aparece, la ventana se cierra.
+# Cierre: leer un archivo trigger
+# <repo_root>/docs/manual/assets/raw/viewer.stop. Cuando aparece, la
+# ventana se cierra.
 param(
-    [string]$Image = "D:\AgentWorkspace\Tubelight\docs\manual\assets\raw\testcard.png",
+    [string]$Image,
     [int]$X = 100,
     [int]$Y = 60,
     [int]$W = 1280,
     [int]$H = 960
 )
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+if (-not $Image) { $Image = Join-Path $repoRoot "docs\manual\assets\raw\testcard.png" }
+$stopFile = Join-Path $repoRoot "docs\manual\assets\raw\viewer.stop"
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -40,7 +45,6 @@ $form.Controls.Add($pic)
 # Polling para cierre limpio
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 400
-$stopFile = "D:\AgentWorkspace\Tubelight\docs\manual\assets\raw\viewer.stop"
 if (Test-Path $stopFile) { Remove-Item -LiteralPath $stopFile -Force }
 $timer.Add_Tick({
     if (Test-Path $stopFile) {

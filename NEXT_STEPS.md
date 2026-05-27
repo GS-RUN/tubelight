@@ -8,16 +8,8 @@ Skill: `app-manual-forge` (catálogo skill-anvil). Fases 1 / 2 / 3 (índice
 aprobado) / 3.5 (shotlist aprobado) **ya superadas**; queda Fase 4
 (redacción) + Fase 5 (ensamblado HTML + PDF + TXT bilingüe ES/EN).
 
-Plan completo, parámetros aprobados, índice de 15 secciones, shotlist
-~58 PNGs con backend Windows-MCP, decisiones pendientes y acciones
-automatizables documentadas en:
-
-  → `docs/manual/PENDING.md`
-
-Para retomar:
-
-> *"Usa app-manual-forge en D:\AgentWorkspace\Tubelight retomando el
-> índice y el shotlist aprobados en docs/manual/PENDING.md"*
+Manual completo entregado en v0.1.1 — ver `docs/manual/` (HTML + PDF +
+TXT bilingüe ES/EN) y `docs/releases/RELEASE_NOTES_v0.1.1.md`.
 
 ## v0.1.0 — first complete version closed 2026-05-27
 

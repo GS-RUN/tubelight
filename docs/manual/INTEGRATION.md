@@ -36,7 +36,7 @@ Para que el botón funcione en releases distribuidos, el zip de release
 debe incluir la carpeta `docs/manual/` junto al ejecutable:
 
 ```
-tubelight-0.1.0-win64/
+tubelight-<version>-win64/
   tubelight.exe
   epoxy-0.dll
   glfw3.dll
@@ -67,14 +67,17 @@ node validate-manual.mjs   # CI validator
 
 ## Re-capturar pantallazos
 
+Desde la raíz del repo (los scripts auto-detectan la ubicación vía
+`$PSScriptRoot`):
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File docs\manual\scripts\capture_all.ps1
 # o sólo una serie:
 powershell -ExecutionPolicy Bypass -File docs\manual\scripts\capture_all.ps1 -Only profiles
 ```
 
-Requisitos: `tubelight.exe` accesible en `D:\AgentWorkspace\Tubelight\`
-(ajustable con `-ExePath`).
+Si tu `tubelight.exe` no está en la raíz del repo, pásalo explícitamente:
+`-ExePath C:\ruta\a\tubelight.exe`.
 
 ## Linux
 

@@ -1,8 +1,12 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
 # Viewer fullscreen — testcard ocupando todo el monitor.
 param(
-    [string]$Image = "D:\AgentWorkspace\Tubelight\docs\manual\assets\raw\testcard.png"
+    [string]$Image
 )
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+if (-not $Image) { $Image = Join-Path $repoRoot "docs\manual\assets\raw\testcard.png" }
+$stopFile = Join-Path $repoRoot "docs\manual\assets\raw\viewer.stop"
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -21,7 +25,6 @@ $form.Controls.Add($pic)
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 400
-$stopFile = "D:\AgentWorkspace\Tubelight\docs\manual\assets\raw\viewer.stop"
 if (Test-Path $stopFile) { Remove-Item -LiteralPath $stopFile -Force }
 $timer.Add_Tick({
     if (Test-Path $stopFile) {

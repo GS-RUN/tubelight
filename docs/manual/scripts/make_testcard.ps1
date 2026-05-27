@@ -2,8 +2,12 @@
 # Genera una test-card 1280x960 representativa para mostrar cómo cada
 # perfil CRT / signal transforma el mismo contenido.
 param(
-    [string]$Out = "D:\AgentWorkspace\Tubelight\docs\manual\assets\raw\testcard.png"
+    [string]$Out
 )
+if (-not $Out) {
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+    $Out = Join-Path $repoRoot "docs\manual\assets\raw\testcard.png"
+}
 Add-Type -AssemblyName System.Drawing
 
 $w = 1280; $h = 960
