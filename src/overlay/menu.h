@@ -88,11 +88,6 @@ public:
         // Low-latency mode (vsync off; off by default it already is).
         bool&  low_latency;
         bool&  low_latency_changed;
-        // Recordable mode: drops WDA_EXCLUDEFROMCAPTURE so external
-        // screen recorders (Snipping Tool, Game Bar, OBS, ...) can see
-        // the overlay.
-        bool&  recordable;
-        bool&  recordable_changed;
     };
 
     void build_widgets(Pipeline& pipeline,

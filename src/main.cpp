@@ -188,7 +188,6 @@ void print_help() {
         "  T  attach/detach foreground window     H  toggle status HUD\n"
         "  C  toggle click-through (windowed)     S  PNG screenshot\n"
         "  V  toggle MP4 recording (needs ffmpeg in PATH)\n"
-        "  R  toggle recordable mode (lets Snipping Tool / Game Bar / OBS see overlay)\n"
         "\n"
         "Developer / debug hotkeys (only useful if you want to see what\n"
         "each shader pass contributes — most users can ignore these):\n"
