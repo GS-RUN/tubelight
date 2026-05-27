@@ -213,14 +213,20 @@ private:
 // generous padding. Called after each widget instead of
 // ImGui::SetItemTooltip so we control the styling.
 void tl_tooltip(const char* text) {
-    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) return;
+    // Push the distinct presentation styles BEFORE the tooltip helper:
+    // BeginItemTooltip handles the "is the previous item hovered + has
+    // the short delay elapsed" check internally and opens a tooltip
+    // popup if so. The pushed styles are in scope during the popup's
+    // creation, so its background / border / text colour reflect them.
+    // Push/pop counts are balanced regardless of whether the tooltip
+    // actually opens this frame.
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.16f, 0.18f, 0.22f, 0.97f));
     ImGui::PushStyleColor(ImGuiCol_Border,  pal::sky(0.55f));
     ImGui::PushStyleColor(ImGuiCol_Text,    ImVec4(0.91f, 0.93f, 0.95f, 1.00f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,    ImVec2(12, 9));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,   5.0f);
-    if (ImGui::BeginTooltip()) {
+    if (ImGui::BeginItemTooltip()) {
         ImGui::PushTextWrapPos(360.0f);
         ImGui::TextUnformatted(text);
         ImGui::PopTextWrapPos();
