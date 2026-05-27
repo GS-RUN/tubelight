@@ -1116,17 +1116,6 @@ int run(const Options& opts) {
         settings.clickthrough_user = false;
         save_settings(settings);
     }
-    // Same footgun pattern for recordable: applying WDA_NONE at startup
-    // before the first DXGI capture races with DWM, and auto-freezing
-    // before the source texture is populated leaves the user with a black
-    // overlay and no idea why. Force off on every launch — user toggles
-    // it per session via Ctrl+Alt+R or the menu checkbox when they're
-    // ready to record.
-    if (settings.recordable) {
-        std::fprintf(stderr, "[overlay] migrating settings.recordable true → false (no longer auto-applied at startup)\n");
-        settings.recordable = false;
-        save_settings(settings);
-    }
     std::string effective_capture_dir =
         settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
     std::string ui_capture_dir = settings.capture_dir;
@@ -1140,15 +1129,6 @@ int run(const Options& opts) {
     // before settings were loaded; re-apply now in case the user had
     // recordable=true persisted from a previous run.
     apply_capture_affinity(hwnd);
-    // Tracks whether we auto-froze the source when recordable went ON.
-    // We need this because dropping WDA_EXCLUDEFROMCAPTURE makes DXGI
-    // Desktop Duplication see our own rendered output → the CRT pipeline
-    // gets fed its own output → each pass attenuates brightness → image
-    // collapses to black within a few frames. Freezing the source frame
-    // breaks the loop. We restore the previous freeze state when the user
-    // turns recordable off, but only if the user didn't manually toggle
-    // freeze in the meantime.
-    bool recordable_auto_froze = false;
     glfwSwapInterval(low_latency ? 0 : 1);
     int   rec_source    = settings.record_source;
     int   rec_rx        = settings.record_rect_x;
@@ -1551,24 +1531,13 @@ int run(const Options& opts) {
                 g_recordable_mode.store(recordable);
                 apply_capture_affinity(hwnd);
                 any_setting_changed = true;
-                if (recordable) {
-                    if (!state.freeze) {
-                        state.freeze = true;
-                        recordable_auto_froze = true;
-                    }
-                    toast_text = "RECORDABLE: ON — source frozen on last frame. To capture a new source, toggle OFF/ON.";
-                } else {
-                    if (recordable_auto_froze) {
-                        state.freeze = false;
-                        recordable_auto_froze = false;
-                    }
-                    toast_text = "RECORDABLE: OFF (external recorders won't see overlay)";
-                }
+                toast_text = recordable
+                    ? "RECORDABLE: ON  (Snipping Tool / Game Bar can see overlay; expect feedback ghost if not in target/region mode)"
+                    : "RECORDABLE: OFF (external recorders won't see overlay)";
                 toast_time = std::chrono::steady_clock::now();
-                std::fprintf(stderr, "[overlay] recordable %s (WDA_%s) freeze=%s\n",
+                std::fprintf(stderr, "[overlay] recordable %s (WDA_%s)\n",
                              recordable ? "ON" : "OFF",
-                             recordable ? "NONE" : "EXCLUDEFROMCAPTURE",
-                             state.freeze ? "ON" : "OFF");
+                             recordable ? "NONE" : "EXCLUDEFROMCAPTURE");
             }
             if (any_setting_changed) save_settings(settings);
             if (cap_changed) {
@@ -1862,29 +1831,13 @@ int run(const Options& opts) {
             apply_capture_affinity(hwnd);
             settings.recordable = recordable;
             save_settings(settings);
-            if (recordable) {
-                // Auto-freeze: without WDA_EXCLUDEFROMCAPTURE the DXGI
-                // duplication captures our own output → CRT pipeline
-                // attenuates each iteration → image goes black. Freezing
-                // the source breaks the feedback loop; time-based shader
-                // effects (scanlines drift, beam noise) still animate.
-                if (!state.freeze) {
-                    state.freeze = true;
-                    recordable_auto_froze = true;
-                }
-                toast_text = "RECORDABLE: ON — source frozen on last frame. To capture a new source, toggle OFF/ON.";
-            } else {
-                if (recordable_auto_froze) {
-                    state.freeze = false;
-                    recordable_auto_froze = false;
-                }
-                toast_text = "RECORDABLE: OFF (external recorders won't see overlay)";
-            }
+            toast_text = recordable
+                ? "RECORDABLE: ON  (Snipping Tool / Game Bar can see overlay; expect feedback ghost if not in target/region mode)"
+                : "RECORDABLE: OFF (external recorders won't see overlay)";
             toast_time = std::chrono::steady_clock::now();
-            std::fprintf(stderr, "[overlay] recordable %s via hotkey (WDA_%s) freeze=%s\n",
+            std::fprintf(stderr, "[overlay] recordable %s via hotkey (WDA_%s)\n",
                          recordable ? "ON" : "OFF",
-                         recordable ? "NONE" : "EXCLUDEFROMCAPTURE",
-                         state.freeze ? "ON" : "OFF");
+                         recordable ? "NONE" : "EXCLUDEFROMCAPTURE");
         }
         // Screenshot: read the framebuffer AFTER the pipeline rendered but
         // BEFORE swap, so we capture exactly what the user sees. The PNG
