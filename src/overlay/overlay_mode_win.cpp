@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+﻿// SPDX-License-Identifier: MIT
 // Copyright (c) 2026 GS-RUN
 //
 // Windows implementation of the overlay mode.
@@ -8,13 +8,13 @@
 //      WS_EX_TOPMOST + WS_EX_NOACTIVATE so the user keeps interacting with
 //      whatever is underneath.
 //   2. Call SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) so DXGI does
-//      NOT see the overlay itself in its captures — otherwise we'd grab
+//      NOT see the overlay itself in its captures â€” otherwise we'd grab
 //      our own output and feedback.
 //   3. Set up DXGI Desktop Duplication on the chosen monitor.
-//   4. Each frame: AcquireNextFrame (with 0 ms timeout — re-use previous
+//   4. Each frame: AcquireNextFrame (with 0 ms timeout â€” re-use previous
 //      capture if nothing changed), CopyResource into a CPU-readable
 //      staging texture, Map, memcpy the BGRA8 bytes into a CPU buffer.
-//   5. glTexSubImage2D into the OpenGL source texture; flip BGRA→RGBA via
+//   5. glTexSubImage2D into the OpenGL source texture; flip BGRAâ†’RGBA via
 //      a sampler swizzle (TEXTURE_SWIZZLE_RGBA).
 //   6. Run the pipeline; the output fills the full overlay window.
 //
@@ -22,7 +22,7 @@
 //   ESC                quit
 //   1..8               toggle individual passes
 //   0                  re-enable all passes
-//   F                  toggle "freeze" — keep last capture
+//   F                  toggle "freeze" â€” keep last capture
 //   space / right      step a quarter-second forward through profile presets
 //                       (v1.1; only ESC + numerics today)
 
@@ -100,15 +100,15 @@ std::atomic<bool> g_hk_toggle_recordable{false};
 // True while the user has recordable mode on (Ctrl+Alt+R or menu).
 // Read by apply_capture_affinity() so every code path that re-asserts
 // the WDA flag honours the current state. Sticky across mode changes
-// (windowed ↔ fullscreen ↔ target ↔ region).
+// (windowed â†” fullscreen â†” target â†” region).
 std::atomic<bool> g_recordable_mode{false};
 
 // Picks WDA_NONE (overlay shows up in external captures while recording
 // with Snipping Tool / Game Bar / OBS) vs WDA_EXCLUDEFROMCAPTURE (the
-// default — keeps DXGI Desktop Duplication from feedback-looping our
+// default â€” keeps DXGI Desktop Duplication from feedback-looping our
 // own output). The feedback-prevention story while recordable is on is
 // handled separately, by swapping the source capture backend to the
-// Magnification API with our HWND in its filter-exclude list — see
+// Magnification API with our HWND in its filter-exclude list â€” see
 // MagCapture below. WDA itself is binary across DWM, no per-capturer
 // dial; the Magnification API is the only Win32 mechanism that does
 // give per-capturer exclusion.
@@ -169,9 +169,9 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
 // ---------------------------------------------------------------------------
 // WndProc subclass so the overlay keeps rendering DURING a window
 // move / resize. Without it, the modal sizing loop Windows enters when the
-// user grabs the title bar runs entirely inside DefWindowProc — glfwPollEvents
-// never returns — so the captured frame freezes until the user releases the
-// mouse. WM_ENTERSIZEMOVE → start a ~16 ms WM_TIMER that drives one render
+// user grabs the title bar runs entirely inside DefWindowProc â€” glfwPollEvents
+// never returns â€” so the captured frame freezes until the user releases the
+// mouse. WM_ENTERSIZEMOVE â†’ start a ~16 ms WM_TIMER that drives one render
 // per tick; WM_EXITSIZEMOVE kills it again.
 // ---------------------------------------------------------------------------
 
@@ -253,8 +253,8 @@ struct FrameRenderState {
 WNDPROC g_orig_wndproc = nullptr;
 
 // Flag for the subclass proc to suppress the non-client area entirely
-// (title bar + borders → 0 pixels). Used by the runtime fullscreen toggle
-// to go borderless WITHOUT touching GWL_STYLE / WS_EX_LAYERED — those style
+// (title bar + borders â†’ 0 pixels). Used by the runtime fullscreen toggle
+// to go borderless WITHOUT touching GWL_STYLE / WS_EX_LAYERED â€” those style
 // swaps drop WDA_EXCLUDEFROMCAPTURE on this hardware (NVIDIA + Win11), which
 // in turn breaks DXGI Desktop Duplication's exclusion of our own overlay
 // and produces the recursive feedback ghost effect.
@@ -263,7 +263,7 @@ std::atomic<bool> g_hide_nonclient{false};
 // When true, the subclass proc returns HTTRANSPARENT for every hit-test
 // query, causing Windows to deliver mouse events to whatever's underneath
 // our overlay (i.e. true click-through) WITHOUT requiring WS_EX_LAYERED
-// or WS_EX_TRANSPARENT — those have to interact with OpenGL composition
+// or WS_EX_TRANSPARENT â€” those have to interact with OpenGL composition
 // in fiddly ways. NCHITTEST is the clean low-level path: independent of
 // style bits, takes effect on the very next click.
 std::atomic<bool> g_clickthrough_effective{false};
@@ -273,12 +273,12 @@ LRESULT CALLBACK tubelight_subclass_proc(HWND hwnd, UINT msg,
     switch (msg) {
     case WM_NCHITTEST:
         if (g_clickthrough_effective.load()) {
-            // Tell Windows "this pixel is transparent" → the click is
+            // Tell Windows "this pixel is transparent" â†’ the click is
             // re-routed to whatever window is behind us in z-order.
             // Works without WS_EX_LAYERED, doesn't fight OpenGL.
             static std::atomic<int> log_once{0};
             if (log_once.exchange(1) == 0) {
-                std::fprintf(stderr, "[overlay] WM_NCHITTEST → HTTRANSPARENT (click-through active)\n");
+                std::fprintf(stderr, "[overlay] WM_NCHITTEST â†’ HTTRANSPARENT (click-through active)\n");
             }
             return HTTRANSPARENT;
         }
@@ -351,7 +351,7 @@ public:
             return false;
         }
 
-        // 2) Enumerate adapter → output → duplication.
+        // 2) Enumerate adapter â†’ output â†’ duplication.
         ComPtr<IDXGIDevice> dxgi_device;
         device_.As(&dxgi_device);
         ComPtr<IDXGIAdapter> adapter;
@@ -424,7 +424,7 @@ public:
         if (hr == DXGI_ERROR_ACCESS_LOST) {
             // Common right after creating a topmost window. Recover by
             // re-creating the duplication on the same output.
-            std::fprintf(stderr, "[overlay] ACCESS_LOST — recreating duplication...\n");
+            std::fprintf(stderr, "[overlay] ACCESS_LOST â€” recreating duplication...\n");
             dup_.Reset();
             return reacquire_duplication();
         }
@@ -464,7 +464,7 @@ public:
     }
 
     bool reacquire_duplication() {
-        // Walks adapter → output again and creates a fresh duplication.
+        // Walks adapter â†’ output again and creates a fresh duplication.
         ComPtr<IDXGIDevice> dxgi_device;
         if (FAILED(device_.As(&dxgi_device))) return false;
         ComPtr<IDXGIAdapter> adapter;
@@ -507,12 +507,12 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// MagCapture — Magnification-API-based source capture
+// MagCapture â€” Magnification-API-based source capture
 //
 // Why this exists: when "recordable mode" is on, we drop
 // WDA_EXCLUDEFROMCAPTURE from the overlay so Snipping Tool / Game Bar /
 // OBS can record it. But DXGI Desktop Duplication then also sees the
-// overlay → CRT pipeline ingests its own output → brightness collapses
+// overlay â†’ CRT pipeline ingests its own output â†’ brightness collapses
 // to black within a few frames (each shader pass attenuates). WDA is
 // binary across DWM; there is no API to tell DWM "exclude window X from
 // THIS capturer". The Magnification API is the only Win32 mechanism
@@ -525,7 +525,7 @@ public:
 //   - MagInitialize() once, on the GLFW thread (must match the thread
 //     that owns the magnifier window).
 //   - A host top-level window holds the magnifier child. The host is
-//     visible but WS_EX_LAYERED + alpha=0 → effectively invisible.
+//     visible but WS_EX_LAYERED + alpha=0 â†’ effectively invisible.
 //   - MagSetWindowFilterList(MW_FILTERMODE_EXCLUDE, [overlay_hwnd]) is
 //     the load-bearing call.
 //   - MagSetImageScalingCallback receives the source bitmap each time
@@ -558,7 +558,7 @@ public:
                          GetLastError());
             return false;
         }
-        // Find the monitor rect — best-effort enumeration of HMONITORs.
+        // Find the monitor rect â€” best-effort enumeration of HMONITORs.
         // For monitor_index == 0 we use the primary; otherwise fall back
         // to EnumDisplayMonitors. Tubelight currently only ever uses 0
         // in practice but keep this consistent with DxgiCapture's API.
@@ -601,7 +601,7 @@ public:
             MagUninitialize();
             return false;
         }
-        // alpha=0 → fully transparent. DWM still composes it (so the
+        // alpha=0 â†’ fully transparent. DWM still composes it (so the
         // magnifier paints), but nothing visible reaches the user or
         // external capturers.
         SetLayeredWindowAttributes(hwnd_host_, 0, 0, LWA_ALPHA);
@@ -629,7 +629,7 @@ public:
         cpu_buffer_.resize(static_cast<size_t>(width_) * height_ * 4, 0);
 
         // Filter list stored as a member so the array's address remains
-        // valid past init() — MSDN does not document whether
+        // valid past init() â€” MSDN does not document whether
         // MagSetWindowFilterList copies or retains the pointer, so we
         // play safe. (We only ever filter one HWND, ours.)
         filter_hwnds_[0] = overlay_to_exclude;
@@ -643,7 +643,7 @@ public:
         // Install the image-scaling callback. We rely on the static
         // s_instance pointer because Magnification API doesn't pass a
         // user-data parameter to the callback. Only one MagCapture is
-        // expected to be live per process — assert this.
+        // expected to be live per process â€” assert this.
         if (s_instance != nullptr) {
             std::fprintf(stderr,
                 "[overlay] MagCapture: second instance, refusing\n");
@@ -729,9 +729,9 @@ private:
             static_cast<size_t>(s_instance->height_) * 4;
         // Defensive: refuse to write if the destination buffer is
         // smaller than expected. Without this guard, a synchronous
-        // paint during init (before resize completes) — or any future
-        // race between cpu_buffer_.resize and callback dispatch —
-        // would memcpy into a too-small vector → heap corruption.
+        // paint during init (before resize completes) â€” or any future
+        // race between cpu_buffer_.resize and callback dispatch â€”
+        // would memcpy into a too-small vector â†’ heap corruption.
         if (s_instance->cpu_buffer_.size() < expected) return TRUE;
         // srcheader.cbSize is the byte count of the source bitmap.
         // For BGRA8 top-down it matches width*height*4 when the bitmap
@@ -820,9 +820,9 @@ struct AppState {
     void* resize_state = nullptr;
 };
 
-// Extracts the rect (mon_x, mon_y, mon_w, mon_h) — relative to monitor 0,0
-// — from the DXGI capture and uploads it to `source`, vertically flipped
-// (DXGI top-down → GL bottom-up). For fullscreen mode the rect is ignored
+// Extracts the rect (mon_x, mon_y, mon_w, mon_h) â€” relative to monitor 0,0
+// â€” from the DXGI capture and uploads it to `source`, vertically flipped
+// (DXGI top-down â†’ GL bottom-up). For fullscreen mode the rect is ignored
 // and the full desktop is uploaded.
 //
 // Out-of-bounds pixels (the user dragged the window partially off-screen)
@@ -840,7 +840,7 @@ void upload_subregion_to_source(class DxgiCapture& capture,
     const size_t row_bytes = static_cast<size_t>(tex_w) * 4;
 
     if (fullscreen) {
-        // Identity path: full desktop, top-down → bottom-up.
+        // Identity path: full desktop, top-down â†’ bottom-up.
         for (int y = 0; y < tex_h; ++y) {
             std::memcpy(tmp.data() + (tex_h - 1 - y) * row_bytes,
                         src + y * static_cast<size_t>(tex_w) * 4, row_bytes);
@@ -925,7 +925,7 @@ int run(const Options& opts) {
     // changes; it gates the click-through (WS_EX_TRANSPARENT) behaviour the
     // standalone --overlay-fullscreen mode needs. `fullscreen_active`
     // mirrors it on startup but the in-app menu / Ctrl+Alt+Enter can flip
-    // it at runtime — that runtime fullscreen is *focusable* so the user
+    // it at runtime â€” that runtime fullscreen is *focusable* so the user
     // can still drive the menu without leaving fullscreen.
     const bool initial_fullscreen = (opts.mode == OverlayMode::Fullscreen);
     const bool windowed_mode      = (opts.mode == OverlayMode::Windowed);
@@ -1008,14 +1008,9 @@ int run(const Options& opts) {
 
     HWND hwnd = glfwGetWin32Window(window);
 
-#define TL_CKPT(tag) do { std::fprintf(stderr, "[ckpt] %s\n", tag); std::fflush(stderr); } while(0)
-    TL_CKPT("01 post-glfwGetWin32Window");
-
     // Exclude the overlay from screen capture (avoid feedback loop where
     // DXGI would otherwise include our own rendered output in its grab).
     apply_capture_affinity(hwnd);
-    TL_CKPT("02 post-apply_capture_affinity");
-
     if (fullscreen_active || target_mode || region_active) {
         // Click-through topmost. WDA_EXCLUDEFROMCAPTURE keeps DXGI from
         // feedback-looping our own output back in.
@@ -1041,14 +1036,9 @@ int run(const Options& opts) {
     // Global hotkeys: registered to the thread queue (HWND=nullptr), then
     // The keyboard hook (kb_hook_proc above) routes by VK code directly into
     // the g_hk_* atomics, so we no longer need per-hotkey RegisterHotKey IDs.
-
-    TL_CKPT("03 post-styles-and-setwindowpos");
-
     // Build the source texture sized to the desktop.
     tubelight::Texture2D source;
     source.create_empty(W, H, GL_RGBA8);
-    TL_CKPT("04 post-source-texture-create");
-
     // We upload with `format = GL_BGRA` so OpenGL itself does the byte
     // reordering from DXGI's BGRA8 into the texture's internal RGBA layout.
     // No swizzle needed (and adding one here would double-swap and produce
@@ -1057,49 +1047,37 @@ int run(const Options& opts) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     // Vertical flip via wrap is not enough; we flip during upload (origin top-left
-    // in DXGI vs bottom-left in GL — handled by feeding rows in normal order
+    // in DXGI vs bottom-left in GL â€” handled by feeding rows in normal order
     // and reading texture(uv) with uv.y = 1 - uv.y; simplest fix: we keep DXGI
     // top-down rows AND ALSO compensate by using GL_REPEAT? Instead we flip
-    // here by uploading with a temp buffer when needed — see below).
-
-    TL_CKPT("05 pre-pipeline-create");
+    // here by uploading with a temp buffer when needed â€” see below).
     // Pipeline at window resolution.
     tubelight::Pipeline pipeline;
     if (!pipeline.create(W, H)) {
         std::fprintf(stderr, "[overlay] pipeline create failed\n");
         return 1;
     }
-    TL_CKPT("06 post-pipeline-create");
-
     if (!opts.profile_id.empty()) {
-        TL_CKPT("07 pre-load_crt_profile");
         std::string err;
         auto p = tubelight::load_crt_profile_by_id(opts.profile_id, err);
-        TL_CKPT("08 post-load_crt_profile");
         if (p) {
             pipeline.apply_crt_profile(*p);
-            TL_CKPT("09 post-apply_crt_profile");
             std::fprintf(stderr, "[overlay] CRT profile loaded: %s\n", p->display_name.c_str());
             std::fflush(stderr);
             // Optional photo-real bezel PNG at assets/bezels/<id>.png.
             std::string bezel_path =
                 std::string("assets/bezels/") + opts.profile_id + ".png";
-            TL_CKPT("10 pre-load_bezel_image");
             pipeline.load_bezel_image(bezel_path);
-            TL_CKPT("11 post-load_bezel_image");
         } else {
             std::fprintf(stderr, "[overlay] CRT profile '%s' not found: %s\n",
                          opts.profile_id.c_str(), err.c_str());
         }
     }
     if (!opts.signal_id.empty()) {
-        TL_CKPT("12 pre-load_signal_profile");
         std::string err;
         auto s = tubelight::load_signal_profile_by_id(opts.signal_id, err);
-        TL_CKPT("13 post-load_signal_profile");
         if (s) {
             pipeline.apply_signal_profile(*s);
-            TL_CKPT("14 post-apply_signal_profile");
             if (pipeline.params().monochrome == 1) {
                 std::printf("[overlay] signal profile '%s' ignored (locked to clean RGB for monochrome)\n",
                              s->display_name.c_str());
@@ -1118,7 +1096,7 @@ int run(const Options& opts) {
     // Persists across runs via settings.json.
     bool clickthrough_user = false;
 
-    // Toast state — declared early so apply_clickthrough_user can write to it.
+    // Toast state â€” declared early so apply_clickthrough_user can write to it.
     std::string toast_text;
     auto toast_time = std::chrono::steady_clock::now() - std::chrono::hours(1);
     const auto kToastShown = std::chrono::milliseconds(2500);
@@ -1128,11 +1106,11 @@ int run(const Options& opts) {
         // Cross-process click-through REQUIRES WS_EX_LAYERED +
         // WS_EX_TRANSPARENT (DWM honours hit-test there). WM_NCHITTEST
         // returning HTTRANSPARENT only routes clicks to windows in the
-        // SAME thread — useless for "click on overlay → openMSX gets it"
+        // SAME thread â€” useless for "click on overlay â†’ openMSX gets it"
         // because openMSX is a different process.
         //
         // LAYERED gets added on first activation and is then LEFT set
-        // permanently — runtime removal of LAYERED is unreliable on
+        // permanently â€” runtime removal of LAYERED is unreliable on
         // some hardware (broke earlier). We only toggle TRANSPARENT +
         // NOACTIVATE between sessions.
         LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -1167,7 +1145,7 @@ int run(const Options& opts) {
     // any). target_aspect == 0 means "fill", so we release the constraint.
     auto apply_aspect_lock = [&]() {
         if (windowed_mode && !fullscreen_active && pipeline.params().target_aspect > 0.0f) {
-            // GLFW expects a rational ratio — scaling by 10000 keeps two
+            // GLFW expects a rational ratio â€” scaling by 10000 keeps two
             // decimals of precision which is plenty for the standard CRT
             // aspects (4:3, 5:4, 16:10, 16:9, 21:9).
             int num = static_cast<int>(pipeline.params().target_aspect * 10000.0f);
@@ -1179,7 +1157,7 @@ int run(const Options& opts) {
     };
     apply_aspect_lock();
 
-    // Saved windowed pos/size — restored when leaving runtime fullscreen.
+    // Saved windowed pos/size â€” restored when leaving runtime fullscreen.
     int saved_win_x = 0, saved_win_y = 0;
     int saved_win_w = opts.init_w, saved_win_h = opts.init_h;
     glfwGetWindowPos(window, &saved_win_x, &saved_win_y);
@@ -1214,12 +1192,12 @@ int run(const Options& opts) {
     //
     // Key constraints on this hardware (NVIDIA + Win11 26200):
     //   1) GWL_STYLE / GWL_EXSTYLE swaps on a live OpenGL window drop
-    //      WDA_EXCLUDEFROMCAPTURE → DXGI captures our overlay → recursive
+    //      WDA_EXCLUDEFROMCAPTURE â†’ DXGI captures our overlay â†’ recursive
     //      feedback ghost. So we use WM_NCCALCSIZE in our subclass to
     //      collapse the non-client area to 0 pixels instead.
     //   2) A topmost window that covers the *entire* monitor gets
     //      promoted by Win11 to Independent Flip / direct scanout, which
-    //      bypasses DWM compositing → WDA stops applying → same ghost.
+    //      bypasses DWM compositing â†’ WDA stops applying â†’ same ghost.
     //      We leave 1 pixel uncovered at the bottom edge to keep us in
     //      the composited path. It's barely visible and harmless.
     auto do_toggle_fullscreen = [&]() {
@@ -1244,7 +1222,7 @@ int run(const Options& opts) {
             // Release any aspect lock so the window can be the full monitor.
             glfwSetWindowAspectRatio(window, GLFW_DONT_CARE, GLFW_DONT_CARE);
 
-            // Hide non-client (NCCALCSIZE→0) + size to monitor minus 1px
+            // Hide non-client (NCCALCSIZEâ†’0) + size to monitor minus 1px
             // at the bottom to dodge Win11 Independent-Flip promotion.
             g_hide_nonclient = true;
             SetWindowPos(hwnd, HWND_TOPMOST,
@@ -1429,45 +1407,45 @@ int run(const Options& opts) {
         glViewport(0, 0, win_w, win_h);
     };
 
-    // Menu state — selected profile/signal ids + a global intensity multiplier.
+    // Menu state â€” selected profile/signal ids + a global intensity multiplier.
     std::string current_profile_id = opts.profile_id;
     std::string current_signal_id  = opts.signal_id;
     float intensity_multiplier     = 1.0f;
     Pipeline::GlobalParams base_params = pipeline.params();
-
-    TL_CKPT("15 pre-load_settings");
     Settings settings = load_settings();
-    TL_CKPT("16 post-load_settings");
     if (settings.low_latency) {
-        std::fprintf(stderr, "[overlay] migrating settings.low_latency true → false\n");
+        std::fprintf(stderr, "[overlay] migrating settings.low_latency true â†’ false\n");
         settings.low_latency = false;
         save_settings(settings);
     }
-    TL_CKPT("16.1 post-migrate-low_latency");
     if (settings.clickthrough_user) {
-        std::fprintf(stderr, "[overlay] migrating settings.clickthrough_user true → false\n");
+        std::fprintf(stderr, "[overlay] migrating settings.clickthrough_user true â†’ false\n");
         settings.clickthrough_user = false;
         save_settings(settings);
     }
-    TL_CKPT("16.2 post-migrate-clickthrough");
-    TL_CKPT("16.3 pre-default_capture_dir");
+    // Same per-session-only pattern for recordable: if persisted true,
+    // Mag init runs at startup, and any failure there leaves Tubelight
+    // unstartable until the user manually edits settings.json. So we
+    // force it off on every launch â€” the user re-enables it via
+    // Ctrl+Alt+R or the menu when they're actively ready to record.
+    if (settings.recordable) {
+        std::fprintf(stderr, "[overlay] migrating settings.recordable true â†’ false (no longer auto-applied at startup)\n");
+        settings.recordable = false;
+        save_settings(settings);
+    }
     std::string effective_capture_dir =
         settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
-    TL_CKPT("16.4 post-effective_capture_dir");
     std::string ui_capture_dir = settings.capture_dir;
-    TL_CKPT("16.5 post-ui_capture_dir");
     bool hud_visible    = settings.hud_visible;
     bool  audio_enabled = settings.crt_audio_enabled;
     float audio_volume  = settings.crt_audio_volume;
     bool  low_latency   = settings.low_latency;
     bool  recordable    = settings.recordable;
-    TL_CKPT("16.6 post-locals-assignment");
     g_recordable_mode.store(recordable);
-    TL_CKPT("16.7 post-g_recordable_mode-store");
     // Recordable-mode application is now an inline helper rather than a
     // [&]-capturing lambda. Earlier diagnostic builds (ckpt 16.8 OK,
     // 16.9 never printed) pinpointed a /GS canary trip on the conditional
-    // call through the lambda — the closure's stack placement appeared
+    // call through the lambda â€” the closure's stack placement appeared
     // to trigger MSVC's security check. Inlining sidesteps the closure
     // entirely while keeping the same semantics. We repeat the body at
     // the (small) handful of call sites instead of factoring; cheap
@@ -1479,17 +1457,14 @@ int run(const Options& opts) {
         }
         apply_capture_affinity(hwnd);
     }
-    TL_CKPT("16.9 post-if-recordable-inline");
     glfwSwapInterval(low_latency ? 0 : 1);
-    TL_CKPT("16.10 post-glfwSwapInterval");
     int   rec_source    = settings.record_source;
     int   rec_rx        = settings.record_rect_x;
     int   rec_ry        = settings.record_rect_y;
     int   rec_rw        = settings.record_rect_w;
     int   rec_rh        = settings.record_rect_h;
-    TL_CKPT("16.11 post-rec-ints");
     // Apply persisted click-through at startup (windowed mode only).
-    // Click-through is now strictly a per-session toggle — never auto-
+    // Click-through is now strictly a per-session toggle â€” never auto-
     // applied on launch even if it was on when the user last quit. The
     // user can re-enable via Ctrl+Alt+C or the menu checkbox at any
     // time. This avoids the "I can't click anything in the title bar"
@@ -1498,9 +1473,7 @@ int run(const Options& opts) {
     // CRT audio (XAudio2 flyback whine). Init best-effort: if it fails
     // for any reason (no audio device, driver issue, headless test env)
     // the overlay keeps running silently.
-    TL_CKPT("17 pre-crt_audio_ctor");
     tubelight::audio::CrtAudio crt_audio;
-    TL_CKPT("18 post-crt_audio_ctor");
     {
         std::string audio_err;
         if (!crt_audio.init(audio_err)) {
@@ -1514,25 +1487,22 @@ int run(const Options& opts) {
     VideoRecorder video_recorder;
     // toast_text / toast_time / kToastShown moved earlier (above
     // apply_clickthrough_user) so the lambda can capture them by ref.
-
-    TL_CKPT("19 pre-Menu-init");
     Menu menu;
     bool has_menu = menu.init(window);
-    TL_CKPT("20 post-Menu-init");
     std::fprintf(stderr, "[overlay] %s\n",
                  has_menu ? "in-app menu ready (Ctrl+Alt+M to open)"
-                          : "built without imgui — menu disabled");
+                          : "built without imgui â€” menu disabled");
 
     LONG_PTR base_ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
     (void)base_ex_style;
     bool menu_was_open = false;
 
     std::printf(
-        "[overlay] %dx%d — capturing first desktop frame before showing window...\n",
+        "[overlay] %dx%d â€” capturing first desktop frame before showing window...\n",
         W, H);
 
     // upload_subregion_to_source() does the vertical flip into `sub_buffer`
-    // (resized by the framebuffer-size callback) — no separate full-frame
+    // (resized by the framebuffer-size callback) â€” no separate full-frame
     // buffer is needed any more.
 
     // -----------------------------------------------------------------
@@ -1540,7 +1510,7 @@ int run(const Options& opts) {
     // of focus and regardless of any other app having registered the same
     // hotkey via RegisterHotKey. The hook runs on the thread that called
     // SetWindowsHookEx, but Windows uses an internal message dispatch so
-    // we don't strictly need a separate pump — however a worker thread
+    // we don't strictly need a separate pump â€” however a worker thread
     // with its own GetMessage loop is the canonical pattern, which we use
     // here to avoid interference with GLFW's own message handling.
     // -----------------------------------------------------------------
@@ -1559,7 +1529,7 @@ int run(const Options& opts) {
                                     GetModuleHandleW(nullptr), 0);
         if (!h) {
             std::fprintf(stderr,
-                "[overlay] SetWindowsHookEx failed: GLE=%lu — Ctrl+Alt+Q won't work\n",
+                "[overlay] SetWindowsHookEx failed: GLE=%lu â€” Ctrl+Alt+Q won't work\n",
                 GetLastError());
         } else {
             std::fprintf(stderr,
@@ -1641,7 +1611,7 @@ int run(const Options& opts) {
     // ---------------------------------------------------------------------
     // Subclass the window so the overlay keeps rendering DURING a user
     // move / resize. Without this, the image freezes the moment the user
-    // grabs the title bar — Windows enters a modal loop inside
+    // grabs the title bar â€” Windows enters a modal loop inside
     // DefWindowProc that blocks glfwPollEvents. Our WndProc installs a
     // ~16ms WM_TIMER between WM_ENTERSIZEMOVE/WM_EXITSIZEMOVE and ticks
     // the same per-frame work the main loop would otherwise do.
@@ -1676,10 +1646,6 @@ int run(const Options& opts) {
     // rather than exit on the first transient.
     int target_lost_frames = 0;
 
-    std::fprintf(stderr,
-                 "[overlay] entering main loop (recordable=%d)\n",
-                 (int)g_recordable_mode.load());
-    std::fflush(stderr);
     while (!glfwWindowShouldClose(window)) {
         // Recompute the effective click-through state for the subclass
         // hit-test handler. Always OFF while the menu is open so the
@@ -1755,7 +1721,7 @@ int run(const Options& opts) {
             // redraw (cursor blink, DWM tick, etc).
             DWORD timeout = have_initial ? 16 : 250;
             if (!grab_source(capture, mag_capture, new_frame, timeout)) {
-                std::fprintf(stderr, "[overlay] capture lost — full re-init...\n");
+                std::fprintf(stderr, "[overlay] capture lost â€” full re-init...\n");
                 capture.shutdown();
                 if (!capture.init(opts.monitor_index)) {
                     std::fprintf(stderr, "[overlay] capture re-init failed\n");
@@ -1768,7 +1734,7 @@ int run(const Options& opts) {
             // the entire desktop so Windows repaints and DXGI emits a frame.
             if (!have_initial && !kicked_repaint &&
                 std::chrono::steady_clock::now() - loop_started > std::chrono::milliseconds(500)) {
-                std::fprintf(stderr, "[overlay] no initial frame yet — forcing desktop repaint\n");
+                std::fprintf(stderr, "[overlay] no initial frame yet â€” forcing desktop repaint\n");
                 ::InvalidateRect(nullptr, nullptr, TRUE);
                 ::RedrawWindow(nullptr, nullptr, nullptr,
                                RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
@@ -1787,8 +1753,8 @@ int run(const Options& opts) {
 
             // Cheap luminance sample shared between audio flyback
             // modulation and the pipeline's voltage-bloom uniform.
-            // sub_buffer is BGRA8. We scan 1 in 64 pixels — ~140 KB
-            // per 1920×1200 frame, sub-ms, mean within ~3 % of truth.
+            // sub_buffer is BGRA8. We scan 1 in 64 pixels â€” ~140 KB
+            // per 1920Ã—1200 frame, sub-ms, mean within ~3 % of truth.
             if (!sub_buffer.empty()) {
                 const uint8_t* px = sub_buffer.data();
                 const size_t total_px = static_cast<size_t>(win_w) * win_h;
@@ -1869,7 +1835,7 @@ int run(const Options& opts) {
                 settings.clickthrough_user = clickthrough_user;
                 any_setting_changed = true;
                 // When activating click-through, auto-close the menu so
-                // the user sees the effect immediately — otherwise the
+                // the user sees the effect immediately â€” otherwise the
                 // menu_is_open guard keeps the overlay opaque and the
                 // user thinks nothing happened.
                 if (clickthrough_user) menu.set_open(false);
@@ -2029,7 +1995,7 @@ int run(const Options& opts) {
                             pipeline.clear_bezel_image();
                         }
                     }
-                    // Trigger degauss thump on profile switch — that
+                    // Trigger degauss thump on profile switch â€” that
                     // characteristic low rumble a CRT makes when you
                     // change input or turn it on.
                     crt_audio.trigger_degauss(1.0f);
@@ -2064,7 +2030,7 @@ int run(const Options& opts) {
                     intensity_multiplier = 1.0f;
                     // Pick the right flyback frequency for the audio
                     // synth so PAL signals get 15.625 kHz instead of
-                    // 15.734 kHz NTSC. Approx h_freq_khz × 1000.
+                    // 15.734 kHz NTSC. Approx h_freq_khz Ã— 1000.
                     crt_audio.set_flyback_frequency_hz(
                         static_cast<float>(s->h_freq_khz) * 1000.0f);
                     std::fprintf(stderr, "[overlay] applied signal '%s'\n",
@@ -2131,7 +2097,7 @@ int run(const Options& opts) {
 
         // Hard frame-rate cap when vsync is off. Without this the loop
         // spins at thousands of FPS, pegging one CPU core at 100 % and
-        // the GPU at maximum — which on some systems drags the entire
+        // the GPU at maximum â€” which on some systems drags the entire
         // desktop down to a few FPS (the regression the user reported).
         // Cap at 240 FPS by default (4.16 ms / frame), still very
         // low-latency but leaves the system breathing room.
@@ -2256,7 +2222,7 @@ int run(const Options& opts) {
                 }
                 if (video_recorder.start(rw_rec, rh_rec, 60,
                                          effective_capture_dir, err)) {
-                    std::fprintf(stderr, "[overlay] video recording → %s\n",
+                    std::fprintf(stderr, "[overlay] video recording â†’ %s\n",
                                   video_recorder.output_path().c_str());
                     toast_text = "Recording... Ctrl+Alt+V to stop";
                     toast_time = std::chrono::steady_clock::now();
@@ -2286,7 +2252,7 @@ int run(const Options& opts) {
             }
             if (!pushed) {
                 // Pipe broken (ffmpeg crashed / disk full). Bail out and tell
-                // the user — we don't sit forever in zombie-recording mode.
+                // the user â€” we don't sit forever in zombie-recording mode.
                 video_recorder.stop();
                 toast_text = "Recording stopped: pipe error";
                 toast_time = std::chrono::steady_clock::now();
@@ -2328,7 +2294,7 @@ int run(const Options& opts) {
     if (has_menu) menu.shutdown();
     if (video_recorder.is_recording()) video_recorder.stop();
 
-    // Nullify GLFW callbacks and user pointer before tearing down — the
+    // Nullify GLFW callbacks and user pointer before tearing down â€” the
     // framebuffer-size callback can fire one last time during destruction
     // and our stack-local AppState/ResizeState would already be gone.
     glfwSetFramebufferSizeCallback(window, nullptr);
