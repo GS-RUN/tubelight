@@ -516,10 +516,10 @@ void Menu::build_widgets(Pipeline& pipeline,
             sio.recordable_changed = true;
         }
         if (sio.recordable) {
-            ImGui::TextDisabled("Source capture switched to GDI BitBlt (no CAPTUREBLT)");
-            ImGui::TextDisabled("so the overlay skips its own pixels. Overlay stays live.");
+            ImGui::TextDisabled("Source auto-frozen to prevent feedback-to-black.");
+            ImGui::TextDisabled("Toggle OFF then ON again to refresh the captured frame.");
         }
-        ImGui::TextDisabled("All persist between launches");
+        ImGui::TextDisabled("Recordable is per-session; the other toggles persist.");
     }
 
     ImGui::Separator();
