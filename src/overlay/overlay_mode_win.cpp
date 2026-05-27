@@ -1038,6 +1038,16 @@ int run(const Options& opts) {
         settings.low_latency = false;
         save_settings(settings);
     }
+    // Migration: click-through-at-startup was footgun — if it persists
+    // ON, the user can't interact with the title bar / X button on the
+    // next launch and gets stuck (Ctrl+Alt+M / Ctrl+Alt+C still rescue,
+    // but it's still surprising). Force off + don't persist between
+    // sessions. It stays a per-session toggle from now on.
+    if (settings.clickthrough_user) {
+        std::fprintf(stderr, "[overlay] migrating settings.clickthrough_user true → false (no longer auto-applied at startup)\n");
+        settings.clickthrough_user = false;
+        save_settings(settings);
+    }
     std::string effective_capture_dir =
         settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
     std::string ui_capture_dir = settings.capture_dir;
@@ -1052,12 +1062,11 @@ int run(const Options& opts) {
     int   rec_rw        = settings.record_rect_w;
     int   rec_rh        = settings.record_rect_h;
     // Apply persisted click-through at startup (windowed mode only).
-    bool startup_clickthrough = settings.clickthrough_user;
-    // Apply persisted windowed click-through now (settings just loaded;
-    // window is windowed if we got here without fullscreen/target/region).
-    if (startup_clickthrough && windowed_mode && !target_active && !region_active) {
-        apply_clickthrough_user(true);
-    }
+    // Click-through is now strictly a per-session toggle — never auto-
+    // applied on launch even if it was on when the user last quit. The
+    // user can re-enable via Ctrl+Alt+C or the menu checkbox at any
+    // time. This avoids the "I can't click anything in the title bar"
+    // surprise on next launch.
 
     // CRT audio (XAudio2 flyback whine). Init best-effort: if it fails
     // for any reason (no audio device, driver issue, headless test env)
