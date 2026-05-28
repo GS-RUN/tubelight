@@ -170,7 +170,7 @@ Args parse_args(int argc, char** argv) {
                 } else {
                     a.unknown_flag = true;
                     a.unknown_flag_text = std::string("--renderer ") + tok +
-                                          " (only 'gl' is supported in v0.1.x; 'dx12' lands in v0.2.0)";
+                                          " (valid: 'gl' or 'dx12')";
                 }
             } else {
                 a.unknown_flag = true;
@@ -233,15 +233,18 @@ void print_help() {
         "                               as PNG, exits. Used by tests/golden pixel-\n"
         "                               equivalence harness (GL vs DX12 PSNR).\n"
         "  --renderer <gl|dx12>         Render backend (default: gl).\n"
-        "                               'dx12' (v0.2.0-alpha): boots Direct3D 12 device +\n"
-        "                               swap chain + clear/present as a skeleton — the CRT\n"
-        "                               pipeline still requires gl (Phase 3c port pending).\n"
-        "                               Falls back to gl if the D3D12 device cannot be created.\n"
+        "                               'dx12' drives the full 8-pass CRT pipeline on\n"
+        "                               Direct3D 12 and, combined with --overlay*, captures\n"
+        "                               via Windows.Graphics.Capture (WGC) instead of DXGI\n"
+        "                               Desktop Duplication. Falls back to gl if the D3D12\n"
+        "                               device cannot be created.\n"
         "\n"
-        "Note: Tubelight renders with OpenGL. Desktop capture uses Windows'\n"
-        "      DXGI Desktop Duplication regardless of what the underlying\n"
-        "      apps (games / emulators) use — DirectX, OpenGL, Vulkan are\n"
-        "      all captured transparently. There is no rendering-API switch.\n"
+        "Note: capture + render backends pair up. gl  → DXGI Desktop\n"
+        "      Duplication + OpenGL; dx12 → WGC + D3D11On12 + Direct3D 12.\n"
+        "      Either way the underlying apps (games / emulators) may use\n"
+        "      DirectX, OpenGL or Vulkan — all captured transparently.\n"
+        "      DX12 overlay: ImGui menu + cross-process click-through are\n"
+        "      deferred to v0.2.1 (Phase 4a / DirectComposition).\n"
         "\n"
         "Overlay global hotkeys (Ctrl+Alt+ ...):\n"
         "  Q  quit            M  toggle menu      F  freeze frame\n"
