@@ -20,14 +20,20 @@ public:
     GLBackend(const GLBackend&) = delete;
     GLBackend& operator=(const GLBackend&) = delete;
 
-    bool init() override;
+    bool init(const BackendInitParams& params) override;
     void shutdown() override;
+    void resize(int width, int height) override { (void)width; (void)height; }
     const char* name() const override { return "OpenGL 4.5 core (libepoxy)"; }
 
+    void begin_frame() override {}
     void bind_default_framebuffer() override;
     void set_viewport(int x, int y, int w, int h) override;
     void clear_color(float r, float g, float b, float a) override;
     void draw_fullscreen_quad() override;
+    void end_frame() override {}
+
+    // GLBackend fully drives Pipeline — that's its job today.
+    bool supports_pipeline() const override { return true; }
 
 private:
     FullscreenQuad quad_;

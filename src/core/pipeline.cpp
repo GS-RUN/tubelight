@@ -153,7 +153,7 @@ bool Pipeline::create(int output_width, int output_height) {
     output_height_ = output_height;
 
     // Lazily instantiate the default OpenGL backend if the caller did not
-    // inject one. Phase 3b will let main.cpp pick D3D12 here.
+    // inject one. Phase 3b lets main.cpp pick D3D12 here.
     if (!backend_) {
         backend_ = create_backend(BackendKind::OpenGL);
         if (!backend_) {
@@ -161,8 +161,22 @@ bool Pipeline::create(int output_width, int output_height) {
             return false;
         }
     }
-    if (!backend_->init()) {
+    // Pipeline only knows about the framebuffer dimensions; main.cpp is
+    // responsible for any pre-init() the backend needs (e.g. binding the
+    // HWND for D3D12 before passing the backend to Pipeline). The GL
+    // backend ignores the params struct.
+    BackendInitParams bp;
+    bp.width  = output_width;
+    bp.height = output_height;
+    if (!backend_->init(bp)) {
         std::fprintf(stderr, "[tubelight] backend init failed (%s)\n", backend_->name());
+        return false;
+    }
+    if (!backend_->supports_pipeline()) {
+        std::fprintf(stderr,
+            "[tubelight] backend '%s' cannot drive Pipeline yet (Phase 3c pending).\n"
+            "            Falling back is the caller's responsibility.\n",
+            backend_->name());
         return false;
     }
 

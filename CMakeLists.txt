@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.26)
 
 project(tubelight
-    VERSION 0.1.7
+    VERSION 0.2.0
     DESCRIPTION "High-fidelity CRT overlay for Windows and Linux"
     HOMEPAGE_URL "https://github.com/gs-run/tubelight"
     LANGUAGES CXX
@@ -31,12 +31,20 @@ endif()
 option(TUBELIGHT_BUILD_TESTS "Build tubelight tests" OFF)
 option(TUBELIGHT_BUILD_INSTALLER "Build platform installer (NSIS / AppImage)" OFF)
 
-# ADR-0002 Phase 3a: render backend selection. Only OpenGL is wired today;
-# the D3D12 option lands in Phase 3b. The CMake flag exists now so build
-# scripts and CI configurations can be staged.
+# ADR-0002 Phase 3a: render backend selection.
 option(TUBELIGHT_RENDERER_GL "Enable the OpenGL render backend" ON)
 if(NOT TUBELIGHT_RENDERER_GL)
-    message(FATAL_ERROR "TUBELIGHT_RENDERER_GL=OFF is not yet supported — no other backend is implemented (D3D12 lands in v0.2.0).")
+    message(FATAL_ERROR "TUBELIGHT_RENDERER_GL=OFF is not yet supported — GL is the only backend that drives the full pipeline today (Phase 3c pending).")
+endif()
+
+# ADR-0002 Phase 3b: D3D12 backend skeleton. Windows-only; Linux forces OFF.
+# Headers ship with the Windows SDK 10.0.26100 (already required), no new
+# vcpkg deps. The skeleton boots a device + swap chain + clear/present —
+# it does NOT yet drive the 8-pass Pipeline (that lands in Phase 3c).
+if(WIN32)
+    option(TUBELIGHT_BUILD_DX12 "Build the Direct3D 12 backend (Windows only)" ON)
+else()
+    set(TUBELIGHT_BUILD_DX12 OFF CACHE BOOL "" FORCE)
 endif()
 
 # Generate compile_commands.json for clangd / editors

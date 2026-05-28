@@ -12,6 +12,7 @@ add_library(tubelight_core STATIC
     core/pipeline.cpp
     render/backend.cpp
     render/backend_gl.cpp
+    $<$<BOOL:${TUBELIGHT_BUILD_DX12}>:render/backend_d3d12.cpp>
     io/image_io.cpp
     io/shader_io.cpp
     profile/crt_profile.cpp
@@ -31,6 +32,11 @@ add_library(tubelight_core STATIC
 
 if(WIN32)
     target_link_libraries(tubelight_core PUBLIC d3d11 dxgi ole32 shell32 uuid xaudio2 Magnification)
+endif()
+
+if(TUBELIGHT_BUILD_DX12)
+    target_link_libraries(tubelight_core PUBLIC d3d12)
+    target_compile_definitions(tubelight_core PUBLIC TUBELIGHT_HAVE_D3D12)
 endif()
 
 if(imgui_FOUND)

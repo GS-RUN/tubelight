@@ -13,7 +13,7 @@ GLBackend::~GLBackend() {
     shutdown();
 }
 
-bool GLBackend::init() {
+bool GLBackend::init(const BackendInitParams& /*params*/) {
     if (ready_) return true;
     if (!quad_.create()) {
         std::fprintf(stderr, "[tubelight] GLBackend: FullscreenQuad::create failed\n");

@@ -7,6 +7,50 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ### Known limitations
 
+## [0.2.0-alpha.0] — 2026-05-28
+
+### Added (architecture)
+- **Phase 3b (ADR-0002): Direct3D 12 backend skeleton**. New
+  `D3D12Backend` (`src/render/backend_d3d12.{h,cpp}`) creates a D3D12
+  device (FL 12_0+), DXGI 1.6 flip-discard swap chain, command queue
+  + allocator + list, RTV descriptor heap, fence sync, clear, and
+  Present. Validated on NVIDIA RTX 2080 Ti at FL 12_2.
+- **CLI `--renderer dx12`** opens a no-API GLFW window, hands the HWND
+  to `D3D12Backend`, and runs a proof-of-life loop that clears to a
+  Tubelight-blue background. Falls back to OpenGL automatically if
+  device creation fails — covers ADR-0002 R12 (pre-DX12 GPU, Wine
+  without DXVK, etc).
+- **`IRenderBackend` extended** with `begin_frame()` / `end_frame()` /
+  `resize()` / `supports_pipeline()` and a `BackendInitParams` struct
+  that bundles the opaque native window handle. GL backend ignores
+  the handle; D3D12 requires it.
+- **CMake option `TUBELIGHT_BUILD_DX12`** (default ON on Windows, OFF
+  on Linux). Adds `d3d12` system library and the
+  `TUBELIGHT_HAVE_D3D12` compile definition. No new vcpkg deps — the
+  Windows SDK 10.0.26100 already ships everything required.
+
+### Important limitation
+- **The 8-pass CRT Pipeline still requires the OpenGL backend**.
+  `D3D12Backend::supports_pipeline()` returns `false`; Pipeline rejects
+  any backend that doesn't support it. Porting the passes to HLSL +
+  rewriting Pipeline to use abstract resource handles lands in
+  Phase 3c (target: v0.2.0-beta). `--renderer dx12 --shader-only`
+  shows only the proof-of-life clear; the testcard image argument is
+  accepted but not yet rendered through the pipeline.
+
+### Why ship a non-driving backend?
+Two reasons:
+1. Validates windowing + adapter selection + swap chain plumbing
+   end-to-end on real hardware before sinking a week into HLSL ports.
+2. Surfaces `--renderer dx12` so users and CI can smoke-test D3D12
+   device creation on their hardware ahead of v0.2.0 stable (early R12
+   detection).
+
+### Synchronisation
+Intentionally simple in Phase 3b: one allocator, one command list, one
+fence, wait-for-idle on every Present (~1 ms penalty vs. a proper
+triple-buffered pipeline). Pipelining lands in Phase 3c.
+
 ## [0.1.7] — 2026-05-28
 
 ### Added (architecture)
