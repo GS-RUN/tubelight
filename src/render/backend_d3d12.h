@@ -79,6 +79,8 @@ public:
     void bind_texture(int slot, TextureHandle) override;
     void set_uniform_block(PassHandle, const void* data, size_t bytes) override;
     TextureHandle rt_as_texture(RenderTargetHandle) override;
+    bool capture_backbuffer(std::vector<uint8_t>& out_rgba,
+                             int& out_width, int& out_height) override;
 
 private:
     static constexpr UINT kBackBufferCount = 2;

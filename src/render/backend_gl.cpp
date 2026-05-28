@@ -288,6 +288,25 @@ TextureHandle GLBackend::rt_as_texture(RenderTargetHandle h) {
     return TextureHandle{id};
 }
 
+bool GLBackend::capture_backbuffer(std::vector<uint8_t>& out_rgba,
+                                    int& out_width, int& out_height) {
+    // Read viewport so we know the framebuffer dimensions.
+    GLint vp[4]{};
+    glGetIntegerv(GL_VIEWPORT, vp);
+    const int w = vp[2];
+    const int h = vp[3];
+    if (w <= 0 || h <= 0) return false;
+    out_width  = w;
+    out_height = h;
+    out_rgba.assign(static_cast<size_t>(w) * h * 4, 0);
+    // Read the front buffer (presented frame). After SwapBuffers GL_FRONT
+    // is what the user sees; this avoids reading a partially-drawn back.
+    glReadBuffer(GL_FRONT);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, out_rgba.data());
+    return true;
+}
+
 TextureHandle GLBackend::wrap_external_gl_texture(uint32_t gl_id, int w, int h) {
     TextureEntry e;
     e.format      = PixelFormat::RGBA8_UNORM;  // conventional; not actually used

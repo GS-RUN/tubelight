@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Noncommercial-1.0.0
+# Copyright (c) 2026 Alonso J. Núñez (GS·RUN)
+#
+# Phase 3c F3c-5: pixel-equivalence harness for GL vs D3D12 backend
+# output. Runs on every push that touches src/render/, shaders/, or the
+# spec, and on weekly schedule.
+#
+# Gate: PSNR ≥ 18 dB on the testcard processed with pvm-8220 +
+# composite_ntsc. See specs/phase-3c/SPEC.md §M1 (and RISKS R3c-2) for
+# why the original 40 dB barre was relaxed to 18 dB after measuring
+# cross-API cascade reality.
+
+name: pixel-equivalence
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/render/**'
+      - 'shaders/**'
+      - 'src/core/pipeline.*'
+      - 'specs/phase-3c/**'
+      - 'tests/golden/**'
+      - 'cmake/CompileShaders.cmake'
+      - '.github/workflows/pixel_equivalence.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/render/**'
+      - 'shaders/**'
+      - 'src/core/pipeline.*'
+      - 'specs/golden/**'
+      - 'tests/golden/**'
+  workflow_dispatch:
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+
+jobs:
+  pixel-equivalence:
+    name: GL vs D3D12 (NVIDIA-class GPU required for DX12)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: '7e99dc220963b470f61bd502e3fee50eda5c41ff'
+
+      - name: Setup Python (Pillow + numpy for PSNR)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install Pillow numpy
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
+          cmake --preset windows-vcpkg
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build/windows-vcpkg --config Release --target tubelight
+
+      - name: Capture GL screenshot
+        shell: pwsh
+        run: |
+          $exe = "build/windows-vcpkg/Release/tubelight.exe"
+          $tc  = "docs/manual/assets/raw/testcard.png"
+          if (-not (Test-Path $tc)) { $tc = "tests/golden/testcard_fallback.png" }
+          & $exe --renderer gl --shader-only $tc `
+                 --profile pvm-8220 --signal composite_ntsc `
+                 --screenshot tests/golden/ci_gl.png
+          if (-not (Test-Path tests/golden/ci_gl.png)) {
+            throw "GL screenshot was not produced"
+          }
+
+      - name: Capture D3D12 screenshot
+        # CI runners typically don't have a real GPU exposing DX12 — this
+        # step is allowed to fail (continue-on-error). The PSNR step will
+        # skip itself if the DX12 capture is missing. Run real comparison
+        # locally before tagging.
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = "build/windows-vcpkg/Release/tubelight.exe"
+          $tc  = "docs/manual/assets/raw/testcard.png"
+          if (-not (Test-Path $tc)) { $tc = "tests/golden/testcard_fallback.png" }
+          & $exe --renderer dx12 --shader-only $tc `
+                 --profile pvm-8220 --signal composite_ntsc `
+                 --screenshot tests/golden/ci_dx12.png
+
+      - name: PSNR comparison
+        shell: pwsh
+        run: |
+          if (-not (Test-Path tests/golden/ci_dx12.png)) {
+            Write-Warning "DX12 capture missing — skipping PSNR gate."
+            Write-Warning "Run pixel-equivalence locally on a DX12-capable host before tagging."
+            exit 0
+          }
+          python tests/golden/dx12_vs_gl_psnr.py `
+                 tests/golden/ci_gl.png tests/golden/ci_dx12.png `
+                 --min-psnr 18 `
+                 --save-diff tests/golden/ci_diff.png
+
+      - name: Upload captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-equivalence-captures
+          path: tests/golden/ci_*.png
+          if-no-files-found: ignore

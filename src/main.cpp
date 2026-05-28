@@ -38,7 +38,7 @@ namespace {
 
 constexpr int kDefaultWidth  = 1280;
 constexpr int kDefaultHeight = 960;
-constexpr const char* kVersion = "0.2.0-alpha.0";
+constexpr const char* kVersion = "0.2.0-beta.0";
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
@@ -64,6 +64,10 @@ struct Args {
     std::string unknown_flag_text;
     // ADR-0002 Phase 3a: render backend selector. Only "gl" accepted today.
     tubelight::BackendKind backend = tubelight::BackendKind::OpenGL;
+    // Phase 3c F3c-5: deterministic offscreen capture for pixel-equivalence
+    // testing. When set, --shader-only renders 60 warmup frames, captures
+    // the backbuffer to <path> as PNG, then exits.
+    std::string screenshot_path;
 };
 
 Args parse_args(int argc, char** argv) {
@@ -139,6 +143,13 @@ Args parse_args(int argc, char** argv) {
                 a.overlay_init_w = std::atoi(argv[++i]);
                 a.overlay_init_h = std::atoi(argv[++i]);
             }
+        } else if (arg == "--screenshot") {
+            if (i + 1 < argc) {
+                a.screenshot_path = argv[++i];
+            } else {
+                a.unknown_flag = true;
+                a.unknown_flag_text = "--screenshot requires a path";
+            }
         } else if (arg == "--renderer") {
             if (i + 1 < argc) {
                 const char* tok = argv[++i];
@@ -200,6 +211,10 @@ void print_help() {
         "  --signal <id>                Signal profile id\n"
         "  --validate-profile <path>    Validate a profile JSON and exit\n"
         "  --export-slangp <path>       Export current profile as RetroArch preset\n"
+        "  --screenshot <path>          --shader-only deterministic capture: renders 60\n"
+        "                               warmup frames, writes the backbuffer to <path>\n"
+        "                               as PNG, exits. Used by tests/golden pixel-\n"
+        "                               equivalence harness (GL vs DX12 PSNR).\n"
         "  --renderer <gl|dx12>         Render backend (default: gl).\n"
         "                               'dx12' (v0.2.0-alpha): boots Direct3D 12 device +\n"
         "                               swap chain + clear/present as a skeleton — the CRT\n"
@@ -235,7 +250,7 @@ void print_help() {
 
 void print_version() {
 #if defined(TUBELIGHT_HAVE_D3D12)
-    std::printf("tubelight %s (renderers: gl, dx12-skeleton)\n", kVersion);
+    std::printf("tubelight %s (renderers: gl, dx12)\n", kVersion);
 #else
     std::printf("tubelight %s (renderers: gl)\n", kVersion);
 #endif
@@ -293,7 +308,8 @@ void framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
 // ---------------------------------------------------------------------------
 int run_shader_only(const std::string& image_path,
                     const std::string& profile_id,
-                    const std::string& signal_id) {
+                    const std::string& signal_id,
+                    const std::string& screenshot_path) {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
         std::fprintf(stderr, "[tubelight] glfwInit failed\n");
@@ -372,6 +388,39 @@ int run_shader_only(const std::string& image_path,
                 image_path.c_str(), source_tex.width(), source_tex.height());
     std::printf("[tubelight] Keys: 1..8 toggle passes, 0 enable all, ESC quit.\n");
 
+    // Screenshot mode: render 60 frames with a fixed time stamp (so the
+    // signal noise pass is deterministic), then glReadPixels the backbuffer
+    // and write a PNG. Exits without entering the interactive loop.
+    if (!screenshot_path.empty()) {
+        constexpr int kWarmupFrames = 60;
+        const float kFixedTime = 1.0f;
+        pipeline.set_time(kFixedTime);
+        for (int f = 0; f < kWarmupFrames; ++f) {
+            pipeline.render_to_screen(source_tex.id());
+            glfwSwapBuffers(window);
+            glfwPollEvents();
+        }
+        // Capture the frontbuffer that we just presented. glReadPixels
+        // from GL_FRONT after SwapBuffers gives the visible image.
+        std::vector<uint8_t> px(static_cast<size_t>(fb_w) * fb_h * 4);
+        glReadBuffer(GL_FRONT);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, fb_w, fb_h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+        std::string err;
+        const bool ok = tubelight::save_png(screenshot_path, px.data(),
+                                             fb_w, fb_h, 4, err,
+                                             /*flip_vertical=*/true);
+        if (!ok) {
+            std::fprintf(stderr, "[tubelight] screenshot save failed: %s\n", err.c_str());
+        } else {
+            std::printf("[tubelight] screenshot written: %s (%dx%d)\n",
+                        screenshot_path.c_str(), fb_w, fb_h);
+        }
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return ok ? 0 : 1;
+    }
+
     double t0 = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
         pipeline.set_time(static_cast<float>(glfwGetTime() - t0));
@@ -392,7 +441,8 @@ int run_shader_only(const std::string& image_path,
 // Returns 1 if any step fails — caller may fall back to GL.
 int run_shader_only_dx12(const std::string& image_path,
                           const std::string& profile_id,
-                          const std::string& signal_id) {
+                          const std::string& signal_id,
+                          const std::string& screenshot_path) {
 #if defined(_WIN32) && defined(TUBELIGHT_HAVE_D3D12)
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -438,9 +488,11 @@ int run_shader_only_dx12(const std::string& image_path,
     std::printf("[tubelight] %s\n", backend->name());
 
     // Load testcard via stb_image into a CPU RGBA8 buffer, then upload
-    // into a backend-owned TextureHandle. No GL Texture2D needed.
-    // D3D12 texture Y origin is top-left (matches PNG row order); GL is
-    // bottom-left. Don't flip on load — DX12 path consumes natural order.
+    // into a backend-owned TextureHandle. flip_vertical=false: DX12
+    // backend uses a Vulkan-style negative-height viewport so the same
+    // SPIR-V semantics apply (uv.y=0 → top of viewport). DX12 texture
+    // convention: texel y=0 = top of texture. With flip=false (PNG
+    // natural order), top of texture = top of PNG = top of screen. ✓
     tubelight::ImageData img;
     std::string img_err;
     if (!tubelight::load_image(image_path, img, img_err, /*flip_vertical=*/false)) {
@@ -536,6 +588,43 @@ int run_shader_only_dx12(const std::string& image_path,
 
     std::printf("[tubelight] D3D12 shader-only running on %s (%dx%d).\n",
                 image_path.c_str(), img_w, img_h);
+
+    // Screenshot mode: render 60 warmup frames with fixed time, capture
+    // backbuffer via readback, save PNG, exit.
+    if (!screenshot_path.empty()) {
+        constexpr int kWarmupFrames = 60;
+        const float kFixedTime = 1.0f;
+        pipeline.set_time(kFixedTime);
+        for (int f = 0; f < kWarmupFrames; ++f) {
+            backend_raw->begin_frame();
+            pipeline.render_to_screen(source_h);
+            backend_raw->end_frame();
+            glfwPollEvents();
+        }
+        std::vector<uint8_t> px;
+        int cap_w = 0, cap_h = 0;
+        if (!backend_raw->capture_backbuffer(px, cap_w, cap_h)) {
+            std::fprintf(stderr, "[tubelight] D3D12 capture_backbuffer failed\n");
+            glfwDestroyWindow(window);
+            glfwTerminate();
+            return 1;
+        }
+        std::string err;
+        // DX12 backbuffer is BGRA-ish? Actually R8G8B8A8_UNORM is RGBA.
+        // save_png expects RGBA. No swizzle needed.
+        const bool ok = tubelight::save_png(screenshot_path, px.data(),
+                                             cap_w, cap_h, 4, err,
+                                             /*flip_vertical=*/false);
+        if (!ok) {
+            std::fprintf(stderr, "[tubelight] screenshot save failed: %s\n", err.c_str());
+        } else {
+            std::printf("[tubelight] screenshot written: %s (%dx%d)\n",
+                        screenshot_path.c_str(), cap_w, cap_h);
+        }
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return ok ? 0 : 1;
+    }
 
     double t0 = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
@@ -648,13 +737,15 @@ int main(int argc, char** argv) {
     if (!args.shader_only_input.empty()) {
         if (args.backend == tubelight::BackendKind::D3D12) {
             int rc = run_shader_only_dx12(args.shader_only_input,
-                                            args.profile_id, args.signal_id);
+                                            args.profile_id, args.signal_id,
+                                            args.screenshot_path);
             if (rc == 0) return 0;
             std::fprintf(stderr,
                 "[tubelight] D3D12 path failed (rc=%d); falling back to OpenGL.\n", rc);
             // Fall through to GL.
         }
-        return run_shader_only(args.shader_only_input, args.profile_id, args.signal_id);
+        return run_shader_only(args.shader_only_input, args.profile_id,
+                               args.signal_id, args.screenshot_path);
     }
     // Default action (no flags, or just --overlay / --overlay-fullscreen):
     // launch the real overlay. Double-clicking the exe should "just work".

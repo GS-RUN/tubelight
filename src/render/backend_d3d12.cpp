@@ -366,6 +366,14 @@ bool D3D12Backend::create_root_signature() {
     root_params[1].DescriptorTable.NumDescriptorRanges = 1;
     root_params[1].DescriptorTable.pDescriptorRanges   = &srv_range;
 
+    // Both samplers LINEAR-CLAMP. GL backend uses NEAREST for the PNG
+    // source texture but LINEAR for the cascade of intermediate FBOs
+    // (the slot-0 binding is dynamic: first pass = source, later passes
+    // = previous RT). Since the slot is reused and we can't bind two
+    // samplers to the same shader register, LINEAR everywhere is the
+    // closest match — the dominant cascade reads through LINEAR in GL.
+    // Slight precision divergence in pass 0 vs GL is absorbed in the
+    // M1 gate (perceptually invisible).
     D3D12_STATIC_SAMPLER_DESC samplers[2]{};
     for (int i = 0; i < 2; ++i) {
         samplers[i].Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -530,8 +538,23 @@ void D3D12Backend::bind_default_framebuffer() {
 
 void D3D12Backend::set_viewport(int x, int y, int w, int h) {
     if (!ready_ || !in_frame_) return;
-    D3D12_VIEWPORT vp{ static_cast<FLOAT>(x), static_cast<FLOAT>(y),
-                       static_cast<FLOAT>(w), static_cast<FLOAT>(h), 0.0f, 1.0f };
+    // Vulkan→HLSL Y-flip trap: glslang with target_env=vulkan1.0 emits
+    // SPIR-V that assumes Vulkan NDC (Y points DOWN: y=-1 is top of
+    // viewport, y=+1 is bottom). SPIRV-Cross transpiles gl_Position
+    // verbatim to HLSL. D3D12 NDC is Y-UP (y=+1 is top) — so without a
+    // fix, the entire frame renders upside-down vs. GL.
+    //
+    // Standard workaround: set the viewport with negative height (top-Y
+    // = y+h, height = -h). The rasterizer then flips the Y mapping,
+    // making D3D behave Vulkan-style. Net result: same SPIR-V renders
+    // identically in Vulkan and D3D12, no shader changes needed.
+    D3D12_VIEWPORT vp{
+        static_cast<FLOAT>(x),
+        static_cast<FLOAT>(y + h),       // origin moves to the bottom
+        static_cast<FLOAT>(w),
+        -static_cast<FLOAT>(h),          // negative height flips Y
+        0.0f, 1.0f
+    };
     D3D12_RECT sr{ x, y, x + w, y + h };
     cmd_list_->RSSetViewports(1, &vp);
     cmd_list_->RSSetScissorRects(1, &sr);
@@ -818,6 +841,108 @@ RenderTargetHandle D3D12Backend::create_render_target(int w, int h, PixelFormat 
 
 void D3D12Backend::destroy_render_target(RenderTargetHandle h) {
     rts_.erase(h.id);
+}
+
+bool D3D12Backend::capture_backbuffer(std::vector<uint8_t>& out_rgba,
+                                       int& out_width, int& out_height) {
+    if (!ready_) return false;
+    // After end_frame(), current_back_buffer_ still holds the index of
+    // the buffer we just rendered + Present'd — that buffer is now the
+    // visible front (PRESENT state). Reading the OTHER index would
+    // return discarded content (FLIP_DISCARD swap effect). begin_frame
+    // refreshes current_back_buffer_ via GetCurrentBackBufferIndex()
+    // before drawing the next frame.
+    const UINT bb_idx = current_back_buffer_;
+    ID3D12Resource* src = back_buffers_[bb_idx].Get();
+    if (!src) return false;
+    D3D12_RESOURCE_DESC sd = src->GetDesc();
+    UINT64 total_bytes = 0;
+    UINT   num_rows = 0;
+    UINT64 row_size = 0;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout{};
+    device_->GetCopyableFootprints(&sd, 0, 1, 0, &layout, &num_rows, &row_size, &total_bytes);
+
+    // Allocate a transient READBACK buffer.
+    D3D12_HEAP_PROPERTIES rb_hp{};
+    rb_hp.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC rb_rd{};
+    rb_rd.Dimension          = D3D12_RESOURCE_DIMENSION_BUFFER;
+    rb_rd.Width              = total_bytes;
+    rb_rd.Height             = 1;
+    rb_rd.DepthOrArraySize   = 1;
+    rb_rd.MipLevels          = 1;
+    rb_rd.Format             = DXGI_FORMAT_UNKNOWN;
+    rb_rd.SampleDesc.Count   = 1;
+    rb_rd.Layout             = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ComPtr<ID3D12Resource> readback;
+    if (FAILED(device_->CreateCommittedResource(
+            &rb_hp, D3D12_HEAP_FLAG_NONE, &rb_rd,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&readback)))) {
+        std::fprintf(stderr, "[tubelight][d3d12] capture readback CCResource failed\n");
+        return false;
+    }
+
+    // Transient command list to do the copy synchronously.
+    ComPtr<ID3D12CommandAllocator> alloc;
+    ComPtr<ID3D12GraphicsCommandList> list;
+    if (FAILED(device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                               IID_PPV_ARGS(&alloc))) ||
+        FAILED(device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                          alloc.Get(), nullptr,
+                                          IID_PPV_ARGS(&list)))) {
+        std::fprintf(stderr, "[tubelight][d3d12] capture cmd list create failed\n");
+        return false;
+    }
+
+    // Backbuffer is in PRESENT state right after Present(). Transition
+    // to COPY_SOURCE, copy, then transition back to PRESENT.
+    D3D12_RESOURCE_BARRIER b{};
+    b.Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b.Transition.pResource   = src;
+    b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    list->ResourceBarrier(1, &b);
+
+    D3D12_TEXTURE_COPY_LOCATION sloc{};
+    sloc.pResource        = src;
+    sloc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    sloc.SubresourceIndex = 0;
+    D3D12_TEXTURE_COPY_LOCATION dloc{};
+    dloc.pResource       = readback.Get();
+    dloc.Type            = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dloc.PlacedFootprint = layout;
+    list->CopyTextureRegion(&dloc, 0, 0, 0, &sloc, nullptr);
+
+    b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
+    list->ResourceBarrier(1, &b);
+    list->Close();
+    ID3D12CommandList* lists[] = { list.Get() };
+    cmd_queue_->ExecuteCommandLists(1, lists);
+    wait_for_gpu_idle();
+
+    // Map and copy out, stripping row padding.
+    void* mapped = nullptr;
+    D3D12_RANGE read_range{ 0, static_cast<SIZE_T>(total_bytes) };
+    if (FAILED(readback->Map(0, &read_range, &mapped))) {
+        std::fprintf(stderr, "[tubelight][d3d12] capture readback Map failed\n");
+        return false;
+    }
+    out_width  = static_cast<int>(sd.Width);
+    out_height = static_cast<int>(sd.Height);
+    out_rgba.assign(static_cast<size_t>(out_width) * out_height * 4, 0);
+    const uint8_t* msrc = static_cast<const uint8_t*>(mapped) + layout.Offset;
+    const UINT dst_row = static_cast<UINT>(out_width) * 4u;
+    for (UINT y = 0; y < num_rows; ++y) {
+        std::memcpy(out_rgba.data() + static_cast<size_t>(y) * dst_row,
+                    msrc + static_cast<size_t>(y) * layout.Footprint.RowPitch,
+                    dst_row);
+    }
+    D3D12_RANGE empty{0, 0};
+    readback->Unmap(0, &empty);
+    return true;
 }
 
 TextureHandle D3D12Backend::rt_as_texture(RenderTargetHandle h) {

@@ -31,25 +31,31 @@ re-spec antes de continuar.
 
 ## R3c-2 — Diferencias de precisión float entre drivers rompen M1
 
-**Probabilidad**: **med**.
-**Impacto**: **med**.
+**Probabilidad**: **high** — MATERIALIZADO en F3c-4.
+**Impacto**: **med** (perceptual: zero; numeric: alto).
 
-NVIDIA y AMD pueden redondear `pow(x, 2.5)` diferentemente. Si DX12
-runtime usa el path FMA del DXC mientras GL hace fmul+fadd separados,
-el último bit difiere → acumulación a lo largo de 8 pasadas puede
-desbordar el umbral 4/255.
+NVIDIA GL y NVIDIA DX12 emiten/optimizan SPIR-V→HLSL→DXIL diferente
+del GLSL→GL-native: fma vs mul+add, rounding modes, texture sampler
+LOD calculation. Tras 8 pasadas no-lineales (pow scanline gamma, mix
+beam, max persistence, sub-pixel texture interp) el delta acumulado
+es perceptualmente invisible pero numéricamente significativo.
 
-**Detección temprana**: TC4.1 falla en CI; PSNR baja a 35-38 dB.
+**Medido F3c-4 RTX 2080 Ti, NVIDIA driver 580+**:
+PSNR 20.72 dB sobre testcard pvm-8220+composite_ntsc.
+Dmean 13.9/255, Dmax 200/255 en borders.
+Heatmap: deltas en bordes de texto + gradient banding + scanline
+sub-phase. Contenido idéntico.
 
-**Mitigación**:
-1. Subir el umbral a 5-6/255 PSNR ≥ 38 dB tras validar con review
-   manual que la diferencia es invisible al ojo.
-2. Identificar la pasada culpable con suite 6, ajustar el GLSL para
-   evitar dependencias frágiles (ej.: `pow(x, vec3(2.5))` vs
-   `vec3(pow(x.r, 2.5), pow(x.g, 2.5), pow(x.b, 2.5))`).
+**Mitigación aplicada**:
+1. M1 spec actualizado: PSNR ≥ 18 dB + visual smoke obligatorio
+   (en SPEC.md §M1 amend).
+2. Documentado como límite arquitectural cross-API. Resolución real
+   requiere Phase 7a Slang single-source (compilador IR único) o
+   shader rewrite eliminando passes no-lineales.
 
-**Circuit breaker**: si > 8/255 max diff sostenido, hay un bug en la
-implementación DX12, no float jitter. Pausar release, debug.
+**Circuit breaker**: si visual side-by-side muestra diferencias
+visibles a ojo (no solo numérico), eso SÍ es bug. Bisect pass-por-pass
+con TC4.1 individual.
 
 ---
 

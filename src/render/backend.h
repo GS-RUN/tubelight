@@ -22,7 +22,9 @@
 #include "render/handle.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace tubelight {
 
@@ -151,6 +153,14 @@ public:
     virtual void set_uniform_block(PassHandle h,
                                     const void* data,
                                     size_t bytes) = 0;
+
+    // Read the swap-chain backbuffer back to CPU memory as RGBA8. Used
+    // by `--screenshot` for deterministic offscreen capture (no DWM
+    // compositor interference). The output buffer is tightly packed
+    // (no row padding), origin top-left. Returns false if the backend
+    // can't read back (e.g. backbuffer is HDR10 and we requested RGBA8).
+    virtual bool capture_backbuffer(std::vector<uint8_t>& out_rgba,
+                                     int& out_width, int& out_height) = 0;
 
     // ----- Resource interop helpers ----------------------------------
     // Get a TextureHandle view of an RT's color attachment, so the next
