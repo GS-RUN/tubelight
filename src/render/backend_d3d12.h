@@ -58,9 +58,26 @@ public:
     void end_frame() override;
 
     // Phase 3c lands the HLSL pass ports + abstract resource handles that
-    // let Pipeline drive D3D12. Until then we explicitly refuse so
-    // callers don't silently get a black screen.
+    // let Pipeline drive D3D12. F3c-2 ships only the stubs below; full
+    // implementations land in F3c-4.
     bool supports_pipeline() const override { return false; }
+
+    // ----- Phase 3c handle API (F3c-2: stubs; F3c-4: real impl) ------
+    TextureHandle      create_texture(const TextureDesc&) override;
+    RenderTargetHandle create_render_target(int w, int h, PixelFormat) override;
+    PassHandle         create_pass(const PassDesc&) override;
+
+    void destroy_texture(TextureHandle) override;
+    void destroy_render_target(RenderTargetHandle) override;
+    void destroy_pass(PassHandle) override;
+
+    bool upload_texture_rgba8(TextureHandle, const void*, int, int) override;
+    void copy_rt_to_texture(RenderTargetHandle, TextureHandle) override;
+
+    void bind_render_target(RenderTargetHandle) override;
+    void bind_pass(PassHandle) override;
+    void bind_texture(int slot, TextureHandle) override;
+    void set_uniform_block(PassHandle, const void* data, size_t bytes) override;
 
 private:
     static constexpr UINT kBackBufferCount = 2;

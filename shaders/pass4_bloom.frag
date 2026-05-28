@@ -17,9 +17,22 @@ layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
 uniform sampler2D u_source;
-uniform vec2  u_resolution;
-uniform float u_bloom_strength;
-uniform float u_halation_strength;
+
+// Phase 3c: scalar/vec uniforms wrapped in explicit std140 block. Produces
+// a deterministic HLSL cbuffer on the SPIRV-Cross → dxc path (no $Globals
+// reorder roulette), and a matching C++ POD in src/render/pass_uniforms.h.
+// Layout is std140: each vec2 takes 8 B aligned to 8 B; each float takes
+// 4 B with no special alignment; the block is rounded up to a multiple of
+// 16 B at the end. We arrange fields tightly: vec2 first (8 B), then the
+// 2 floats fill the remaining 8 B of the same 16-byte slot.
+layout(std140, binding = 0) uniform PassUniforms {
+    vec2  u_resolution;            // offset 0,  size 8
+    float u_bloom_strength;        // offset 8,  size 4
+    float u_halation_strength;     // offset 12, size 4
+} u;                               // total 16 B (cbuffer-perfect)
+#define u_resolution         u.u_resolution
+#define u_bloom_strength     u.u_bloom_strength
+#define u_halation_strength  u.u_halation_strength
 
 // Gaussian weights for 9 taps (truncated normal, sigma ~ 1.5).
 const float kWeights[5] = float[5](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);

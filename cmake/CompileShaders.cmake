@@ -119,16 +119,18 @@ function(tubelight_add_shader source stage)
     add_custom_command(
         OUTPUT "${_spv}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/shaders/spirv"
-        # --target-env opengl4.5 produces SPIR-V for OpenGL semantics
-        # (gl_VertexID + non-opaque uniforms outside blocks both allowed).
-        # SPIRV-Cross can still translate this to HLSL SM 6.0; the binding
-        # numbers come from --auto-map-bindings.
+        # Phase 3c F3c-2: switched to Vulkan SPIR-V target. Scalar uniforms
+        # are now wrapped in explicit `layout(std140, binding=0) uniform U
+        # { ... };` blocks so the HLSL output is a deterministic cbuffer
+        # (not the $Globals roulette). gl_VertexID → gl_VertexIndex shim
+        # in fullscreen.vert is guarded by TUBELIGHT_VULKAN.
         COMMAND "${TL_GLSLANG_EXE}"
-                -G
+                -V
                 -S ${_glslang_stage}
-                --target-env opengl
+                --target-env vulkan1.0
                 --auto-map-bindings
                 --auto-map-locations
+                -DTUBELIGHT_VULKAN
                 -e main
                 -o "${_spv}"
                 "${source}"

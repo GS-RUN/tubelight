@@ -25,10 +25,24 @@ layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
 uniform sampler2D u_source;
-uniform vec2  u_resolution;
-uniform int   u_mask_type;        // 0=none 1=shadow 2=aperture 3=slot 4=diamond 5=cgwg 6=dot_trio
-uniform float u_mask_strength;    // [0, 1]
-uniform float u_mask_pitch_px;    // ~2..4 typical at 1080p
+
+// Phase 3c: scalar/vec uniforms in explicit std140 cbuffer for
+// deterministic HLSL layout. See pass4_bloom.frag for the rationale.
+layout(std140, binding = 0) uniform PassUniforms {
+    vec2  u_resolution;     // offset 0,  size 8
+    int   u_mask_type;      // offset 8,  size 4 — 0..6 (see below)
+    float u_mask_strength;  // offset 12, size 4 — [0, 1]
+    float u_mask_pitch_px;  // offset 16, size 4 — ~2..4 typical at 1080p
+    float _pad0;            // offset 20, padding
+    float _pad1;            // offset 24
+    float _pad2;            // offset 28, total = 32 (multiple of 16)
+} u;
+#define u_resolution     u.u_resolution
+#define u_mask_type      u.u_mask_type
+#define u_mask_strength  u.u_mask_strength
+#define u_mask_pitch_px  u.u_mask_pitch_px
+
+// u_mask_type values: 0=none 1=shadow 2=aperture 3=slot 4=diamond 5=cgwg 6=dot_trio
 
 // ----- Gaussian helpers ---------------------------------------------------
 

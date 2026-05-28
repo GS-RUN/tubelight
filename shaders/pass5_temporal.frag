@@ -28,8 +28,17 @@ layout(location = 0) out vec4 o_color;
 
 uniform sampler2D u_source;       // this frame's pass-4 output
 uniform sampler2D u_prev_frame;   // last frame's pass-5 output (history FBO)
-uniform int   u_history_valid;    // 0 = first frame after resize / pass disabled
-uniform vec3  u_persistence;      // per-channel decay 0..1 (0 = no trail)
+
+// Phase 3c: scalar/vec uniforms in explicit std140 cbuffer for
+// deterministic HLSL layout. See pass4_bloom.frag for the rationale.
+// std140 rule: a vec3 occupies 12 B + 4 B padding (16 B aligned). Place
+// it first so the int after fills the last 4 B without padding waste.
+layout(std140, binding = 0) uniform PassUniforms {
+    vec3  u_persistence;    // offset 0,  size 12 — per-channel decay 0..1
+    int   u_history_valid;  // offset 12, size 4  — 0 = first frame
+} u;                        // total 16 B
+#define u_persistence    u.u_persistence
+#define u_history_valid  u.u_history_valid
 
 void main() {
     vec3 current = texture(u_source, v_uv).rgb;

@@ -27,22 +27,43 @@ layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
 uniform sampler2D u_source;
-uniform vec2  u_resolution;
 
-// Signal profile uniforms (mirror of SignalProfile JSON)
-uniform float u_luma_mhz;            // e.g. 4.2 NTSC, 5.0 PAL, 25.0 VGA
-uniform float u_chroma_i_mhz;
-uniform float u_chroma_q_mhz;
-uniform float u_dot_crawl_strength;  // [0..1]
-uniform float u_rainbow_banding;     // [0..1]
-uniform float u_ringing_amount;      // [0..1]
-uniform float u_ghosting_offset_px;  // pixels
-uniform int   u_noise_type;          // 0=pixel 1=line 2=rf 3=none
-uniform float u_noise_strength;      // [0..1]
-uniform int   u_signal_connection;   // 0=rf 1=composite 2=svideo 3=scart_rgb 4=component 5=rgb_vga
+// Phase 3c: scalar/vec uniforms in explicit std140 cbuffer for
+// deterministic HLSL layout. See pass4_bloom.frag for the rationale.
+// 13 scalars + 1 vec2 = 14×4 = 56 B; rounded up to 64 (4 × 16). Pack so
+// no field straddles a 16-byte boundary; vec2 takes positions 8/12 in
+// its slot to make floats neighbours fit cleanly.
+layout(std140, binding = 0) uniform PassUniforms {
+    vec2  u_resolution;             // offset 0,  size 8
+    float u_luma_mhz;               // offset 8   — 4.2 NTSC, 5.0 PAL, 25.0 VGA
+    float u_chroma_i_mhz;           // offset 12
+    float u_chroma_q_mhz;           // offset 16
+    float u_dot_crawl_strength;     // offset 20  — [0..1]
+    float u_rainbow_banding;        // offset 24
+    float u_ringing_amount;         // offset 28
+    float u_ghosting_offset_px;     // offset 32  — pixels
+    int   u_noise_type;             // offset 36  — 0=pixel 1=line 2=rf 3=none
+    float u_noise_strength;         // offset 40  — [0..1]
+    int   u_signal_connection;      // offset 44  — 0..5 (see below)
+    float u_time;                   // offset 48  — per-frame, 0 if no animation
+    float _pad0;                    // offset 52
+    float _pad1;                    // offset 56
+    float _pad2;                    // offset 60 — total 64 B
+} u;
+#define u_resolution            u.u_resolution
+#define u_luma_mhz              u.u_luma_mhz
+#define u_chroma_i_mhz          u.u_chroma_i_mhz
+#define u_chroma_q_mhz          u.u_chroma_q_mhz
+#define u_dot_crawl_strength    u.u_dot_crawl_strength
+#define u_rainbow_banding       u.u_rainbow_banding
+#define u_ringing_amount        u.u_ringing_amount
+#define u_ghosting_offset_px    u.u_ghosting_offset_px
+#define u_noise_type            u.u_noise_type
+#define u_noise_strength        u.u_noise_strength
+#define u_signal_connection     u.u_signal_connection
+#define u_time                  u.u_time
 
-// Time for noise (set per-frame from CPU); 0 if no animation
-uniform float u_time;
+// u_signal_connection: 0=rf 1=composite 2=svideo 3=scart_rgb 4=component 5=rgb_vga
 
 // ---- YIQ/RGB conversion (NTSC) ------------------------------------------
 const mat3 kRGBtoYIQ = mat3(

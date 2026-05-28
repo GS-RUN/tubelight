@@ -3,15 +3,14 @@
 
 #pragma once
 
-#include "core/fbo.h"
 #include "core/quad.h"
-#include "core/shader.h"
-#include "core/texture.h"
 #include "profile/crt_profile.h"
 #include "profile/signal_profile.h"
 #include "render/backend.h"
+#include "render/handle.h"
 
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -63,7 +62,13 @@ public:
     // Applies all enabled passes to source_tex and renders the result to the
     // currently bound default framebuffer (i.e. the window). Returns false
     // only if the pipeline is unusable.
-    bool render_to_screen(GLuint source_tex);
+    //
+    // source_tex is a raw GL texture object id, NOT a TextureHandle —
+    // historical accommodation for callers that own a Texture2D directly
+    // (run_shader_only, overlay capture loop). Phase 3c F3c-4 will migrate
+    // this to TextureHandle when D3D12 needs it; until then we slot-0 bind
+    // it as a GL backdoor.
+    bool render_to_screen(uint32_t source_tex);
 
     // Toggles a single pass. Disabled passes act as identity (pass-through).
     void set_pass_enabled(int pass_index, bool enabled);
@@ -164,61 +169,53 @@ public:
     void set_signal_profile_snapshot(const SignalProfile& s) { signal_snapshot_ = s; }
     const std::optional<SignalProfile>& signal_profile_snapshot() const { return signal_snapshot_; }
 
-    // Read-only access for introspection / tests.
-    const FBO& fbo(int pass_index) const { return fbos_[static_cast<size_t>(pass_index)]; }
-    const ShaderProgram& shader(int pass_index) const { return shaders_[static_cast<size_t>(pass_index)]; }
+    // Read-only access for introspection — kept for any external code
+    // that wanted to peek; now returns handle ids (0 if not yet created).
+    uint32_t pass_handle_id(int pass_index) const {
+        return pass_handles_[static_cast<size_t>(pass_index)].id;
+    }
+    uint32_t render_target_id(int pass_index) const {
+        return rt_handles_[static_cast<size_t>(pass_index)].id;
+    }
 
 private:
-    bool load_shader(int pass_index, const std::string& filename);
-    bool reload_all_shaders();
-
-    static constexpr const char* kPassFilenames[kPassCount] = {
-        "pass_minus1_signal.frag",
-        "pass0_analysis.frag",
-        "pass1_dither_reconstruct.frag",
-        "pass2_beam_scanlines.frag",
-        "pass3_mask.frag",
-        "pass4_bloom.frag",
-        "pass5_temporal.frag",
-        "pass6_composition.frag",
-    };
+    bool create_passes();
 
     int output_width_  = 0;
     int output_height_ = 0;
 
-    std::array<ShaderProgram, kPassCount> shaders_;
-    std::array<FBO, kPassCount> fbos_;
-    std::array<bool, kPassCount> enabled_;
+    std::array<PassHandle, kPassCount>         pass_handles_;
+    std::array<RenderTargetHandle, kPassCount> rt_handles_;
+    std::array<bool, kPassCount>               enabled_;
 
     GlobalParams params_;
-    // Render backend (Phase 3a of ADR-0002). Owns the fullscreen-triangle
-    // VAO and absorbs the raw GL state changes (clear/viewport/bind-default
-    // /draw) that Pipeline used to issue directly. Created in create() if
-    // not pre-injected via set_backend().
+    // Render backend (Phase 3a). Owns the fullscreen-triangle VAO and
+    // — since Phase 3c — every GPU resource used by Pipeline (passes,
+    // render targets, textures, history snapshot). Created in create()
+    // if not pre-injected via set_backend().
     std::unique_ptr<IRenderBackend> backend_;
     float time_ = 0.0f;
     float frame_mean_lum_ = 0.0f;
     std::optional<SignalProfile> signal_snapshot_;
 
-    // Pass 5 history: previous frame's pass-5 output, sampled by the next
-    // frame's temporal shader for phosphor persistence. Marked invalid on
-    // resize / first frame so we don't blend with stale or garbage memory.
-    FBO  history_fbo_;
-    bool history_valid_ = false;
+    // Pass 5 history: previous frame's pass-5 output, snapshotted into
+    // history_tex_ so the next frame's temporal shader can sample it
+    // for phosphor persistence. Marked invalid on resize / first frame.
+    RenderTargetHandle history_rt_{0};   // intermediate RT used by snapshot
+    TextureHandle      history_tex_{0};  // the snapshot sampled next frame
+    bool               history_valid_ = false;
 
-    // Optional per-profile bezel PNG (loaded from
-    // assets/bezels/<profile_id>.png if it exists). When set, Pass 6
-    // samples it for pixels outside the picture rect and uses the
-    // texture's alpha channel to decide bezel-vs-picture (alpha < 0.5
-    // ⇒ bezel, alpha ≥ 0.5 ⇒ fall back to the SDF / picture). Gives
-    // users a route to ship photo-real CRT casings without code
-    // changes — just drop a PNG with the screen area cut out.
-    Texture2D bezel_image_;
-    bool      bezel_image_loaded_ = false;
+    // Optional per-profile bezel PNG sampled by pass 6. NULL handle when
+    // no image is loaded (the shader falls back to the procedural SDF
+    // bezel — see u_has_bezel_image uniform).
+    TextureHandle bezel_tex_{0};
+    int           bezel_w_ = 0;
+    int           bezel_h_ = 0;
+    bool          bezel_image_loaded_ = false;
 
 public:
     bool load_bezel_image(const std::string& path);
-    void clear_bezel_image() { bezel_image_loaded_ = false; bezel_image_.destroy(); }
+    void clear_bezel_image();
     bool has_bezel_image() const { return bezel_image_loaded_; }
 };
 

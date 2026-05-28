@@ -9,22 +9,44 @@ layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
 uniform sampler2D u_source;
-uniform vec2  u_resolution;
-uniform float u_barrel_strength;
-uniform float u_vignette_strength;
-uniform float u_gamma_display;
-uniform float u_time;
-uniform float u_warmup;
-
-uniform int   u_monochrome;
-uniform int   u_posterize_levels;
-uniform vec3  u_phosphor_color;
-uniform vec3  u_glass_tint;
-uniform float u_glass_age;
-uniform float u_target_aspect;
-uniform int   u_bezel_style;     // 0=none 1=pvm 2=beige 3=wood 4=mac 5=generic
-uniform int   u_has_bezel_image; // 0=use SDF, 1=sample u_bezel_tex
 uniform sampler2D u_bezel_tex;   // optional photo-real bezel PNG
+
+// Phase 3c: scalar/vec uniforms in explicit std140 cbuffer for
+// deterministic HLSL layout. See pass4_bloom.frag for the rationale.
+// 14 fields, two vec3 (each occupies 12+4 padding = 16 B). Total 80 B
+// (5×16). Pack so vec3 fields land at 16-aligned offsets and the
+// scalar after each vec3 cleanly absorbs the trailing 4 B.
+layout(std140, binding = 0) uniform PassUniforms {
+    vec2  u_resolution;       // offset 0,  size 8
+    float u_barrel_strength;  // offset 8
+    float u_vignette_strength;// offset 12
+    float u_gamma_display;    // offset 16
+    float u_time;             // offset 20
+    float u_warmup;           // offset 24
+    int   u_monochrome;       // offset 28
+    int   u_posterize_levels; // offset 32
+    float u_glass_age;        // offset 36
+    float u_target_aspect;    // offset 40
+    int   u_bezel_style;      // offset 44 — 0=none 1=pvm 2=beige 3=wood 4=mac 5=generic
+    vec3  u_phosphor_color;   // offset 48 (16-aligned), size 12
+    int   u_has_bezel_image;  // offset 60 — 0=use SDF, 1=sample u_bezel_tex
+    vec3  u_glass_tint;       // offset 64 (16-aligned), size 12
+    float _pad0;              // offset 76 — total 80 B
+} u;
+#define u_resolution         u.u_resolution
+#define u_barrel_strength    u.u_barrel_strength
+#define u_vignette_strength  u.u_vignette_strength
+#define u_gamma_display      u.u_gamma_display
+#define u_time               u.u_time
+#define u_warmup             u.u_warmup
+#define u_monochrome         u.u_monochrome
+#define u_posterize_levels   u.u_posterize_levels
+#define u_phosphor_color     u.u_phosphor_color
+#define u_glass_tint         u.u_glass_tint
+#define u_glass_age          u.u_glass_age
+#define u_target_aspect      u.u_target_aspect
+#define u_bezel_style        u.u_bezel_style
+#define u_has_bezel_image    u.u_has_bezel_image
 
 // ======================================================================
 //  Bezels — programmatic but elaborate enough to read as actual CRT

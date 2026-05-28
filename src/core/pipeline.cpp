@@ -3,8 +3,13 @@
 
 #include "core/pipeline.h"
 
+#include "core/gl_common.h"
+#include "core/texture.h"
+#include "render/pass_uniforms.h"
+
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <string>
 
@@ -22,14 +27,6 @@ constexpr const char* kDisplayNames[Pipeline::kPassCount] = {
     "Pass  5 (temporal)",
     "Pass  6 (composition)",
 };
-
-std::string shader_path(const std::string& filename) {
-#ifdef TUBELIGHT_SHADER_DIR
-    return std::string(TUBELIGHT_SHADER_DIR) + "/" + filename;
-#else
-    return std::string("shaders/") + filename;
-#endif
-}
 
 int connection_to_int(Connection c) {
     switch (c) {
@@ -53,94 +50,127 @@ int noise_type_to_int(NoiseType n) {
     return 3;
 }
 
-void apply_uniforms_for_pass(ShaderProgram& sh,
-                             int pass_index,
-                             const Pipeline::GlobalParams& p,
-                             int src_width,
-                             int src_height,
-                             float time,
-                             float frame_mean_lum,
-                             const std::optional<SignalProfile>& signal) {
-    // Common uniforms used by most shaders.
-    sh.set_vec2("u_resolution",
-                glm::vec2(static_cast<float>(src_width), static_cast<float>(src_height)));
-    sh.set_int("u_pass_index", pass_index);
+// Phase 3c: per-pass uniforms are now POD structs (see render/pass_uniforms.h)
+// matching the std140 cbuffer in each .frag. Pipeline fills the struct,
+// hands it to backend->set_uniform_block(); the backend chooses how to
+// upload (glUniform* on GL, MapAndCopy on D3D12).
+//
+// `history_valid` for pass 5 is passed in because it depends on pipeline
+// state, not the GlobalParams snapshot.
+void build_uniforms_for_pass(int pass_index,
+                              const Pipeline::GlobalParams& p,
+                              int src_width,
+                              int src_height,
+                              float time,
+                              float frame_mean_lum,
+                              bool history_valid,
+                              const std::optional<SignalProfile>& signal,
+                              void* out_buffer) {
+    const float res_x = static_cast<float>(src_width);
+    const float res_y = static_cast<float>(src_height);
 
     switch (pass_index) {
-        case 0: // Pass −1 — signal modeling
+        case 0: { // Pass -1 signal
+            auto& u = *static_cast<PassUniforms_PassMinus1*>(out_buffer);
+            u = {};
+            u.u_resolution[0] = res_x; u.u_resolution[1] = res_y;
             if (signal.has_value()) {
                 const auto& s = signal.value();
-                sh.set_float("u_luma_mhz",            static_cast<float>(s.luma_mhz));
-                sh.set_float("u_chroma_i_mhz",        static_cast<float>(s.chroma_i_mhz));
-                sh.set_float("u_chroma_q_mhz",        static_cast<float>(s.chroma_q_mhz));
-                sh.set_float("u_dot_crawl_strength",  static_cast<float>(s.dot_crawl_strength));
-                sh.set_float("u_rainbow_banding",     static_cast<float>(s.rainbow_banding));
-                sh.set_float("u_ringing_amount",      static_cast<float>(s.ringing_amount));
-                sh.set_float("u_ghosting_offset_px",  static_cast<float>(s.ghosting_offset_pixels));
-                sh.set_int  ("u_noise_type",          noise_type_to_int(s.noise_type));
-                sh.set_float("u_noise_strength",      static_cast<float>(s.noise_strength));
-                sh.set_int  ("u_signal_connection",   connection_to_int(s.connection));
+                u.u_luma_mhz            = static_cast<float>(s.luma_mhz);
+                u.u_chroma_i_mhz        = static_cast<float>(s.chroma_i_mhz);
+                u.u_chroma_q_mhz        = static_cast<float>(s.chroma_q_mhz);
+                u.u_dot_crawl_strength  = static_cast<float>(s.dot_crawl_strength);
+                u.u_rainbow_banding     = static_cast<float>(s.rainbow_banding);
+                u.u_ringing_amount      = static_cast<float>(s.ringing_amount);
+                u.u_ghosting_offset_px  = static_cast<float>(s.ghosting_offset_pixels);
+                u.u_noise_type          = noise_type_to_int(s.noise_type);
+                u.u_noise_strength      = static_cast<float>(s.noise_strength);
+                u.u_signal_connection   = connection_to_int(s.connection);
             } else {
-                // Default = clean RGB/VGA (Pass −1 becomes identity).
-                sh.set_float("u_luma_mhz", 25.0f);
-                sh.set_float("u_chroma_i_mhz", 25.0f);
-                sh.set_float("u_chroma_q_mhz", 25.0f);
-                sh.set_float("u_dot_crawl_strength", 0.0f);
-                sh.set_float("u_rainbow_banding", 0.0f);
-                sh.set_float("u_ringing_amount", 0.0f);
-                sh.set_float("u_ghosting_offset_px", 0.0f);
-                sh.set_int  ("u_noise_type", 3);
-                sh.set_float("u_noise_strength", 0.0f);
-                sh.set_int  ("u_signal_connection", 5);
+                // Default = clean RGB/VGA (Pass -1 becomes identity).
+                u.u_luma_mhz = u.u_chroma_i_mhz = u.u_chroma_q_mhz = 25.0f;
+                u.u_noise_type        = 3;
+                u.u_signal_connection = 5;
             }
-            sh.set_float("u_time", time);
+            u.u_time = time;
             break;
-        case 1: // Pass 0 — analysis
-            sh.set_float("u_dither_detect_threshold", 0.15f);
+        }
+        case 1: { // Pass 0 analysis
+            auto& u = *static_cast<PassUniforms_Pass0*>(out_buffer);
+            u = {};
+            u.u_resolution[0] = res_x; u.u_resolution[1] = res_y;
+            u.u_dither_detect_threshold = 0.15f;
             break;
-        case 2: // Pass 1 — dither reconstruct
-            sh.set_float("u_reconstruction_strength", 1.0f);
+        }
+        case 2: { // Pass 1 dither reconstruct
+            auto& u = *static_cast<PassUniforms_Pass1*>(out_buffer);
+            u = {};
+            u.u_resolution[0] = res_x; u.u_resolution[1] = res_y;
+            u.u_reconstruction_strength = 1.0f;
             break;
-        case 3: // Pass 2 — beam + scanlines
-            sh.set_float("u_scanline_strength", p.scanline_strength);
-            sh.set_float("u_beam_width",        p.beam_width);
-            sh.set_float("u_gamma_crt",         p.gamma_crt);
-            sh.set_float("u_scanline_count",    p.scanline_count);
-            sh.set_float("u_frame_mean_lum",    frame_mean_lum);
+        }
+        case 3: { // Pass 2 beam + scanlines
+            auto& u = *static_cast<PassUniforms_Pass2*>(out_buffer);
+            u = {};
+            u.u_resolution[0] = res_x; u.u_resolution[1] = res_y;
+            u.u_scanline_strength = p.scanline_strength;
+            u.u_beam_width        = p.beam_width;
+            u.u_gamma_crt         = p.gamma_crt;
+            u.u_scanline_count    = p.scanline_count;
+            u.u_frame_mean_lum    = frame_mean_lum;
             break;
-        case 4: // Pass 3 — mask
-            sh.set_int  ("u_mask_type",     p.mask_type);
-            sh.set_float("u_mask_strength", p.mask_strength);
-            sh.set_float("u_mask_pitch_px", p.mask_pitch_px);
+        }
+        case 4: { // Pass 3 mask
+            auto& u = *static_cast<PassUniforms_Pass3*>(out_buffer);
+            u = {};
+            u.u_resolution[0] = res_x; u.u_resolution[1] = res_y;
+            u.u_mask_type     = p.mask_type;
+            u.u_mask_strength = p.mask_strength;
+            u.u_mask_pitch_px = p.mask_pitch_px;
             break;
-        case 5: // Pass 4 — bloom
-            sh.set_float("u_bloom_strength",    p.bloom_strength);
-            sh.set_float("u_halation_strength", p.halation_strength);
+        }
+        case 5: { // Pass 4 bloom
+            auto& u = *static_cast<PassUniforms_Pass4*>(out_buffer);
+            u = {};
+            u.u_resolution[0] = res_x; u.u_resolution[1] = res_y;
+            u.u_bloom_strength    = p.bloom_strength;
+            u.u_halation_strength = p.halation_strength;
             break;
-        case 6: // Pass 5 — temporal phosphor persistence
-            sh.set_vec3 ("u_persistence",
-                          glm::vec3(p.persistence_strength * p.persistence_ratio_r,
-                                    p.persistence_strength * p.persistence_ratio_g,
-                                    p.persistence_strength * p.persistence_ratio_b));
-            // u_history_valid is set by the caller in render_to_screen()
-            // because it depends on pipeline state, not just params.
+        }
+        case 6: { // Pass 5 temporal
+            auto& u = *static_cast<PassUniforms_Pass5*>(out_buffer);
+            u = {};
+            u.u_persistence[0] = p.persistence_strength * p.persistence_ratio_r;
+            u.u_persistence[1] = p.persistence_strength * p.persistence_ratio_g;
+            u.u_persistence[2] = p.persistence_strength * p.persistence_ratio_b;
+            u.u_history_valid  = history_valid ? 1 : 0;
             break;
-        case 7: // Pass 6 — composition
-            sh.set_float("u_barrel_strength",   p.barrel_strength);
-            sh.set_float("u_vignette_strength", p.vignette_strength);
-            sh.set_float("u_gamma_display",     p.gamma_display);
-            sh.set_float("u_time",              time);
-            sh.set_float("u_warmup",            std::min(1.0f, time / 180.0f));
-            sh.set_int  ("u_monochrome",        p.monochrome);
-            sh.set_int  ("u_posterize_levels",  p.posterize_levels);
-            sh.set_vec3 ("u_phosphor_color",
-                          glm::vec3(p.phosphor_color_r, p.phosphor_color_g, p.phosphor_color_b));
-            sh.set_vec3 ("u_glass_tint",
-                          glm::vec3(p.glass_tint_r, p.glass_tint_g, p.glass_tint_b));
-            sh.set_float("u_glass_age",         p.glass_age);
-            sh.set_float("u_target_aspect",     p.target_aspect);
-            sh.set_int  ("u_bezel_style",       p.bezel_style);
+        }
+        case 7: { // Pass 6 composition
+            auto& u = *static_cast<PassUniforms_Pass6*>(out_buffer);
+            u = {};
+            u.u_resolution[0]      = res_x; u.u_resolution[1] = res_y;
+            u.u_barrel_strength    = p.barrel_strength;
+            u.u_vignette_strength  = p.vignette_strength;
+            u.u_gamma_display      = p.gamma_display;
+            u.u_time               = time;
+            u.u_warmup             = std::min(1.0f, time / 180.0f);
+            u.u_monochrome         = p.monochrome;
+            u.u_posterize_levels   = p.posterize_levels;
+            u.u_glass_age          = p.glass_age;
+            u.u_target_aspect      = p.target_aspect;
+            u.u_bezel_style        = p.bezel_style;
+            u.u_phosphor_color[0]  = p.phosphor_color_r;
+            u.u_phosphor_color[1]  = p.phosphor_color_g;
+            u.u_phosphor_color[2]  = p.phosphor_color_b;
+            // u_has_bezel_image is patched by the caller after this fn,
+            // because it depends on bezel_image_loaded_ pipeline state.
+            u.u_has_bezel_image    = 0;
+            u.u_glass_tint[0]      = p.glass_tint_r;
+            u.u_glass_tint[1]      = p.glass_tint_g;
+            u.u_glass_tint[2]      = p.glass_tint_b;
             break;
+        }
         default:
             break;
     }
@@ -182,64 +212,117 @@ bool Pipeline::create(int output_width, int output_height) {
 
     for (int i = 0; i < kPassCount; ++i) {
         enabled_[static_cast<size_t>(i)] = true;
-        if (!fbos_[static_cast<size_t>(i)].create(output_width, output_height, GL_RGBA16F)) {
-            std::fprintf(stderr, "[tubelight] FBO create failed for pass %d\n", i);
-            return false;
-        }
     }
+    if (!create_passes()) return false;
 
-    // History FBO for Pass 5's temporal persistence. Same size + format as
-    // the pass FBOs so glCopyTexSubImage2D from pass 5's bound FBO works.
-    if (!history_fbo_.create(output_width, output_height, GL_RGBA16F)) {
-        std::fprintf(stderr, "[tubelight] history FBO create failed\n");
+    // Pass 5 history: a render target whose color attachment matches the
+    // pipeline intermediate format, plus a sampleable texture that the
+    // backend copies into via copy_rt_to_texture(). Two handles because
+    // GL conflates them (FBO color attachment IS the texture) but D3D12
+    // needs separate resources with explicit transitions.
+    history_rt_  = backend_->create_render_target(output_width, output_height,
+                                                   PixelFormat::RGBA16_FLOAT);
+    TextureDesc htd;
+    htd.width  = output_width;
+    htd.height = output_height;
+    htd.format = PixelFormat::RGBA16_FLOAT;
+    history_tex_ = backend_->create_texture(htd);
+    if (!history_rt_.is_valid() || !history_tex_.is_valid()) {
+        std::fprintf(stderr, "[tubelight] history RT/tex create failed\n");
         return false;
     }
     history_valid_ = false;
 
-    return reload_all_shaders();
-}
-
-bool Pipeline::reload_all_shaders() {
-    for (int i = 0; i < kPassCount; ++i) {
-        if (!load_shader(i, kPassFilenames[i])) {
-            return false;
-        }
-    }
     return true;
 }
 
-bool Pipeline::load_shader(int pass_index, const std::string& filename) {
-    const std::string fs_path = shader_path(filename);
-    auto& sh = shaders_[static_cast<size_t>(pass_index)];
-    if (!sh.build_from_files(std::string{}, fs_path)) {
-        std::fprintf(stderr, "[tubelight] shader %s failed: %s\n",
-                     filename.c_str(), sh.get_error().c_str());
-        return false;
+bool Pipeline::create_passes() {
+    for (int i = 0; i < kPassCount; ++i) {
+        PassDesc pd;
+        pd.pass_index          = i;
+        pd.uniform_block_bytes = pass_uniforms_size(i);
+        pd.texture_slot_count  = pass_texture_slot_count(i);
+        pass_handles_[static_cast<size_t>(i)] = backend_->create_pass(pd);
+        if (!pass_handles_[static_cast<size_t>(i)].is_valid()) {
+            std::fprintf(stderr, "[tubelight] create_pass failed for pass %d\n", i);
+            return false;
+        }
+
+        rt_handles_[static_cast<size_t>(i)] = backend_->create_render_target(
+            output_width_, output_height_, PixelFormat::RGBA16_FLOAT);
+        if (!rt_handles_[static_cast<size_t>(i)].is_valid()) {
+            std::fprintf(stderr, "[tubelight] create_render_target failed for pass %d\n", i);
+            return false;
+        }
     }
     return true;
 }
 
 bool Pipeline::load_bezel_image(const std::string& path) {
-    if (bezel_image_.load_from_file(path, /*flip_vertical=*/true)) {
-        bezel_image_loaded_ = true;
-        std::fprintf(stderr, "[overlay] bezel image loaded: %s (%dx%d)\n",
-                     path.c_str(), bezel_image_.width(), bezel_image_.height());
-        return true;
+    // File I/O still goes through Texture2D since stb_image lives there.
+    // We then re-upload the pixels into a backend-owned TextureHandle so
+    // bind_texture(slot, bezel_tex_) can route through the abstraction.
+    clear_bezel_image();
+    Texture2D file_tex;
+    if (!file_tex.load_from_file(path, /*flip_vertical=*/true)) {
+        std::fprintf(stderr, "[overlay] bezel image load failed: %s\n", path.c_str());
+        return false;
     }
+    bezel_w_ = file_tex.width();
+    bezel_h_ = file_tex.height();
+    // GL backend's path: pull the raw bytes back via glGetTexImage and
+    // re-upload into the handle. Slow but only runs at load time.
+    std::vector<uint8_t> pixels(static_cast<size_t>(bezel_w_) * bezel_h_ * 4);
+    glBindTexture(GL_TEXTURE_2D, file_tex.id());
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+    TextureDesc td;
+    td.width  = bezel_w_;
+    td.height = bezel_h_;
+    td.format = PixelFormat::RGBA8_UNORM;
+    bezel_tex_ = backend_->create_texture(td);
+    if (!bezel_tex_.is_valid() ||
+        !backend_->upload_texture_rgba8(bezel_tex_, pixels.data(), bezel_w_, bezel_h_)) {
+        std::fprintf(stderr, "[overlay] bezel handle upload failed\n");
+        bezel_tex_ = {0};
+        return false;
+    }
+    bezel_image_loaded_ = true;
+    std::fprintf(stderr, "[overlay] bezel image loaded: %s (%dx%d)\n",
+                 path.c_str(), bezel_w_, bezel_h_);
+    return true;
+}
+
+void Pipeline::clear_bezel_image() {
+    if (bezel_tex_.is_valid() && backend_) {
+        backend_->destroy_texture(bezel_tex_);
+    }
+    bezel_tex_ = {0};
     bezel_image_loaded_ = false;
-    return false;
+    bezel_w_ = bezel_h_ = 0;
 }
 
 void Pipeline::resize(int width, int height) {
-    if (width == output_width_ && height == output_height_) {
-        return;
-    }
+    if (width == output_width_ && height == output_height_) return;
     output_width_  = width;
     output_height_ = height;
-    for (auto& fbo : fbos_) {
-        fbo.resize(width, height);
+    if (!backend_) return;
+
+    // Recreate the RTs at the new size. Pass handles are size-independent
+    // (shaders + PSO state only) — keep them.
+    for (int i = 0; i < kPassCount; ++i) {
+        if (rt_handles_[static_cast<size_t>(i)].is_valid()) {
+            backend_->destroy_render_target(rt_handles_[static_cast<size_t>(i)]);
+        }
+        rt_handles_[static_cast<size_t>(i)] = backend_->create_render_target(
+            width, height, PixelFormat::RGBA16_FLOAT);
     }
-    history_fbo_.resize(width, height);
+    if (history_rt_.is_valid())  backend_->destroy_render_target(history_rt_);
+    if (history_tex_.is_valid()) backend_->destroy_texture(history_tex_);
+    history_rt_ = backend_->create_render_target(width, height, PixelFormat::RGBA16_FLOAT);
+    TextureDesc htd; htd.width = width; htd.height = height; htd.format = PixelFormat::RGBA16_FLOAT;
+    history_tex_ = backend_->create_texture(htd);
     // Resized texture contains garbage / old size — don't blend with it.
     history_valid_ = false;
 }
@@ -257,19 +340,19 @@ bool Pipeline::is_pass_enabled(int pass_index) const {
     return enabled_[static_cast<size_t>(pass_index)];
 }
 
-bool Pipeline::render_to_screen(GLuint source_tex) {
-    if (output_width_ <= 0 || output_height_ <= 0) {
+bool Pipeline::render_to_screen(uint32_t source_tex) {
+    if (output_width_ <= 0 || output_height_ <= 0 || !backend_) {
         return false;
     }
 
-    GLuint current_input = source_tex;
+    // The "current input" for slot 0 is a raw GL texture id on the first
+    // pass (the user's source), then the previous pass's RT color
+    // attachment for subsequent passes. Both paths use direct glBindTexture
+    // (TODO_F3C4: when D3D12 drives Pipeline this must become handles).
+    uint32_t current_input = source_tex;
 
     // ADR-0002 Phase 2c: skip pass 5 (i==6) entirely when the user-
     // selected persistence is sub-threshold for all three channels.
-    // The pass shader already early-outs in this case (it samples the
-    // current frame and writes it unchanged) but the FBO bind + clear
-    // + dispatch + history snapshot cost ~0.4ms on a mid-tier GPU.
-    // Skipping cuts that whole block when it's redundant.
     const float kPersistenceEps = 1e-3f;
     const float persistence_total =
         params_.persistence_strength * (params_.persistence_ratio_r
@@ -279,76 +362,78 @@ bool Pipeline::render_to_screen(GLuint source_tex) {
 
     for (int i = 0; i < kPassCount; ++i) {
         if (!enabled_[static_cast<size_t>(i)] || (i == 6 && skip_pass5)) {
-            // Identity pass: the next pass reads from current_input directly.
-            // We still bind the FBO to keep state consistent in case a later
-            // disabled→enabled toggle expects a known texture.
-            // For pass 5 specifically, also invalidate history so an enable
-            // after a disable doesn't blend in completely stale content.
             if (i == 6) history_valid_ = false;
             continue;
         }
 
-        auto& sh = shaders_[static_cast<size_t>(i)];
-        auto& fbo = fbos_[static_cast<size_t>(i)];
-
         const bool is_last = (i == kPassCount - 1);
         if (is_last) {
-            // Last pass writes to default framebuffer.
             backend_->bind_default_framebuffer();
             backend_->set_viewport(0, 0, output_width_, output_height_);
         } else {
-            fbo.bind();
+            backend_->bind_render_target(rt_handles_[static_cast<size_t>(i)]);
+            backend_->set_viewport(0, 0, output_width_, output_height_);
         }
 
         backend_->clear_color(0.0f, 0.0f, 0.0f, 1.0f);
+        backend_->bind_pass(pass_handles_[static_cast<size_t>(i)]);
 
-        sh.use();
-        apply_uniforms_for_pass(sh, i, params_, output_width_, output_height_, time_, frame_mean_lum_, signal_snapshot_);
-
-        // Bind input texture to unit 0 ("u_source")
+        // --- Slot 0: u_source ---
+        // GL backdoor (TODO_F3C4) — the source for the first pass is the
+        // caller's raw GLuint; for cascaded passes it's the previous RT's
+        // color attachment.
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, current_input);
-        sh.set_int("u_source", 0);
+        glActiveTexture(GL_TEXTURE0);
 
-        // Pass 5 also samples the previous frame's output as `u_prev_frame`
-        // on texture unit 1, so the shader can blend with exponential decay
-        // to fake the phosphor's afterglow.
+        // --- Slot 1: pass-specific secondary input ---
         if (i == 6) {
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, history_fbo_.texture());
-            sh.set_int("u_prev_frame", 1);
-            sh.set_int("u_history_valid", history_valid_ ? 1 : 0);
-            glActiveTexture(GL_TEXTURE0);
-        }
-
-        // Pass 6 samples the optional bezel image on unit 2 (if loaded).
-        if (i == 7) {
-            if (bezel_image_loaded_) {
-                glActiveTexture(GL_TEXTURE2);
-                glBindTexture(GL_TEXTURE_2D, bezel_image_.id());
-                sh.set_int("u_bezel_tex", 2);
-                sh.set_int("u_has_bezel_image", 1);
-                glActiveTexture(GL_TEXTURE0);
-            } else {
-                sh.set_int("u_has_bezel_image", 0);
+            // Pass 5: u_prev_frame from history snapshot. The
+            // `u_history_valid` flag in the uniform block handles the
+            // first-frame / disabled case.
+            backend_->bind_texture(1, history_tex_);
+        } else if (i == 7) {
+            // Pass 6: u_bezel_tex (only when an image was loaded).
+            if (bezel_image_loaded_ && bezel_tex_.is_valid()) {
+                backend_->bind_texture(1, bezel_tex_);
             }
         }
 
+        // --- Uniforms ---
+        // build_uniforms_for_pass writes into the largest-known POD so
+        // any pass index fits without per-case storage. Then we send
+        // exactly sizeof(matching struct) so the backend's size assert
+        // passes.
+        alignas(16) uint8_t uniform_buf[sizeof(PassUniforms_Pass6)];
+        std::memset(uniform_buf, 0, sizeof(uniform_buf));
+        build_uniforms_for_pass(i, params_, output_width_, output_height_,
+                                 time_, frame_mean_lum_,
+                                 history_valid_, signal_snapshot_,
+                                 uniform_buf);
+
+        // Pass 6's u_has_bezel_image isn't a function of the snapshot
+        // we built — it depends on pipeline state. Patch it now.
+        if (i == 7) {
+            auto* u6 = reinterpret_cast<PassUniforms_Pass6*>(uniform_buf);
+            u6->u_has_bezel_image = bezel_image_loaded_ ? 1 : 0;
+        }
+
+        backend_->set_uniform_block(pass_handles_[static_cast<size_t>(i)],
+                                     uniform_buf, pass_uniforms_size(i));
+
         backend_->draw_fullscreen_quad();
 
-        // After pass 5 has rendered into fbos_[6], snapshot it into
-        // history_fbo_ so the NEXT frame's pass 5 can sample it as
-        // u_prev_frame. glCopyTexSubImage2D reads from whatever framebuffer
-        // is currently bound — fbos_[6] is still bound at this point.
+        // After pass 5 has rendered into rt_handles_[6], snapshot the RT
+        // into history_tex_ so the next frame's pass 5 can sample it.
         if (i == 6) {
-            glBindTexture(GL_TEXTURE_2D, history_fbo_.texture());
-            glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0,
-                                 output_width_, output_height_);
+            backend_->copy_rt_to_texture(rt_handles_[static_cast<size_t>(i)],
+                                          history_tex_);
             history_valid_ = true;
         }
 
         if (!is_last) {
-            current_input = fbo.texture();
+            current_input = backend_->gl_color_attachment(
+                rt_handles_[static_cast<size_t>(i)]);
         }
     }
 

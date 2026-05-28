@@ -318,6 +318,56 @@ void D3D12Backend::draw_fullscreen_quad() {
     // invoking) but quietly does nothing for code that calls it manually.
 }
 
+// ----- Phase 3c handle API — F3c-2 stubs; F3c-4 real impl ---------------
+
+namespace {
+void warn_unimplemented_once(const char* method) {
+    static bool warned = false;
+    if (warned) return;
+    warned = true;
+    std::fprintf(stderr,
+        "[tubelight][d3d12] %s called — Phase 3c handle API not yet "
+        "implemented (F3c-4 pending). supports_pipeline() returns false; "
+        "callers should check that first.\n",
+        method);
+}
+} // namespace
+
+TextureHandle D3D12Backend::create_texture(const TextureDesc&) {
+    warn_unimplemented_once("create_texture");
+    return {0};
+}
+RenderTargetHandle D3D12Backend::create_render_target(int, int, PixelFormat) {
+    warn_unimplemented_once("create_render_target");
+    return {0};
+}
+PassHandle D3D12Backend::create_pass(const PassDesc&) {
+    warn_unimplemented_once("create_pass");
+    return {0};
+}
+void D3D12Backend::destroy_texture(TextureHandle) {}
+void D3D12Backend::destroy_render_target(RenderTargetHandle) {}
+void D3D12Backend::destroy_pass(PassHandle) {}
+bool D3D12Backend::upload_texture_rgba8(TextureHandle, const void*, int, int) {
+    warn_unimplemented_once("upload_texture_rgba8");
+    return false;
+}
+void D3D12Backend::copy_rt_to_texture(RenderTargetHandle, TextureHandle) {
+    warn_unimplemented_once("copy_rt_to_texture");
+}
+void D3D12Backend::bind_render_target(RenderTargetHandle) {
+    warn_unimplemented_once("bind_render_target");
+}
+void D3D12Backend::bind_pass(PassHandle) {
+    warn_unimplemented_once("bind_pass");
+}
+void D3D12Backend::bind_texture(int, TextureHandle) {
+    warn_unimplemented_once("bind_texture");
+}
+void D3D12Backend::set_uniform_block(PassHandle, const void*, size_t) {
+    warn_unimplemented_once("set_uniform_block");
+}
+
 void D3D12Backend::end_frame() {
     if (!ready_ || !in_frame_) return;
 

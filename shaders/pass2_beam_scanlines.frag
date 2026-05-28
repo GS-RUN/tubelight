@@ -18,12 +18,25 @@ layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
 uniform sampler2D u_source;
-uniform vec2  u_resolution;
-uniform float u_scanline_strength;   // [0, 1]
-uniform float u_beam_width;          // ~1.0..2.0 typical
-uniform float u_gamma_crt;           // ~2.5
-uniform float u_scanline_count;      // visible scanlines per frame (240 NTSC, 288 PAL)
-uniform float u_frame_mean_lum;      // 0..1 average luminance of current frame
+
+// Phase 3c: scalar/vec uniforms in explicit std140 cbuffer for
+// deterministic HLSL layout. See pass4_bloom.frag for the rationale.
+// Layout: 8 (vec2) + 4 (float) + 4 (float) = 16; +4×4 (floats) = 32.
+layout(std140, binding = 0) uniform PassUniforms {
+    vec2  u_resolution;        // offset 0,  size 8
+    float u_scanline_strength; // offset 8,  size 4 — [0, 1]
+    float u_beam_width;        // offset 12, size 4 — ~1.0..2.0 typical
+    float u_gamma_crt;         // offset 16, size 4 — ~2.5
+    float u_scanline_count;    // offset 20, size 4 — visible per frame
+    float u_frame_mean_lum;    // offset 24, size 4 — 0..1 frame avg
+    float _pad0;               // offset 28, padding to 32
+} u;
+#define u_resolution         u.u_resolution
+#define u_scanline_strength  u.u_scanline_strength
+#define u_beam_width         u.u_beam_width
+#define u_gamma_crt          u.u_gamma_crt
+#define u_scanline_count     u.u_scanline_count
+#define u_frame_mean_lum     u.u_frame_mean_lum
 
 float relative_luminance(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));

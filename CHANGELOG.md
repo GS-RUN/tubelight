@@ -5,6 +5,79 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ## [Unreleased]
 
+### Phase 3c progress — F3c-2 + F3c-3 complete (handles + Pipeline refactor)
+- **`IRenderBackend` v2** ([src/render/handle.h](src/render/handle.h),
+  [backend.h](src/render/backend.h)): opaque `TextureHandle` /
+  `RenderTargetHandle` / `PassHandle` (struct {uint32_t id}, bgfx
+  pattern). 11 new virtual methods: `create_texture` /
+  `create_render_target` / `create_pass` + `destroy_*` +
+  `upload_texture_rgba8` + `copy_rt_to_texture` + `bind_render_target` /
+  `bind_pass` / `bind_texture(slot, h)` + `set_uniform_block(h, data,
+  bytes)`. GL-specific escape hatch `gl_color_attachment()` for the
+  source-cascade backdoor (TODO_F3C4).
+- **`PassUniforms_*` POD structs** ([src/render/pass_uniforms.h](src/render/pass_uniforms.h)):
+  8 POD structs (16-80 B), one per pass, mirror byte-for-byte the new
+  `layout(std140, binding = 0) uniform PassUniforms { ... }` block in
+  each `shaders/pass*.frag`. `static_assert(sizeof == expected)`
+  guards drift. Layout designed following `cpp-memory-refactor` mode=layout
+  catalog patterns L-02 (padding audit) + L-03 (cross cache-line):
+  vec3 fields always followed by a scalar absorbing the trailing 4 B
+  of the 16-byte slot, explicit `_pad` fields where needed.
+- **Shader refactor**: every `.frag` now wraps its scalar/vec uniforms in
+  an explicit std140 block. Eliminates the SPIRV-Cross "$Globals
+  scattered uniforms" path — HLSL output is a deterministic `cbuffer
+  PassUniforms : register(b0, space0)` with `packoffset` slots that
+  match the C++ POD. Switched glslang flag back to `--target-env
+  vulkan1.0 -V -DTUBELIGHT_VULKAN`.
+- **`Pipeline` migrates to handles**: drops the
+  `std::array<ShaderProgram, 8>` / `std::array<FBO, 8>` / `FBO
+  history_fbo_` / `Texture2D bezel_image_` members. New members are
+  `pass_handles_[]` / `rt_handles_[]` / `history_rt_` / `history_tex_`
+  / `bezel_tex_`. `Pipeline::create()`, `resize()`,
+  `load_bezel_image()`, `clear_bezel_image()` rewritten using backend
+  methods. The old `apply_uniforms_for_pass(ShaderProgram&, ...)`
+  switch becomes `build_uniforms_for_pass(int, ..., void* out)` that
+  fills the matching POD struct.
+- **`Pipeline::render_to_screen` rewritten**: signature kept
+  `uint32_t source_tex` (GL backdoor — TODO_F3C4 migrates to
+  TextureHandle). Loop now does `backend_->bind_render_target` +
+  `bind_pass` + `set_uniform_block` + `bind_texture(1, ...)` for the
+  secondary input + `draw_fullscreen_quad`. History snapshot via
+  `backend_->copy_rt_to_texture(rt[6], history_tex_)`.
+- **GL UBO path**: `GLBackend::create_pass` allocates a `GL_UNIFORM_BUFFER`
+  sized to the pass's `uniform_block_bytes`, wires the shader's
+  `PassUniforms` block to binding point 0. `bind_pass` issues
+  `glBindBufferBase`. `set_uniform_block` does
+  `glBufferSubData(0, bytes, data)`. No more per-field `glUniform*`
+  marshaling.
+- **Bug discovered + fixed during refactor**: first attempt called
+  `glUniform*("u.u_resolution", ...)` for block members — silent no-op
+  in GL (uniform blocks need UBOs, not glUniform*). Caught via
+  `native-debugger` hypothesis matrix (#1 + #2 high-probability). Fix
+  documented in commit body.
+- **Caller compat**: `Pipeline::render_to_screen` parameter type
+  `GLuint` → `uint32_t` (same typedef). main.cpp + overlay_mode_win.cpp
+  unchanged.
+- **D3D12Backend** gets 11 method stubs that warn-once and return
+  invalid handles — `supports_pipeline()` still false; F3c-4 wires
+  the real D3D12 implementation.
+
+### Verification
+- Build verde sin warnings nuevos.
+- GL `--shader-only` + `--profile pvm-8220 --signal composite_ntsc`
+  renders visually equivalent to the v0.1.7 baseline captured in
+  [tests/golden/gl_baseline_8f88fc4.png](tests/golden/gl_baseline_8f88fc4.png).
+  Strict byte-exact deferred to F3c-5 (needs `--screenshot` offscreen
+  flag).
+- DX12 `--renderer dx12 --shader-only` still boots on RTX 2080 Ti FL
+  12_2 with proof-of-life clear (Phase 3b regression: 0).
+
+### Deferred to F3c-4
+- D3D12 implementations of the 11 handle methods (PSO creation, root
+  signature with CBV(b0)+SRVs+samplers, UPLOAD heap CB ring,
+  CopyTextureRegion + transitions).
+- Pipeline source_tex GL-backdoor → TextureHandle migration.
+
 ### Phase 3c progress — F3c-1 complete (build pipeline)
 - **GLSL → SPIR-V → HLSL → DXIL build pipeline** wired via
   `cmake/CompileShaders.cmake`. Each `shaders/pass*.frag` + the new

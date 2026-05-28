@@ -21,8 +21,16 @@ layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
 uniform sampler2D u_source;
-uniform vec2  u_resolution;
-uniform float u_dither_detect_threshold; // typical 0.15
+
+// Phase 3c: scalar/vec uniforms in explicit std140 cbuffer for
+// deterministic HLSL layout. See pass4_bloom.frag for the rationale.
+layout(std140, binding = 0) uniform PassUniforms {
+    vec2  u_resolution;                // offset 0,  size 8
+    float u_dither_detect_threshold;   // offset 8,  size 4
+    float _pad0;                       // offset 12, padding to 16
+} u;
+#define u_resolution                u.u_resolution
+#define u_dither_detect_threshold   u.u_dither_detect_threshold
 
 float relative_luminance(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));

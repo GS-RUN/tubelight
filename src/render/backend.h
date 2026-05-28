@@ -19,6 +19,9 @@
 
 #pragma once
 
+#include "render/handle.h"
+
+#include <cstddef>
 #include <memory>
 
 namespace tubelight {
@@ -95,6 +98,69 @@ public:
     // Phase 3c). Callers should check this before passing the backend to
     // Pipeline::set_backend().
     virtual bool supports_pipeline() const = 0;
+
+    // ----- Phase 3c handle-based resource API ------------------------
+    // Lifecycle is backend-owned. Handles returned by create_*() are
+    // valid until destroy_*() or shutdown(). Reuse of freed ids is at
+    // the backend's discretion (not guaranteed).
+    //
+    // Backends that haven't implemented Phase 3c yet (D3D12 today)
+    // return invalid handles ({0}) and log a one-shot warning. Callers
+    // SHOULD check supports_pipeline() before invoking.
+
+    virtual TextureHandle      create_texture(const TextureDesc& desc) = 0;
+    virtual RenderTargetHandle create_render_target(int w, int h, PixelFormat fmt) = 0;
+    virtual PassHandle         create_pass(const PassDesc& desc) = 0;
+
+    virtual void destroy_texture(TextureHandle h) = 0;
+    virtual void destroy_render_target(RenderTargetHandle h) = 0;
+    virtual void destroy_pass(PassHandle h) = 0;
+
+    // Uploads tightly-packed RGBA8 bytes (rows top-to-bottom, no
+    // padding) to a texture created with format RGBA8_UNORM. Width
+    // and height must match the descriptor. Returns false on size
+    // mismatch or unsupported format.
+    virtual bool upload_texture_rgba8(TextureHandle h,
+                                       const void* data,
+                                       int width, int height) = 0;
+
+    // Snapshot the current contents of a render target into a texture.
+    // Both resources must already exist and have matching dimensions
+    // and pixel format. Used by Pipeline's pass-5 history snapshot.
+    virtual void copy_rt_to_texture(RenderTargetHandle src,
+                                     TextureHandle dst) = 0;
+
+    // Bind a render target as the current write destination. Passing an
+    // invalid handle ({0}) is equivalent to bind_default_framebuffer()
+    // — i.e. the swap-chain backbuffer.
+    virtual void bind_render_target(RenderTargetHandle h) = 0;
+
+    // Bind a pass (shader program + PSO + root signature on D3D12).
+    // Must be called BEFORE bind_texture / set_uniform_block for the
+    // bindings to apply to this pass.
+    virtual void bind_pass(PassHandle h) = 0;
+
+    // Bind a texture to slot N. Slot 0 is always the primary input
+    // (u_source). Slot 1 (passes 5 and 6) is u_prev_frame /
+    // u_bezel_tex respectively. See pass_uniforms.h:pass_texture_slot_count.
+    virtual void bind_texture(int slot, TextureHandle h) = 0;
+
+    // Upload the per-pass uniform block. `bytes` must equal the
+    // uniform_block_bytes declared in the corresponding create_pass()
+    // call (asserted in debug). Data is opaque to the backend.
+    virtual void set_uniform_block(PassHandle h,
+                                    const void* data,
+                                    size_t bytes) = 0;
+
+    // ----- GL-specific escape hatch (TODO_F3C4) ----------------------
+    // Pipeline still does slot-0 binding via raw glBindTexture in the
+    // cascade (each pass samples the previous pass's RT as u_source).
+    // Until F3c-4 introduces a real handle-only path for the input
+    // texture, this method gives Pipeline the GL texture id behind a
+    // RT handle. GL backend returns the FBO's color attachment; D3D12
+    // returns 0 (Pipeline must check supports_pipeline() first, but if
+    // it sneaks through it gets a clear NULL bind).
+    virtual uint32_t gl_color_attachment(RenderTargetHandle) const { return 0; }
 };
 
 // Factory. Returns nullptr if `kind` is unsupported in this build.
