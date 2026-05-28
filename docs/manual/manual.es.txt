@@ -1,6 +1,6 @@
 
 +==============================================================================+
-| TUBELIGHT — Manual de Usuario  v0.1.3                                        |
+| TUBELIGHT — Manual de Usuario  v0.1.4                                        |
 +==============================================================================+
 
 Overlay CRT de alta fidelidad para Windows (Linux próximamente) — el cristal del tubo, no un filtro
@@ -68,7 +68,7 @@ Licencia: PolyForm Noncommercial 1.0.0  ·  Comercial: gsrun.editor@gmail.com
     9.1 Screenshot PNG (Ctrl+Alt+S)
     9.2 Vídeo MP4 (Ctrl+Alt+V)
     9.3 Record source
-    9.4 Recordable mode (Ctrl+Alt+R)
+    9.4 Recordable (always-on desde v0.1.4)
     9.5 Carpeta de capturas + Browse picker
   10. Audio CRT
   11. Atajos de teclado — tabla completa
@@ -1116,12 +1116,14 @@ directamente (sin pasar por el pipeline) — útil para grabar áreas que el
 overlay no procesa.
 
 --------------------------------------------------------------------------------
-9.4 Recordable mode (Ctrl+Alt+R)
+9.4 Recordable (always-on desde v0.1.4)
 --------------------------------------------------------------------------------
 
-Modo opt-in (default OFF) que permite a apps externas (Snipping Tool, Game Bar,
-OBS Display Capture) ver el overlay procesado. La complejidad real está en *por
-qué* es necesario:
+Desde v0.1.4 (ADR-0001) Tubelight es siempre grabable por apps externas
+(Snipping Tool, Game Bar, OBS Display Capture) sin necesidad de pulsar ningún
+atajo. Antes (v0.1.3-) había un modo opt-in `Ctrl+Alt+R` que se eliminó porque
+añadía complejidad sin beneficio. La complejidad real está en *por qué* es
+necesario:
 
 En Windows 10/11 con DWM, **todas las APIs de captura desktop-level comparten
 un único bit binario de exclusión** (WDA_EXCLUDEFROMCAPTURE). Por defecto
@@ -1142,11 +1144,10 @@ sucesora). El framerate efectivo de la Mag callback es 30-60 Hz dependiendo del
 driver. Recordable mode es per-session y no persiste (evita el problema de
 arrancar con overlay congelado por una mala combinación de settings).
 
-**Cómo usarlo paso a paso para grabar con Snipping Tool**:
+**Cómo grabar con Snipping Tool ahora**:
 1. Lanza Tubelight overlay encima de tu juego.
-2. Pulsa `Ctrl+Alt+R`. Toast confirma "Recordable mode ON".
-3. Win+Shift+S → selecciona la región del overlay → la captura sale procesada
-por CRT.
+2. Win+Shift+S → selecciona la región del overlay → la captura sale procesada
+por CRT. Sin atajo previo.
 
 --------------------------------------------------------------------------------
 9.5 Carpeta de capturas + Browse picker
@@ -1196,18 +1197,21 @@ autorepeat)
 - `Ctrl+Alt+Enter` — toggle fullscreen runtime preservando aspect
 - `Ctrl+Alt+T` — attach/detach foreground window (target mode)
 - `Ctrl+Alt+H` — toggle HUD status (top-right)
-- `Ctrl+Alt+C` — toggle click-through (windowed mode)
 
 **Captura**:
 - `Ctrl+Alt+S` — screenshot PNG (async encode)
 - `Ctrl+Alt+V` — toggle grabación MP4 (necesita ffmpeg)
-- `Ctrl+Alt+R` — toggle recordable mode (Snipping Tool / Game Bar / OBS pueden
-ver el overlay)
 
 **Pipeline**:
 - `Ctrl+Alt+0` — re-enable all passes
 - `Ctrl+Alt+1` .. `Ctrl+Alt+8` — toggle pass individual (-1 signal .. 6
 composition)
+
+**Eliminados en v0.1.4** (ADR-0001 — comportamiento ahora always-on por diseño):
+- ~~`Ctrl+Alt+C`~~ click-through: ahora depende del modo (windowed=off;
+target/region/fullscreen=on).
+- ~~`Ctrl+Alt+R`~~ recordable mode: siempre on. Snipping Tool / Game Bar / OBS
+ven el overlay automáticamente.
 
 En modo `--shader-only` (debug): teclas directas sin modificador.
 - `ESC` quit

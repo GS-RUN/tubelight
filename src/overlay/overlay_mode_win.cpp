@@ -1125,44 +1125,46 @@ int run(const Options& opts) {
     auto toast_time = std::chrono::steady_clock::now() - std::chrono::hours(1);
     const auto kToastShown = std::chrono::milliseconds(2500);
 
-    auto apply_clickthrough_user = [&](bool on) {
-        clickthrough_user = on;
-        // Cross-process click-through REQUIRES WS_EX_LAYERED +
-        // WS_EX_TRANSPARENT (DWM honours hit-test there). WM_NCHITTEST
-        // returning HTTRANSPARENT only routes clicks to windows in the
-        // SAME thread â€” useless for "click on overlay â†’ openMSX gets it"
-        // because openMSX is a different process.
-        //
-        // LAYERED gets added on first activation and is then LEFT set
-        // permanently â€” runtime removal of LAYERED is unreliable on
-        // some hardware (broke earlier). We only toggle TRANSPARENT +
-        // NOACTIVATE between sessions.
+    // ADR-0001 §2: click-through in windowed mode is removed. Each
+    // overlay mode now has a fixed click-through policy:
+    //   --overlay              → click-through OFF (standard Win32
+    //                            frame, drag/resize via the title bar
+    //                            and edges, body clicks consumed)
+    //   --overlay-target       → click-through ON  (handled by
+    //                            do_attach_target)
+    //   --overlay-region       → click-through ON  (handled by
+    //                            do_attach_region)
+    //   --overlay-fullscreen   → click-through ON  (handled by the
+    //                            initial-fullscreen path)
+    //
+    // The lambda is kept as a no-op stub so the menu checkbox plumbing
+    // continues to compile while we wait for menu.cpp Phase 1b update
+    // to hide the widget entirely.
+    auto apply_clickthrough_user = [&](bool /*on*/) {
+        // Force the windowed-mode user toggle to off, always.
+        clickthrough_user = false;
+        // Original implementation kept for reference; intentionally
+        // unreachable from this branch.
+        if (false) {
         LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        const bool on = false;
         if (on) {
             if (!(ex & WS_EX_LAYERED)) {
                 ex |= WS_EX_LAYERED;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-                // Set alpha=255 so the layered window paints normally
-                // (OpenGL back buffer composited at full opacity).
                 SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-                ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);  // re-read
+                ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             }
             ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
         } else {
             ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
         }
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-        // Force the new ex style to take effect immediately.
         SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
                      SWP_NOACTIVATE | SWP_FRAMECHANGED);
         apply_capture_affinity(hwnd);
-        std::fprintf(stderr, on ? "[overlay] click-through ON (WS_EX_TRANSPARENT)\n"
-                                : "[overlay] click-through OFF\n");
-        toast_text  = on
-            ? "CLICK-THROUGH: ON  (clicks pass to apps below)"
-            : "CLICK-THROUGH: OFF (clicks land on the overlay)";
-        toast_time  = std::chrono::steady_clock::now();
+        }  // end if (false) — unreachable preserved for reference only
     };
 
     // Lock GLFW's user-drag resize to match the current target aspect (if

@@ -19,6 +19,46 @@ Versioning: [SemVer 2.0](https://semver.org/).
   `--overlay-target <title>` which initializes correctly. Fix deferred
   to v0.2.0.
 
+## [0.1.4] — 2026-05-27
+
+### Changed (UX / breaking)
+- **Recordable mode is always-on**. The `Ctrl+Alt+R` hotkey is removed.
+  Snipping Tool, Game Bar and OBS Display Capture see the overlay
+  automatically, without any user action. Implementation: capture
+  always routes through the Magnification API with our own HWND in
+  `MagSetWindowFilterList(MW_FILTERMODE_EXCLUDE)` to break the feedback
+  loop. `WDA_EXCLUDEFROMCAPTURE` is no longer used.
+- **Click-through is mode-dependent, no longer a user toggle**. The
+  `Ctrl+Alt+C` hotkey is removed and the menu checkbox replaced by a
+  disabled info line. Policy by mode: `--overlay` (windowed) = OFF
+  (drag/resize via standard Win32 title bar / borders); `--overlay-target`,
+  `--overlay-region`, `--overlay-fullscreen` = ON.
+- Menu Audio tab "Recordable by Snipping Tool / Game Bar / OBS" and
+  "Click-through (windowed)" checkboxes are now replaced by greyed-out
+  status lines documenting the new always-on / by-mode behaviour.
+- Help tab shortcut list no longer mentions `Ctrl+Alt+C` or `Ctrl+Alt+R`.
+  In-app footer bumped to v0.1.4.
+
+### Fixed
+- **Magnification API `src_rect_` is now updated on target / region /
+  fullscreen attach** (`overlay_mode_win.cpp:712`, new
+  `MagCapture::set_source_rect(x, y, w, h)`). Pre-v0.1.4, the rect was
+  set once in `init()` to the full monitor and never updated when the
+  overlay attached to a smaller area, so the Mag callback kept sampling
+  the whole screen instead of the new target. Visible as "the recorded
+  overlay is bigger / offset relative to what's actually visible".
+
+### Removed
+- Settings fields `clickthrough_user` and `recordable` in
+  `%APPDATA%\Tubelight\settings.json` are now silently ignored on load.
+  No migration is written; the file is just read-as-is and the
+  obsolete keys are dropped on the next normal save.
+
+### Notes
+- This is the "Phase 1" cut of ADR-0001 (always-on R/C, fix Mag bug).
+  Phase 2 (D3D12 + WGC capture + HDR pipeline) and Phase 3 (full chrome
+  rewrite with mouse-hook drag/resize) are tracked in subsequent ADRs.
+
 ## [0.1.3] — 2026-05-27
 
 ### Changed

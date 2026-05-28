@@ -792,21 +792,18 @@ void Menu::build_widgets(Pipeline& pipeline,
                 }
                 tl_tooltip("HUD arriba a la derecha con perfil + modo + senal.\n"
                                       "Atajo: Ctrl+Alt+H");
-                if (ImGui::Checkbox("Click-through (windowed)",
-                                    &sio.clickthrough_user)) {
-                    sio.clickthrough_changed = true;
-                }
-                tl_tooltip("El cursor atraviesa Tubelight; la app de abajo recibe clicks.\n"
-                                      "Atajo: Ctrl+Alt+C");
+                // ADR-0001 §2: click-through is no longer a user toggle.
+                // Each overlay mode has its own click-through policy
+                // (windowed = off, target/region/fullscreen = on).
+                ImGui::TextDisabled("Click-through: por modo (windowed=off; target/region/fullscreen=on)");
                 if (ImGui::Checkbox("Low-latency mode (vsync off)", &sio.low_latency)) {
                     sio.low_latency_changed = true;
                 }
                 tl_tooltip("Desactiva vsync. Menos retardo, posible tearing.\n"
                                       "Soft-cap 240 fps para no saturar GPU.");
-                if (ImGui::Checkbox("Recordable by Snipping Tool / Game Bar / OBS",
-                                    &sio.recordable)) {
-                    sio.recordable_changed = true;
-                }
+                // ADR-0001 §1: recordable is always-on. Snipping Tool /
+                // Game Bar / OBS see the overlay automatically.
+                ImGui::TextDisabled("Recordable: siempre on (Snipping Tool / Game Bar / OBS lo ven)");
                 tl_tooltip("Cambia source a Magnification API con self-filter\n"
                                       "para que OBS / Game Bar puedan grabar Tubelight\n"
                                       "sin feedback infinito. Atajo: Ctrl+Alt+R");
@@ -833,7 +830,7 @@ void Menu::build_widgets(Pipeline& pipeline,
 
         // ====================== HELP TAB ======================
         if (TintedTab _ttab{"Help", pal::lavender(), pal::lavender()}) {
-            ImGui::TextDisabled("Tubelight v0.1.3");
+            ImGui::TextDisabled("Tubelight v0.1.4");
             ImGui::TextDisabled("https://github.com/GS-RUN/tubelight");
 
             // -- Open user manual ---------------------------------------
@@ -886,8 +883,6 @@ void Menu::build_widgets(Pipeline& pipeline,
             ImGui::BulletText("F  freeze captured frame");
             ImGui::BulletText("Enter  toggle fullscreen (keeps aspect)");
             ImGui::BulletText("T  attach to foreground window / detach");
-            ImGui::BulletText("C  toggle click-through (windowed)");
-            ImGui::BulletText("R  toggle recordable mode");
             ImGui::BulletText("H  toggle status HUD");
             ImGui::BulletText("S  PNG screenshot to capture folder");
             ImGui::BulletText("V  toggle MP4 video recording (needs ffmpeg)");
@@ -896,8 +891,8 @@ void Menu::build_widgets(Pipeline& pipeline,
             ImGui::BulletText("0  enable all 8 passes");
             ImGui::BulletText("1..8  toggle individual pass");
             ImGui::Separator();
-            ImGui::TextDisabled("Recording with Win11 stock tools requires Ctrl+Alt+R");
-            ImGui::TextDisabled("first. OBS Window Capture (WGC) works without it.");
+            ImGui::TextDisabled("Recordable + click-through son ahora always-on");
+            ImGui::TextDisabled("por modo (ADR-0001). Sin atajos R ni C.");
         }
 
         ImGui::EndTabBar();

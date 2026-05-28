@@ -1,6 +1,6 @@
 
 +==============================================================================+
-| TUBELIGHT — Manual de Usuario  v0.1.3                                        |
+| TUBELIGHT — Manual de Usuario  v0.1.4                                        |
 +==============================================================================+
 
 High-fidelity CRT overlay for Windows (Linux coming soon) — the glass of the tube, not a filter
@@ -68,7 +68,7 @@ TABLE OF CONTENTS
     9.1 PNG screenshot (Ctrl+Alt+S)
     9.2 MP4 video (Ctrl+Alt+V)
     9.3 Record source
-    9.4 Recordable mode (Ctrl+Alt+R)
+    9.4 Recordable (always-on since v0.1.4)
     9.5 Captures folder + Browse picker
   10. CRT audio
   11. Keyboard shortcuts — full table
@@ -1097,7 +1097,7 @@ field in the menu).
 process.
 
 --------------------------------------------------------------------------------
-9.4 Recordable mode (Ctrl+Alt+R)
+9.4 Recordable (always-on since v0.1.4)
 --------------------------------------------------------------------------------
 
 Opt-in mode (default OFF) that lets external apps (Snipping Tool, Game Bar, OBS
@@ -1123,11 +1123,10 @@ callback effective framerate is 30-60 Hz depending on the driver. Recordable
 mode is per-session and doesn't persist (avoids the problem of starting with a
 frozen overlay from a bad settings combo).
 
-**Step-by-step to record with Snipping Tool**:
+**Recording with Snipping Tool now**:
 1. Launch Tubelight overlay on top of your game.
-2. Press `Ctrl+Alt+R`. Toast confirms "Recordable mode ON".
-3. Win+Shift+S → select the overlay region → the capture comes out
-CRT-processed.
+2. Win+Shift+S → select the overlay region → the capture comes out
+CRT-processed. No shortcut needed.
 
 --------------------------------------------------------------------------------
 9.5 Captures folder + Browse picker
@@ -1174,18 +1173,21 @@ focus.
 - `Ctrl+Alt+Enter` — toggle runtime fullscreen preserving aspect
 - `Ctrl+Alt+T` — attach/detach foreground window (target mode)
 - `Ctrl+Alt+H` — toggle status HUD (top-right)
-- `Ctrl+Alt+C` — toggle click-through (windowed mode)
 
 **Capture**:
 - `Ctrl+Alt+S` — PNG screenshot (async encode)
 - `Ctrl+Alt+V` — toggle MP4 recording (needs ffmpeg)
-- `Ctrl+Alt+R` — toggle recordable mode (Snipping Tool / Game Bar / OBS can see
-the overlay)
 
 **Pipeline**:
 - `Ctrl+Alt+0` — re-enable all passes
 - `Ctrl+Alt+1` .. `Ctrl+Alt+8` — toggle individual pass (-1 signal .. 6
 composition)
+
+**Removed in v0.1.4** (ADR-0001 — behaviour is now always-on by design):
+- ~~`Ctrl+Alt+C`~~ click-through: now mode-dependent (windowed=off;
+target/region/fullscreen=on).
+- ~~`Ctrl+Alt+R`~~ recordable mode: always on. Snipping Tool / Game Bar / OBS
+see the overlay automatically.
 
 In `--shader-only` mode (debug): direct keys without modifier.
 - `ESC` quit
