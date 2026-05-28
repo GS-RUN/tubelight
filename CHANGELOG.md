@@ -5,6 +5,28 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ## [Unreleased]
 
+### Phase 3c progress — F3c-1 complete (build pipeline)
+- **GLSL → SPIR-V → HLSL → DXIL build pipeline** wired via
+  `cmake/CompileShaders.cmake`. Each `shaders/pass*.frag` + the new
+  `shaders/fullscreen.vert` is translated by glslang (vcpkg) →
+  spirv-cross (vcpkg) → dxc (Vulkan SDK or Windows SDK) at build time.
+  Output: 9 `.dxil` bytecodes under `${BIN}/shaders/dxil/` plus a
+  POST_BUILD copy next to `tubelight.exe`.
+- **CMake option `TUBELIGHT_BUILD_DX12`** now also drives the shader
+  build target. No-op on Linux.
+- **Shader sources gain `layout(location = N)` qualifiers** on all
+  stage I/O (SPIR-V requirement; backward-compatible with `#version
+  450 core` GL path). `gl_VertexIndex` shim via `TUBELIGHT_VULKAN`
+  define handles the GL-vs-Vulkan vertex ID name mismatch.
+- **`shaders/fullscreen.vert`** extracted from
+  `default_fullscreen_vertex_source()` as the single source of truth.
+  GL runtime loads the file lazily and caches; falls back to a
+  hard-coded copy if the file is missing.
+- **Determinism verified**: 3 clean builds in a row produce
+  byte-identical DXIL hashes (M3 of [phase-3c SPEC](specs/phase-3c/SPEC.md)).
+- Pipeline still GL-only at runtime — F3c-2/3/4 wire the DXIL files
+  into `D3D12Backend`. See [specs/phase-3c/PLAN.md](specs/phase-3c/PLAN.md).
+
 ### Known limitations
 
 ## [0.2.0-alpha.0] — 2026-05-28

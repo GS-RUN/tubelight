@@ -108,6 +108,11 @@ endif()
 add_library(tubelight_warnings INTERFACE)
 target_compile_features(tubelight_warnings INTERFACE cxx_std_20)
 
+# Phase 3c shader build pipeline (GLSL → SPIR-V → HLSL → DXIL). No-op
+# when TUBELIGHT_BUILD_DX12 is OFF.
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+include(CompileShaders)
+
 # Subdirectories
 add_subdirectory(src)
 

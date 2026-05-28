@@ -89,3 +89,8 @@ if(WIN32)
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     )
 endif()
+
+# Phase 3c: compile the 8 .frag + fullscreen.vert to DXIL bytecode and
+# copy next to the exe (shaders/dxil/*.dxil). No-op when DX12 backend
+# is disabled.
+tubelight_compile_shaders(tubelight)

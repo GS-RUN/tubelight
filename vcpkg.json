@@ -20,7 +20,12 @@
     {
       "name": "minhook",
       "platform": "windows"
-    }
+    },
+    {
+      "name": "glslang",
+      "features": ["tools"]
+    },
+    "spirv-cross"
   ],
   "features": {
     "shaders-advanced": {

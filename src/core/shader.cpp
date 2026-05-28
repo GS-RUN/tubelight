@@ -7,6 +7,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <cstdio>
+#include <string>
 #include <vector>
 
 namespace tubelight {
@@ -61,16 +62,33 @@ GLuint link_program(GLuint vs, GLuint fs, std::string& error_out) {
 } // namespace
 
 const char* default_fullscreen_vertex_source() {
-    // Single-triangle technique: 3 vertices, no VBO needed beyond gl_VertexID.
-    // Produces a triangle that covers [-1, 1] x [-1, 1] with uv in [0, 1].
-    return R"(#version 450 core
-out vec2 v_uv;
-void main() {
-    // Generate (0,0), (2,0), (0,2) from gl_VertexID = 0,1,2
-    v_uv = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
-    gl_Position = vec4(v_uv * 2.0 - 1.0, 0.0, 1.0);
-}
-)";
+    // Phase 3c: single source of truth is shaders/fullscreen.vert. Loaded
+    // lazily on first call and cached for the process lifetime. Falls back
+    // to a hard-coded copy if the file is missing (e.g. install path
+    // corruption) so the GL path keeps working even then.
+    static const std::string kFallback =
+        "#version 450 core\n"
+        "out vec2 v_uv;\n"
+        "void main() {\n"
+        "    v_uv = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);\n"
+        "    gl_Position = vec4(v_uv * 2.0 - 1.0, 0.0, 1.0);\n"
+        "}\n";
+
+    static std::string cached;
+    if (!cached.empty()) return cached.c_str();
+
+#ifdef TUBELIGHT_SHADER_DIR
+    const std::string path = std::string(TUBELIGHT_SHADER_DIR) + "/fullscreen.vert";
+    std::string err;
+    if (read_text_file(path, cached, err) && !cached.empty()) {
+        return cached.c_str();
+    }
+    std::fprintf(stderr,
+        "[tubelight] fullscreen.vert not loadable (%s); using inline fallback.\n",
+        err.c_str());
+#endif
+    cached = kFallback;
+    return cached.c_str();
 }
 
 ShaderProgram::~ShaderProgram() {
