@@ -185,7 +185,7 @@ trozos llegan incrementalmente:
 | **3a** | `IRenderBackend` abstracción + `GLBackend` wrapping current code, sin cambio funcional | 4-5 días | v0.1.8 |
 | **3b** | `D3D12Backend` skeleton: device, swap chain flip, command queue, full-screen quad | 1 semana | v0.2.0-alpha |
 | **3c** | Port pipeline passes a HLSL bytecode, run los 8 en D3D12 | 1 semana | v0.2.0-beta |
-| **3d** | WGC capture nativa D3D11On12 → D3D12 | 4-5 días | v0.2.0-rc |
+| **3d** | WGC capture nativa D3D11On12 → D3D12 ✓ **shipped** (core 2026-05-28 `3ca7d5a`; overlay `run_dx12` 2026-05-28 — `--overlay*/--renderer dx12`). Click-through + ImGui menú DX12 diferidos a 4a. | 4-5 días | v0.2.0-rc |
 | **3e** | Bench + benchmark publication + v0.2.0 stable | 2-3 días | **v0.2.0** |
 | **4a** | DirectComposition chrome + body separation; drop WS_EX_LAYERED en target mode (por DComp clip) | 1 semana | v0.2.1 |
 | **5a** | HDR pipeline scRGB FP16 + HDR10 output (requiere fósforo spectra) | 2-3 semanas | v0.3.0 |

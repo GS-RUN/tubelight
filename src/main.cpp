@@ -927,5 +927,8 @@ int main(int argc, char** argv) {
     o.region_y = args.region_y;
     o.region_w = args.region_w;
     o.region_h = args.region_h;
+    // T5.5: forward --renderer dx12 into the overlay so it takes the
+    // WGC + D3D11On12 + D3D12 path (run_dx12). Defaults to GL otherwise.
+    o.backend = args.backend;
     return tubelight::overlay::run(o);
 }

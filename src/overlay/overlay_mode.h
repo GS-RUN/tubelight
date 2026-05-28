@@ -12,6 +12,8 @@
 
 #include <string>
 
+#include "render/backend.h"   // BackendKind — selects the GL vs D3D12 path
+
 namespace tubelight::overlay {
 
 enum class OverlayMode {
@@ -35,6 +37,9 @@ struct Options {
     int  region_y = 0;
     int  region_w = 0;
     int  region_h = 0;
+    // Render backend (T5.5). OpenGL → the legacy DXGI-Duplication path;
+    // D3D12 → the WGC + D3D11On12 + D3D12 path (run_dx12). Defaults to GL.
+    BackendKind backend = BackendKind::OpenGL;
 };
 
 // Runs the overlay until the user presses ESC. Returns CLI exit code:

@@ -42,6 +42,13 @@
 #include "overlay/settings.h"
 #include "profile/profile_loader.h"
 
+// T5.5 — WGC + D3D11On12 + D3D12 overlay path (run_dx12). Only available
+// when the D3D12 backend was compiled in (TUBELIGHT_HAVE_D3D12).
+#if defined(TUBELIGHT_HAVE_D3D12)
+#include "capture/wgc_capture.h"
+#include "render/backend_d3d12.h"
+#endif
+
 #ifdef TUBELIGHT_HAS_IMGUI
 #include <imgui.h>
 #endif
@@ -912,6 +919,290 @@ void key_cb(GLFWwindow* w, int key, int /*sc*/, int action, int /*mods*/) {
     }
 }
 
+#if defined(TUBELIGHT_HAVE_D3D12)
+// ---------------------------------------------------------------------------
+// T5.5 — D3D12 + WGC overlay path.
+//
+// Distinct from the legacy GL run() above: instead of DXGI Desktop
+// Duplication → CPU staging → glTexSubImage2D, this captures via
+// Windows.Graphics.Capture (per-window or per-monitor), keeps the frame
+// as an ID3D11Texture2D, unwraps it back to a D3D12 resource through
+// D3D11On12 (zero CPU copy), and samples it directly in the D3D12-driven
+// 8-pass Pipeline. Mirrors the loop validated in main.cpp::run_wgc_test.
+//
+// Scope for v0.2.0-rc.0 (deferred to v0.2.1, see debrief):
+//   - ImGui menu stays GL-only → not shown in this path.
+//   - Click-through / non-activating overlay → window is focusable so ESC
+//     + 1..8 / 0 / F hotkeys work through GLFW.
+//   - Region/Windowed capture uses the whole monitor (WGC has monitor
+//     granularity; a true crop needs a copy/UV pass).
+//   - Target-window position tracking → window is placed once at launch.
+// ---------------------------------------------------------------------------
+
+struct MonitorPick {
+    HMONITOR hmon = nullptr;
+    int x = 0, y = 0, w = 0, h = 0;
+    bool ok = false;
+};
+
+// Pick the N-th monitor (in EnumDisplayMonitors order) and return its
+// HMONITOR + virtual-desktop rect. Falls back to the primary monitor if
+// `index` is out of range.
+MonitorPick pick_monitor(int index) {
+    struct Ctx { int want; int seen; MonitorPick out; } ctx{index, 0, {}};
+    EnumDisplayMonitors(nullptr, nullptr,
+        [](HMONITOR hm, HDC, LPRECT, LPARAM lp) -> BOOL {
+            auto* c = reinterpret_cast<Ctx*>(lp);
+            if (c->seen == c->want) {
+                MONITORINFO mi{}; mi.cbSize = sizeof(mi);
+                if (GetMonitorInfoW(hm, &mi)) {
+                    c->out.hmon = hm;
+                    c->out.x = mi.rcMonitor.left;
+                    c->out.y = mi.rcMonitor.top;
+                    c->out.w = mi.rcMonitor.right  - mi.rcMonitor.left;
+                    c->out.h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+                    c->out.ok = true;
+                }
+            }
+            ++c->seen;
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&ctx));
+    if (!ctx.out.ok) {
+        HMONITOR pm = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+        MONITORINFO mi{}; mi.cbSize = sizeof(mi);
+        GetMonitorInfoW(pm, &mi);
+        ctx.out.hmon = pm;
+        ctx.out.x = mi.rcMonitor.left;
+        ctx.out.y = mi.rcMonitor.top;
+        ctx.out.w = mi.rcMonitor.right  - mi.rcMonitor.left;
+        ctx.out.h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+        ctx.out.ok = true;
+    }
+    return ctx.out;
+}
+
+int run_dx12(const Options& opts) {
+    if (!tubelight::WgcCapture::is_supported()) {
+        std::fprintf(stderr,
+            "[overlay] WGC unsupported (requires Windows 10 1903+); "
+            "--renderer dx12 overlay unavailable.\n");
+        return 1;
+    }
+    glfwSetErrorCallback(glfw_error_cb);
+    if (!glfwInit()) {
+        std::fprintf(stderr, "[overlay] glfwInit failed\n");
+        return 1;
+    }
+
+    const bool mode_target     = (opts.mode == OverlayMode::TargetWindow);
+    const bool mode_fullscreen = (opts.mode == OverlayMode::Fullscreen);
+    const bool mode_region     = (opts.mode == OverlayMode::Region);
+    const bool mode_windowed   = (opts.mode == OverlayMode::Windowed);
+
+    // Resolve the WGC capture target + capture geometry.
+    HWND target_hwnd = nullptr;
+    int tgt_x = 0, tgt_y = 0, tgt_w = 0, tgt_h = 0;
+    MonitorPick mon{};
+    if (mode_target) {
+        target_hwnd = find_target_hwnd(opts.target_window, opts.target_pid, nullptr);
+        if (!target_hwnd) {
+            std::fprintf(stderr,
+                "[overlay] target window not found (title='%s' pid=%d)\n",
+                opts.target_window.c_str(), opts.target_pid);
+            glfwTerminate();
+            return 1;
+        }
+        get_target_screen_rect(target_hwnd, tgt_x, tgt_y, tgt_w, tgt_h);
+    } else {
+        mon = pick_monitor(opts.monitor_index);
+    }
+
+    // Overlay window geometry.
+    int win_x, win_y, W, H;
+    if (mode_target) {
+        win_x = tgt_x; win_y = tgt_y; W = tgt_w; H = tgt_h;
+    } else if (mode_fullscreen) {
+        win_x = mon.x; win_y = mon.y; W = mon.w; H = mon.h;
+    } else if (mode_region) {
+        win_x = mon.x + opts.region_x; win_y = mon.y + opts.region_y;
+        W = opts.region_w > 0 ? opts.region_w : opts.init_w;
+        H = opts.region_h > 0 ? opts.region_h : opts.init_h;
+        std::fprintf(stderr,
+            "[overlay] dx12: region capture uses full-monitor source "
+            "(crop deferred to v0.2.1)\n");
+    } else { // windowed
+        W = opts.init_w; H = opts.init_h;
+        win_x = mon.x + (mon.w - W) / 2;
+        win_y = mon.y + (mon.h - H) / 2;
+    }
+
+    const bool chrome = mode_windowed;  // only plain windowed gets a title bar
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);   // D3D12 owns the swap chain
+    glfwWindowHint(GLFW_VISIBLE,    GLFW_FALSE);
+    glfwWindowHint(GLFW_DECORATED,  chrome ? GLFW_TRUE  : GLFW_FALSE);
+    glfwWindowHint(GLFW_FLOATING,   GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE,  chrome ? GLFW_TRUE  : GLFW_FALSE);
+
+    GLFWwindow* window = glfwCreateWindow(W, H, "Tubelight (DX12)", nullptr, nullptr);
+    if (!window) {
+        std::fprintf(stderr, "[overlay] glfwCreateWindow failed\n");
+        glfwTerminate();
+        return 1;
+    }
+    glfwSetWindowPos(window, win_x, win_y);
+    HWND hwnd = glfwGetWin32Window(window);
+
+    // Feedback prevention: exclude our own window from WGC monitor capture.
+    // WGC honours WDA_EXCLUDEFROMCAPTURE (Win10 2004+). Essential for
+    // fullscreen/monitor capture; harmless for per-window capture.
+    SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+
+    int fb_w = 0, fb_h = 0;
+    glfwGetFramebufferSize(window, &fb_w, &fb_h);
+    if (fb_w <= 0 || fb_h <= 0) { fb_w = W; fb_h = H; }
+
+    // D3D12 backend bound to the overlay HWND.
+    auto backend = tubelight::create_backend(tubelight::BackendKind::D3D12);
+    if (!backend) {
+        std::fprintf(stderr, "[overlay] D3D12 backend not compiled in\n");
+        glfwDestroyWindow(window); glfwTerminate();
+        return 1;
+    }
+    tubelight::BackendInitParams bp;
+    bp.native_window_handle = hwnd;
+    bp.width  = fb_w;
+    bp.height = fb_h;
+    bp.enable_debug = false;
+    if (!backend->init(bp)) {
+        std::fprintf(stderr,
+            "[overlay] D3D12Backend::init failed — retry without --renderer dx12 "
+            "to use the GL overlay.\n");
+        glfwDestroyWindow(window); glfwTerminate();
+        return 1;
+    }
+    auto* d12 = static_cast<tubelight::D3D12Backend*>(backend.get());
+
+    // D3D11On12 device shared with WGC (which is D3D11-only).
+    ID3D11Device* d3d11 = d12->d3d11_on12_device();
+    if (!d3d11) {
+        std::fprintf(stderr, "[overlay] D3D11On12 device creation failed\n");
+        glfwDestroyWindow(window); glfwTerminate();
+        return 1;
+    }
+
+    tubelight::WgcCapture wgc;
+    const bool wgc_init = mode_target
+        ? wgc.init_for_window(target_hwnd, d3d11)
+        : wgc.init_for_monitor(mon.hmon, d3d11);
+    if (!wgc_init || !wgc.start()) {
+        std::fprintf(stderr, "[overlay] WGC capture init/start failed\n");
+        glfwDestroyWindow(window); glfwTerminate();
+        return 1;
+    }
+    std::fprintf(stderr, "[overlay] dx12: WGC capturing %s\n",
+                 mode_target ? "target window" : "monitor");
+
+    // Pipeline on the D3D12 backend. After set_backend, the pipeline owns
+    // the backend; we keep backend_raw for the per-frame begin/end calls.
+    tubelight::Pipeline pipeline;
+    auto* backend_raw = backend.get();
+    pipeline.set_backend(std::move(backend));
+    if (!pipeline.create(fb_w, fb_h)) {
+        std::fprintf(stderr, "[overlay] pipeline.create failed (dx12)\n");
+        wgc.stop(); glfwDestroyWindow(window); glfwTerminate();
+        return 1;
+    }
+    if (!opts.profile_id.empty()) {
+        std::string err;
+        auto p = tubelight::load_crt_profile_by_id(opts.profile_id, err);
+        if (p) {
+            pipeline.apply_crt_profile(*p);
+            std::fprintf(stderr, "[overlay] CRT profile loaded: %s\n",
+                         p->display_name.c_str());
+        } else {
+            std::fprintf(stderr, "[overlay] CRT profile '%s' not found: %s\n",
+                         opts.profile_id.c_str(), err.c_str());
+        }
+    }
+    if (!opts.signal_id.empty()) {
+        std::string err;
+        auto s = tubelight::load_signal_profile_by_id(opts.signal_id, err);
+        if (s) {
+            pipeline.apply_signal_profile(*s);
+            std::fprintf(stderr, "[overlay] signal profile: %s\n",
+                         s->display_name.c_str());
+        } else {
+            std::fprintf(stderr, "[overlay] signal profile '%s' not found: %s\n",
+                         opts.signal_id.c_str(), err.c_str());
+        }
+    }
+
+    // Input: ESC quits, 1..8 toggle passes, 0 all-on, F freeze. Reuses the
+    // GL path's key_cb via AppState; resize_state carries the backend ptr.
+    AppState state;
+    state.pipeline     = &pipeline;
+    state.resize_state = backend_raw;
+    glfwSetWindowUserPointer(window, &state);
+    glfwSetKeyCallback(window, key_cb);
+    glfwSetFramebufferSizeCallback(window, [](GLFWwindow* w, int ww, int hh) {
+        auto* s = static_cast<AppState*>(glfwGetWindowUserPointer(w));
+        if (!s) return;
+        if (s->resize_state)
+            static_cast<tubelight::IRenderBackend*>(s->resize_state)->resize(ww, hh);
+        if (s->pipeline) s->pipeline->resize(ww, hh);
+    });
+
+    glfwShowWindow(window);
+    SetWindowPos(hwnd, HWND_TOPMOST, win_x, win_y,
+                 chrome ? 0 : W, chrome ? 0 : H,
+                 (chrome ? (SWP_NOMOVE | SWP_NOSIZE) : 0) | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+    std::printf(
+        "[overlay] dx12 hotkeys: ESC quit | 1..8 toggle pass | 0 all on | F freeze\n");
+
+    double t0 = glfwGetTime();
+    tubelight::TextureHandle last_h{0};
+    unsigned long long frames_rendered = 0;
+    while (!glfwWindowShouldClose(window)) {
+        glfwPollEvents();
+
+        if (!state.freeze) {
+            int tw = 0, th = 0;
+            auto tex11 = wgc.latest_frame(tw, th);
+            if (tex11) {
+                auto h = d12->wrap_d3d11_texture(tex11.Get(), tw, th);
+                if (h.is_valid()) last_h = h;
+            }
+        }
+        if (!last_h.is_valid()) {
+            // No frame has arrived yet (first ~1-2 ticks). Wait a hair.
+            Sleep(2);
+            continue;
+        }
+
+        pipeline.set_time(static_cast<float>(glfwGetTime() - t0));
+        backend_raw->begin_frame();
+        pipeline.render_to_screen(last_h);
+        backend_raw->end_frame();
+        if (frames_rendered == 0) {
+            std::fprintf(stderr,
+                "[overlay] dx12: first frame rendered (source handle %u)\n",
+                last_h.id);
+        }
+        ++frames_rendered;
+    }
+
+    std::printf("[overlay] dx12: %llu frames rendered, %llu captured\n",
+                frames_rendered,
+                static_cast<unsigned long long>(wgc.frame_count()));
+    wgc.stop();
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    return 0;
+}
+#endif // TUBELIGHT_HAVE_D3D12
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -919,6 +1210,19 @@ void key_cb(GLFWwindow* w, int key, int /*sc*/, int action, int /*mods*/) {
 // ---------------------------------------------------------------------------
 
 int run(const Options& opts) {
+    // T5.5: --renderer dx12 takes the WGC + D3D11On12 + D3D12 path. The GL
+    // body below is left entirely untouched (zero regression risk).
+#if defined(TUBELIGHT_HAVE_D3D12)
+    if (opts.backend == BackendKind::D3D12) {
+        return run_dx12(opts);
+    }
+#else
+    if (opts.backend == BackendKind::D3D12) {
+        std::fprintf(stderr,
+            "[overlay] --renderer dx12 requested but D3D12 was not compiled "
+            "in; falling back to the OpenGL overlay.\n");
+    }
+#endif
     glfwSetErrorCallback(glfw_error_cb);
     if (!glfwInit()) {
         std::fprintf(stderr, "[overlay] glfwInit failed\n");
