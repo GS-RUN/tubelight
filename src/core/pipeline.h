@@ -9,8 +9,10 @@
 #include "core/texture.h"
 #include "profile/crt_profile.h"
 #include "profile/signal_profile.h"
+#include "render/backend.h"
 
 #include <array>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -42,6 +44,18 @@ public:
 
     Pipeline(const Pipeline&) = delete;
     Pipeline& operator=(const Pipeline&) = delete;
+
+    // Inject a render backend. Must be called BEFORE create(); if not set,
+    // create() instantiates a default OpenGL backend. Takes ownership.
+    void set_backend(std::unique_ptr<IRenderBackend> backend) {
+        backend_ = std::move(backend);
+    }
+
+    // Identifier of the current backend (for diagnostics / menu). Returns
+    // "(none)" when no backend has been created/injected yet.
+    const char* backend_name() const {
+        return backend_ ? backend_->name() : "(none)";
+    }
 
     bool create(int output_width, int output_height);
     void resize(int width, int height);
@@ -177,7 +191,11 @@ private:
     std::array<bool, kPassCount> enabled_;
 
     GlobalParams params_;
-    FullscreenQuad quad_;
+    // Render backend (Phase 3a of ADR-0002). Owns the fullscreen-triangle
+    // VAO and absorbs the raw GL state changes (clear/viewport/bind-default
+    // /draw) that Pipeline used to issue directly. Created in create() if
+    // not pre-injected via set_backend().
+    std::unique_ptr<IRenderBackend> backend_;
     float time_ = 0.0f;
     float frame_mean_lum_ = 0.0f;
     std::optional<SignalProfile> signal_snapshot_;

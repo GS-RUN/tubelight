@@ -152,8 +152,17 @@ bool Pipeline::create(int output_width, int output_height) {
     output_width_  = output_width;
     output_height_ = output_height;
 
-    if (!quad_.create()) {
-        std::fprintf(stderr, "[tubelight] FullscreenQuad::create failed\n");
+    // Lazily instantiate the default OpenGL backend if the caller did not
+    // inject one. Phase 3b will let main.cpp pick D3D12 here.
+    if (!backend_) {
+        backend_ = create_backend(BackendKind::OpenGL);
+        if (!backend_) {
+            std::fprintf(stderr, "[tubelight] create_backend(OpenGL) returned null\n");
+            return false;
+        }
+    }
+    if (!backend_->init()) {
+        std::fprintf(stderr, "[tubelight] backend init failed (%s)\n", backend_->name());
         return false;
     }
 
@@ -271,14 +280,13 @@ bool Pipeline::render_to_screen(GLuint source_tex) {
         const bool is_last = (i == kPassCount - 1);
         if (is_last) {
             // Last pass writes to default framebuffer.
-            FBO::unbind();
-            glViewport(0, 0, output_width_, output_height_);
+            backend_->bind_default_framebuffer();
+            backend_->set_viewport(0, 0, output_width_, output_height_);
         } else {
             fbo.bind();
         }
 
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        backend_->clear_color(0.0f, 0.0f, 0.0f, 1.0f);
 
         sh.use();
         apply_uniforms_for_pass(sh, i, params_, output_width_, output_height_, time_, frame_mean_lum_, signal_snapshot_);
@@ -312,7 +320,7 @@ bool Pipeline::render_to_screen(GLuint source_tex) {
             }
         }
 
-        quad_.draw();
+        backend_->draw_fullscreen_quad();
 
         // After pass 5 has rendered into fbos_[6], snapshot it into
         // history_fbo_ so the NEXT frame's pass 5 can sample it as

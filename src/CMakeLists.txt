@@ -10,6 +10,8 @@ add_library(tubelight_core STATIC
     core/texture.cpp
     core/quad.cpp
     core/pipeline.cpp
+    render/backend.cpp
+    render/backend_gl.cpp
     io/image_io.cpp
     io/shader_io.cpp
     profile/crt_profile.cpp

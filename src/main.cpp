@@ -21,6 +21,7 @@
 #include "overlay/overlay_mode.h"
 #include "profile/profile_loader.h"
 #include "profile/validator.h"
+#include "render/backend.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -31,7 +32,7 @@ namespace {
 
 constexpr int kDefaultWidth  = 1280;
 constexpr int kDefaultHeight = 960;
-constexpr const char* kVersion = "0.1.6";
+constexpr const char* kVersion = "0.1.7";
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
@@ -55,6 +56,8 @@ struct Args {
     int  region_x = 0, region_y = 0, region_w = 0, region_h = 0;
     bool unknown_flag = false;
     std::string unknown_flag_text;
+    // ADR-0002 Phase 3a: render backend selector. Only "gl" accepted today.
+    tubelight::BackendKind backend = tubelight::BackendKind::OpenGL;
 };
 
 Args parse_args(int argc, char** argv) {
@@ -130,6 +133,21 @@ Args parse_args(int argc, char** argv) {
                 a.overlay_init_w = std::atoi(argv[++i]);
                 a.overlay_init_h = std::atoi(argv[++i]);
             }
+        } else if (arg == "--renderer") {
+            if (i + 1 < argc) {
+                const char* tok = argv[++i];
+                tubelight::BackendKind k;
+                if (tubelight::parse_backend_kind(tok, k)) {
+                    a.backend = k;
+                } else {
+                    a.unknown_flag = true;
+                    a.unknown_flag_text = std::string("--renderer ") + tok +
+                                          " (only 'gl' is supported in v0.1.x; 'dx12' lands in v0.2.0)";
+                }
+            } else {
+                a.unknown_flag = true;
+                a.unknown_flag_text = "--renderer requires a value (gl)";
+            }
         } else if (arg == "--export-slangp") {
             if (i + 1 < argc) {
                 a.export_slangp_path = argv[++i];
@@ -176,6 +194,8 @@ void print_help() {
         "  --signal <id>                Signal profile id\n"
         "  --validate-profile <path>    Validate a profile JSON and exit\n"
         "  --export-slangp <path>       Export current profile as RetroArch preset\n"
+        "  --renderer <gl>              Render backend (default: gl).\n"
+        "                               'dx12' is reserved for v0.2.0 (ADR-0002 Phase 3b).\n"
         "\n"
         "Note: Tubelight renders with OpenGL. Desktop capture uses Windows'\n"
         "      DXGI Desktop Duplication regardless of what the underlying\n"
@@ -205,7 +225,7 @@ void print_help() {
 }
 
 void print_version() {
-    std::printf("tubelight %s\n", kVersion);
+    std::printf("tubelight %s (renderer: gl)\n", kVersion);
 }
 
 // ---------------------------------------------------------------------------

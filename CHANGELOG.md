@@ -6,6 +6,37 @@ Versioning: [SemVer 2.0](https://semver.org/).
 ## [Unreleased]
 
 ### Known limitations
+
+## [0.1.7] — 2026-05-28
+
+### Added (architecture)
+- **Phase 3a (ADR-0002): `IRenderBackend` abstraction** — new
+  `src/render/` module introducing `IRenderBackend`, `GLBackend`, and a
+  `create_backend(BackendKind)` factory. `Pipeline` now routes its raw
+  GL state changes (viewport, clear, default-framebuffer bind, fullscreen
+  quad draw) through the backend instead of calling OpenGL directly.
+  `FBO`, `Texture2D`, and `ShaderProgram` remain GL-specific concrete
+  types for this phase; they get abstracted in Phase 3b when the D3D12
+  backend forces it. Zero functional change vs. v0.1.6 — the binary
+  renders identically.
+- **CMake option `TUBELIGHT_RENDERER_GL`** (default ON). Currently the
+  only supported value; build scripts and CI can already reference it.
+- **CLI flag `--renderer <gl>`** — accepted by the binary, validates the
+  token, and rejects anything other than `gl` (or its `opengl` alias) so
+  users get a clear error rather than a silent fallback. The `dx12` token
+  is explicitly reserved for v0.2.0.
+- `Pipeline::set_backend()` for tests and Phase 3b code that wants to
+  inject an alternative backend before `create()`.
+- `Pipeline::backend_name()` for diagnostics — surfaced through
+  `tubelight --version` as `(renderer: gl)`.
+
+### Why
+Rails for the D3D12 backend (ADR-0002 §3). Phase 3a is intentionally
+narrow so the diff is reviewable as a refactor and the binary's behaviour
+is byte-identical to v0.1.6: anyone bisecting can use 0.1.7 as a baseline
+free of new pixel changes.
+
+
 - Pass 5 (temporal persistence / voltage bloom / BFI) is still an identity
   shader. Real implementation requires a history-FBO refactor scheduled
   for v1.1 — see specs/PLAN.LOCKED.md F7 T7.2.
