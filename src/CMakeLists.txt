@@ -28,10 +28,16 @@ add_library(tubelight_core STATIC
     overlay/folder_picker.cpp
     overlay/preset_saver.cpp
     audio/crt_audio.cpp
+    $<$<BOOL:${WIN32}>:capture/wgc_capture.cpp>
 )
 
 if(WIN32)
-    target_link_libraries(tubelight_core PUBLIC d3d11 dxgi ole32 shell32 uuid xaudio2 Magnification)
+    # windowsapp.lib brokers C++/WinRT activation (Windows.Graphics.Capture
+    # + IDirect3DDevice interop). runtimeobject.lib for IInspectable.
+    target_link_libraries(tubelight_core PUBLIC
+        d3d11 dxgi ole32 shell32 uuid xaudio2 Magnification
+        windowsapp runtimeobject
+    )
 endif()
 
 if(TUBELIGHT_BUILD_DX12)

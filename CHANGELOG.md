@@ -5,6 +5,48 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ## [Unreleased]
 
+### Phase 3d started — WGC + D3D11On12 core complete (overlay integration pending)
+
+- **`tubelight::WgcCapture`** ([src/capture/wgc_capture.{h,cpp}](src/capture/)):
+  RAII C++/WinRT wrapper around Windows.Graphics.Capture. PIMPL'd so
+  the heavy `winrt/*` headers don't leak. `init_for_window(HWND)` and
+  `init_for_monitor(HMONITOR)`, `start()` / `stop()`, thread-safe
+  `latest_frame()` returning the most recent `ID3D11Texture2D`. The
+  FrameArrived callback drains the pool every tick so we always
+  expose the latest content.
+- **`D3D12Backend::d3d11_on12_device()`** lazily initialises a
+  `D3D11On12CreateDevice`-wrapped ID3D11Device sharing our DX12
+  device + queue. Cached for the backend lifetime. Required by WGC
+  (D3D11-only API).
+- **`D3D12Backend::wrap_d3d11_texture(ID3D11Texture2D*, w, h)`**:
+  unwraps a D3D11 texture via `ID3D11On12Device2::
+  UnwrapUnderlyingResource`, creates an SRV in the CPU staging
+  heap, registers a TextureEntry that aliases the D3D12 resource.
+  Caches by pointer (WGC recycles its 2-buffer pool, so cache is
+  tiny). The handle is poolable by the existing handle system —
+  Pipeline never knows it's a borrowed external resource.
+- **CLI `--wgc-test`** flag — standalone smoke. Opens a NO_API GLFW
+  window, runs the D3D12 backend, captures the primary monitor via
+  WGC, feeds frames through the 8-pass pipeline, displays live.
+  Implies `--renderer dx12`. ESC quits. Combine with `--screenshot
+  <path>` to capture frame 60 and exit.
+- CMake links `windowsapp.lib` + `runtimeobject.lib` for C++/WinRT
+  activation. `src/capture/wgc_capture.cpp` builds only on Windows
+  (Linux gets no-op).
+
+### Validated on RTX 2080 Ti FL 12_2
+`tubelight --wgc-test --profile pvm-8220 --signal composite_ntsc --screenshot wgc.png`
+produces a CRT-processed capture of the primary monitor. WGC pipeline
+to D3D12 unwrap zero-copy, no DXGI roundtrip.
+
+### Deferred to next session (T5.5)
+Wiring WGC + DX12 into `overlay_mode_win.cpp` (2000+ LOC). The
+current overlay uses DXGI Desktop Duplication on the GL backend; the
+WGC + D3D12 path is a parallel mode that needs careful coexistence
+with the existing input/drag/menu/screenshot/video machinery. Phase
+3d core (this commit) provides the infrastructure; T5.5 is the
+integration layer.
+
 ## [0.2.0-beta.0] — 2026-05-28
 
 ### Phase 3c COMPLETE — F3c-5 (pixel-equivalence gate + release)

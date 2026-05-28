@@ -5,6 +5,9 @@
 
 #if defined(TUBELIGHT_HAVE_D3D12)
 
+#include <d3d11_4.h>
+#include <d3d11on12.h>
+
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -943,6 +946,115 @@ bool D3D12Backend::capture_backbuffer(std::vector<uint8_t>& out_rgba,
     D3D12_RANGE empty{0, 0};
     readback->Unmap(0, &empty);
     return true;
+}
+
+// ----- Phase 3d: D3D11On12 + WGC interop --------------------------------
+
+ID3D11Device* D3D12Backend::d3d11_on12_device() {
+    if (!d3d11on12_init_attempted_) {
+        d3d11on12_init_attempted_ = true;
+        if (!device_ || !cmd_queue_) return nullptr;
+
+        // Use D3D11 feature level matching the device feature level the
+        // D3D12 device was created at — minimum 11_0 (the lowest D3D12
+        // can wrap). We accept the highest D3D11 supports.
+        const D3D_FEATURE_LEVEL levels[] = {
+            D3D_FEATURE_LEVEL_11_1,
+            D3D_FEATURE_LEVEL_11_0,
+        };
+        IUnknown* queues[] = { cmd_queue_.Get() };
+        // D3D11_CREATE_DEVICE_BGRA_SUPPORT lets us share with WGC
+        // (which prefers BGRA8 framebuffers via DXGI_FORMAT_B8G8R8A8_UNORM).
+        // D3D11_CREATE_DEVICE_DEBUG: we mirror the D3D12 debug-layer
+        // toggle; cheap to ask, only takes effect with Graphics Tools
+        // installed.
+        UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+        if (info_queue_) flags |= D3D11_CREATE_DEVICE_DEBUG;
+
+        HRESULT hr = D3D11On12CreateDevice(
+            device_.Get(), flags,
+            levels, _countof(levels),
+            queues, _countof(queues),
+            0,
+            d3d11_.GetAddressOf(),
+            d3d11_ctx_.GetAddressOf(),
+            nullptr);
+        if (FAILED(hr)) {
+            std::fprintf(stderr,
+                "[tubelight][d3d12] D3D11On12CreateDevice failed 0x%lX\n", hr);
+            return nullptr;
+        }
+        if (FAILED(d3d11_.As(&d3d11on12_))) {
+            std::fprintf(stderr,
+                "[tubelight][d3d12] ID3D11On12Device2 QI failed "
+                "(requires Win10 1809+)\n");
+            d3d11_.Reset();
+            d3d11_ctx_.Reset();
+            return nullptr;
+        }
+        d3d11on12_init_ok_ = true;
+        std::fprintf(stderr,
+            "[tubelight][d3d12] D3D11On12 device initialised (for WGC)\n");
+    }
+    return d3d11on12_init_ok_ ? d3d11_.Get() : nullptr;
+}
+
+TextureHandle D3D12Backend::wrap_d3d11_texture(ID3D11Texture2D* tex,
+                                                int width, int height) {
+    if (!d3d11on12_init_ok_ || !tex) return {0};
+    void* key = static_cast<void*>(tex);
+    auto cache_it = wrapped_d3d11_handles_.find(key);
+    if (cache_it != wrapped_d3d11_handles_.end()) {
+        // Already wrapped this exact texture pointer. WGC recycles its
+        // pool of 2 textures, so the cache stays tiny (2 entries at
+        // steady state). Return the cached handle.
+        return cache_it->second;
+    }
+
+    // Unwrap the underlying D3D12 resource via D3D11On12. The wrapped
+    // resource enters RESOURCE_STATE_PIXEL_SHADER_RESOURCE so the
+    // pipeline can sample without an extra transition. After the GPU
+    // is done with the frame, we ReturnUnderlyingResource (deferred
+    // to end_frame for batching; for now we leave it acquired until
+    // backend shutdown since each WGC texture is reused frame-to-frame).
+    ComPtr<ID3D12Resource> d3d12_res;
+    HRESULT hr = d3d11on12_->UnwrapUnderlyingResource(
+        tex, cmd_queue_.Get(), IID_PPV_ARGS(&d3d12_res));
+    if (FAILED(hr)) {
+        std::fprintf(stderr,
+            "[tubelight][d3d12] UnwrapUnderlyingResource 0x%lX\n", hr);
+        return {0};
+    }
+    D3D12_RESOURCE_DESC rd = d3d12_res->GetDesc();
+
+    // Build a TextureEntry that owns the unwrapped D3D12 resource +
+    // a fresh SRV in srv_cpu_heap_. The state is PIXEL_SHADER_RESOURCE
+    // (post-unwrap convention).
+    TextureEntry e;
+    e.resource     = d3d12_res;
+    e.state        = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    e.format       = rd.Format;
+    e.width        = width  > 0 ? width  : static_cast<int>(rd.Width);
+    e.height       = height > 0 ? height : static_cast<int>(rd.Height);
+    e.borrowed_from_rt = false;
+
+    e.srv_cpu_slot = alloc_srv_cpu_slot();
+    if (e.srv_cpu_slot == UINT_MAX) return {0};
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format                        = rd.Format;
+    srv.ViewDimension                 = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping       = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels           = 1;
+    srv.Texture2D.MostDetailedMip     = 0;
+    srv.Texture2D.ResourceMinLODClamp = 0.0f;
+    device_->CreateShaderResourceView(e.resource.Get(), &srv, srv_cpu_handle(e.srv_cpu_slot));
+
+    const uint32_t id = next_id_++;
+    textures_.emplace(id, std::move(e));
+    TextureHandle h{id};
+    wrapped_d3d11_handles_.emplace(key, h);
+    return h;
 }
 
 TextureHandle D3D12Backend::rt_as_texture(RenderTargetHandle h) {

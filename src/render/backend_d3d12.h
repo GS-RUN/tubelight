@@ -37,6 +37,14 @@
 #include <unordered_map>
 #include <vector>
 
+// D3D11On12 for WGC interop (Phase 3d). The 11On12 device wraps a
+// D3D11 view on top of our D3D12 device so WGC (which is D3D11-only)
+// can hand us textures that we can then unwrap back as D3D12 resources
+// without copying. ID3D11On12Device2 (Win10 1809+) provides the
+// Unwrap/ReturnUnderlyingResource pair we use.
+#include <d3d11_4.h>
+#include <d3d11on12.h>
+
 namespace tubelight {
 
 class D3D12Backend final : public IRenderBackend {
@@ -82,6 +90,24 @@ public:
     bool capture_backbuffer(std::vector<uint8_t>& out_rgba,
                              int& out_width, int& out_height) override;
 
+    // ----- Phase 3d D3D11On12 + WGC interop --------------------------
+    // Lazily create a D3D11 device that wraps our D3D12 device + queue
+    // via D3D11On12CreateDevice. WGC (Windows.Graphics.Capture) takes a
+    // D3D11 device, so this lets us share resources with it without an
+    // extra cross-device copy.
+    ID3D11Device* d3d11_on12_device();
+
+    // Wrap a WGC-delivered ID3D11Texture2D as a TextureHandle that the
+    // pipeline can sample. Internally:
+    //   - First call for a given d3d11 texture pointer: unwraps the
+    //     underlying ID3D12Resource via ID3D11On12Device::
+    //     UnwrapUnderlyingResource, creates an SRV in srv_cpu_heap_,
+    //     stashes both in wrapped_d3d11_.
+    //   - Subsequent calls: returns the cached handle (same SRV slot).
+    // Caller MUST hold the D3D11 texture alive for the handle lifetime.
+    TextureHandle wrap_d3d11_texture(ID3D11Texture2D* tex,
+                                      int width, int height);
+
 private:
     static constexpr UINT kBackBufferCount = 2;
     static constexpr DXGI_FORMAT kBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -103,6 +129,19 @@ private:
     void destroy_cb_ring();
     void drain_info_queue();
     Microsoft::WRL::ComPtr<ID3D12InfoQueue>         info_queue_;
+
+    // D3D11On12 + WGC interop state (Phase 3d). Lazily initialised by
+    // d3d11_on12_device(); never freed until shutdown.
+    Microsoft::WRL::ComPtr<ID3D11Device>            d3d11_;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext>     d3d11_ctx_;
+    Microsoft::WRL::ComPtr<ID3D11On12Device2>       d3d11on12_;
+    bool d3d11on12_init_attempted_ = false;
+    bool d3d11on12_init_ok_ = false;
+
+    // Cache of wrapped D3D11 textures: ID3D11Texture2D* → TextureHandle.
+    // Lookup is by pointer (WGC recycles texture pointers across frames
+    // when buffer count is reached, so the cache stays small).
+    std::unordered_map<void*, TextureHandle> wrapped_d3d11_handles_;
 
     // ----- core objects ---------------------------------------------------
     Microsoft::WRL::ComPtr<ID3D12Device>            device_;

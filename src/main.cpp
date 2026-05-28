@@ -27,6 +27,9 @@
 #if defined(_WIN32)
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
+#include "capture/wgc_capture.h"
+#include "render/backend_d3d12.h"
+#include <d3d11.h>
 #endif
 
 #include <cstdio>
@@ -68,6 +71,11 @@ struct Args {
     // testing. When set, --shader-only renders 60 warmup frames, captures
     // the backbuffer to <path> as PNG, then exits.
     std::string screenshot_path;
+    // Phase 3d: standalone WGC capture test. Captures the primary monitor
+    // via Windows.Graphics.Capture, feeds frames through the D3D12
+    // pipeline, displays live in a window. Requires --renderer dx12
+    // (the WGC→D3D11On12→D3D12 interop is the whole point).
+    bool wgc_test = false;
 };
 
 Args parse_args(int argc, char** argv) {
@@ -143,6 +151,9 @@ Args parse_args(int argc, char** argv) {
                 a.overlay_init_w = std::atoi(argv[++i]);
                 a.overlay_init_h = std::atoi(argv[++i]);
             }
+        } else if (arg == "--wgc-test") {
+            a.wgc_test = true;
+            a.backend  = tubelight::BackendKind::D3D12;  // implied
         } else if (arg == "--screenshot") {
             if (i + 1 < argc) {
                 a.screenshot_path = argv[++i];
@@ -211,6 +222,12 @@ void print_help() {
         "  --signal <id>                Signal profile id\n"
         "  --validate-profile <path>    Validate a profile JSON and exit\n"
         "  --export-slangp <path>       Export current profile as RetroArch preset\n"
+        "  --wgc-test                   [Phase 3d] Capture the primary monitor via\n"
+        "                               Windows.Graphics.Capture and feed frames through\n"
+        "                               the D3D12 pipeline live (implies --renderer dx12).\n"
+        "                               Standalone smoke for WGC + D3D11On12 interop. ESC\n"
+        "                               quits. Combine with --screenshot to capture frame\n"
+        "                               60 and exit.\n"
         "  --screenshot <path>          --shader-only deterministic capture: renders 60\n"
         "                               warmup frames, writes the backbuffer to <path>\n"
         "                               as PNG, exits. Used by tests/golden pixel-\n"
@@ -646,6 +663,142 @@ int run_shader_only_dx12(const std::string& image_path,
 #endif
 }
 
+// Phase 3d standalone smoke: WGC captures the primary monitor + feeds
+// frames through the D3D12 pipeline + displays live in a GLFW window.
+// No overlay integration, no DXGI Duplication, no GL. Exits on ESC or
+// (if --screenshot is set) after 60 warmup frames.
+int run_wgc_test(const std::string& profile_id,
+                 const std::string& signal_id,
+                 const std::string& screenshot_path) {
+#if defined(_WIN32) && defined(TUBELIGHT_HAVE_D3D12)
+    if (!tubelight::WgcCapture::is_supported()) {
+        std::fprintf(stderr, "[tubelight] WGC unsupported on this Windows build (requires 1903+)\n");
+        return 1;
+    }
+    glfwSetErrorCallback(glfw_error_callback);
+    if (!glfwInit()) {
+        std::fprintf(stderr, "[tubelight] glfwInit failed\n");
+        return 1;
+    }
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
+    const std::string title = std::string("Tubelight ") + kVersion +
+                              " — WGC monitor capture (DX12, ESC to quit)";
+    GLFWwindow* window = glfwCreateWindow(kDefaultWidth, kDefaultHeight,
+                                          title.c_str(), nullptr, nullptr);
+    if (!window) { glfwTerminate(); return 1; }
+    HWND hwnd = glfwGetWin32Window(window);
+    int fb_w = 0, fb_h = 0;
+    glfwGetFramebufferSize(window, &fb_w, &fb_h);
+
+    auto backend = tubelight::create_backend(tubelight::BackendKind::D3D12);
+    if (!backend) { glfwDestroyWindow(window); glfwTerminate(); return 1; }
+    tubelight::BackendInitParams bp;
+    bp.native_window_handle = hwnd;
+    bp.width  = fb_w;
+    bp.height = fb_h;
+    bp.enable_debug = false;
+    if (!backend->init(bp)) {
+        std::fprintf(stderr, "[tubelight] D3D12Backend::init failed for WGC test\n");
+        glfwDestroyWindow(window); glfwTerminate(); return 1;
+    }
+    auto* d12 = static_cast<tubelight::D3D12Backend*>(backend.get());
+
+    // Wire the D3D11On12 device to WGC.
+    ID3D11Device* d3d11 = d12->d3d11_on12_device();
+    if (!d3d11) {
+        std::fprintf(stderr, "[tubelight] D3D11On12 device init failed\n");
+        backend->shutdown(); glfwDestroyWindow(window); glfwTerminate(); return 1;
+    }
+
+    tubelight::WgcCapture wgc;
+    // Primary monitor for the smoke. Tubelight's own window may show up
+    // on the captured monitor — that's intentional (you can watch the
+    // effect "pipeline-in-pipeline"). A future flag could pick by HMONITOR
+    // index or by target HWND.
+    HMONITOR mon = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    if (!wgc.init_for_monitor(mon, d3d11)) {
+        std::fprintf(stderr, "[tubelight] WgcCapture::init_for_monitor failed\n");
+        backend->shutdown(); glfwDestroyWindow(window); glfwTerminate(); return 1;
+    }
+    if (!wgc.start()) {
+        std::fprintf(stderr, "[tubelight] WgcCapture::start failed\n");
+        backend->shutdown(); glfwDestroyWindow(window); glfwTerminate(); return 1;
+    }
+    std::printf("[tubelight] WGC test running — capturing primary monitor.\n");
+
+    tubelight::Pipeline pipeline;
+    auto* backend_raw = backend.get();
+    pipeline.set_backend(std::move(backend));
+    if (!pipeline.create(fb_w, fb_h)) {
+        std::fprintf(stderr, "[tubelight] pipeline.create failed for WGC test\n");
+        wgc.stop(); glfwDestroyWindow(window); glfwTerminate(); return 1;
+    }
+    if (!profile_id.empty()) {
+        std::string err;
+        auto p = tubelight::load_crt_profile_by_id(profile_id, err);
+        if (p) pipeline.apply_crt_profile(*p);
+    }
+    if (!signal_id.empty()) {
+        std::string err;
+        auto s = tubelight::load_signal_profile_by_id(signal_id, err);
+        if (s) pipeline.apply_signal_profile(*s);
+    }
+
+    glfwSetKeyCallback(window, [](GLFWwindow* w, int key, int, int act, int) {
+        if (act == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
+            glfwSetWindowShouldClose(w, GLFW_TRUE);
+        }
+    });
+
+    double t0 = glfwGetTime();
+    int frames_rendered = 0;
+    const int kMaxScreenshotFrames = 60;
+    while (!glfwWindowShouldClose(window)) {
+        glfwPollEvents();
+        int tw = 0, th = 0;
+        auto tex11 = wgc.latest_frame(tw, th);
+        if (!tex11) {
+            // No frame yet (first ~1-2 ticks). Sleep a hair and retry.
+            Sleep(2);
+            continue;
+        }
+        auto h = static_cast<tubelight::D3D12Backend*>(backend_raw)
+                     ->wrap_d3d11_texture(tex11.Get(), tw, th);
+        if (!h.is_valid()) {
+            std::fprintf(stderr, "[tubelight] wrap_d3d11_texture failed\n");
+            break;
+        }
+        pipeline.set_time(static_cast<float>(glfwGetTime() - t0));
+        backend_raw->begin_frame();
+        pipeline.render_to_screen(h);
+        backend_raw->end_frame();
+        ++frames_rendered;
+
+        if (!screenshot_path.empty() && frames_rendered >= kMaxScreenshotFrames) {
+            std::vector<uint8_t> px;
+            int cw = 0, ch = 0;
+            if (backend_raw->capture_backbuffer(px, cw, ch)) {
+                std::string err;
+                tubelight::save_png(screenshot_path, px.data(), cw, ch, 4, err, false);
+                std::printf("[tubelight] WGC test screenshot: %s (%dx%d, %llu frames captured)\n",
+                            screenshot_path.c_str(), cw, ch,
+                            static_cast<unsigned long long>(wgc.frame_count()));
+            }
+            break;
+        }
+    }
+    wgc.stop();
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    return 0;
+#else
+    (void)profile_id; (void)signal_id; (void)screenshot_path;
+    std::fprintf(stderr, "[tubelight] WGC test requires Windows + D3D12 backend\n");
+    return 1;
+#endif
+}
+
 int run_empty_window() {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -733,6 +886,9 @@ int main(int argc, char** argv) {
         std::printf("[tubelight] exported .slangp preset to %s\n",
                     args.export_slangp_path.c_str());
         return 0;
+    }
+    if (args.wgc_test) {
+        return run_wgc_test(args.profile_id, args.signal_id, args.screenshot_path);
     }
     if (!args.shader_only_input.empty()) {
         if (args.backend == tubelight::BackendKind::D3D12) {
