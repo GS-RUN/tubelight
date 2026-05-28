@@ -19,6 +19,47 @@ Versioning: [SemVer 2.0](https://semver.org/).
   `--overlay-target <title>` which initializes correctly. Fix deferred
   to v0.2.0.
 
+## [0.1.6] — 2026-05-27
+
+### Changed (perf)
+- **Phase 2b (ADR-0002): PBO double-buffer for video recording**.
+  `VideoRecorder::push_frame()` no longer blocks the main loop on
+  `glReadPixels`. A 3-slot Pixel Buffer Object ring is primed at
+  recording start; each frame the new read goes into the next slot
+  (driver DMAs async) and the oldest slot — written 3 frames ago,
+  guaranteed GPU-ready — is mapped and shoved to ffmpeg.
+  Saved per recorded frame: ~3-6 ms GPU stall. At 60 Hz recording
+  that's a noticeable framerate stabilisation on mid-tier GPUs and
+  ~20% lower CPU under sustained capture.
+  Implementation: `src/overlay/capture_to_disk.{h,cpp}` —
+  `kPboCount=3`, new members `pbos_[]` / `pbo_write_idx_` /
+  `pbo_filled_`. The ring is drained on `stop()` so the last 2 frames
+  of the recording aren't lost. `push_frame_from_bgra()` (DXGI/Mag
+  CPU-side path) is unchanged — its data is already host-resident.
+  Video frames are now delayed by `kPboCount` frames (~50 ms at 60 Hz)
+  before being written to the file; this is invisible in the final
+  MP4 because timestamps come from the recorder, not from the time
+  of write.
+- **Phase 2c (ADR-0002): skip pass 5 when persistence is negligible**.
+  `Pipeline::render_to_screen()` now early-skips the temporal pass
+  (`fbos_[6]` bind + clear + shader dispatch + history snapshot) when
+  `persistence_strength * (ratio_r + ratio_g + ratio_b) < 1e-3`.
+  Profiles that hit this: `terminal-p31` (strength 0.18 × ratios ≈
+  0.55 — does NOT skip), `tv-bw-p4` (strength 0.40 — does NOT skip),
+  `pvm-8220` with intensity 0 (skipped because strength scales with
+  intensity multiplier through `params_.persistence_strength`).
+  Saved per frame when applicable: ~0.4 ms on a mid-tier GPU.
+
+### Notes
+- Original Phase 2c plan was "merge passes 0+1 into one shader". On
+  closer inspection that would have **increased** texture sampling
+  3× (pass 1 reads its neighbours' pass-0 outputs, so a merge would
+  require computing pass 0 at the centre AND four neighbours — 9
+  samples each, 45 total vs. the current 9 + 5 = 14). Plan revised.
+- The screenshot path (`save_screenshot_png_async`) was NOT moved
+  to PBOs. It's one-shot per user keypress, and the worker-thread
+  PNG encode already hides the cost. Will revisit if needed.
+
 ## [0.1.5] — 2026-05-27
 
 ### Added

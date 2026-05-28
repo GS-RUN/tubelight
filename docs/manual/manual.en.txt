@@ -1,6 +1,6 @@
 
 +==============================================================================+
-| TUBELIGHT — Manual de Usuario  v0.1.5                                        |
+| TUBELIGHT — Manual de Usuario  v0.1.6                                        |
 +==============================================================================+
 
 High-fidelity CRT overlay for Windows (Linux coming soon) — the glass of the tube, not a filter

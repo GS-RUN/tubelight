@@ -185,6 +185,21 @@ bool VideoRecorder::start(int width, int height, int fps,
     ffmpeg_handle_ = pipe;
     recording_ = true;
     frame_buf_.assign(static_cast<size_t>(width) * height * 3, 0);
+
+    // ADR-0002 Phase 2b: prime the PBO ring. Each PBO is sized for one
+    // RGB24 frame at the recording resolution. Hint GL_STREAM_READ so
+    // the driver places them in pinned host memory for DMA readback.
+    const size_t frame_bytes = static_cast<size_t>(width) * height * 3;
+    glGenBuffers(kPboCount, pbos_);
+    for (int i = 0; i < kPboCount; ++i) {
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos_[i]);
+        glBufferData(GL_PIXEL_PACK_BUFFER,
+                     static_cast<GLsizeiptr>(frame_bytes),
+                     nullptr, GL_STREAM_READ);
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    pbo_write_idx_ = 0;
+    pbo_filled_    = 0;
     return true;
 }
 
@@ -193,13 +208,44 @@ bool VideoRecorder::push_frame() {
     auto* pipe = static_cast<WinPipe*>(ffmpeg_handle_);
     if (!pipe || !pipe->write_to_ffmpeg) return false;
 
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glReadPixels(0, 0, width_, height_, GL_RGB, GL_UNSIGNED_BYTE, frame_buf_.data());
+    const size_t frame_bytes = static_cast<size_t>(width_) * height_ * 3;
+    bool wrote_ok = true;
 
-    DWORD written = 0;
-    BOOL ok = WriteFile(pipe->write_to_ffmpeg, frame_buf_.data(),
-                        static_cast<DWORD>(frame_buf_.size()), &written, nullptr);
-    return ok && written == frame_buf_.size();
+    // ADR-0002 Phase 2b: PBO ring. Before issuing the read for THIS
+    // frame, drain the PBO we're about to overwrite — its contents
+    // were uploaded kPboCount frames ago, the driver has had plenty
+    // of time to DMA them out.
+    if (pbo_filled_ >= kPboCount) {
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos_[pbo_write_idx_]);
+        const void* p = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0,
+                                          static_cast<GLsizeiptr>(frame_bytes),
+                                          GL_MAP_READ_BIT);
+        if (p) {
+            DWORD written = 0;
+            BOOL ok = WriteFile(pipe->write_to_ffmpeg, p,
+                                static_cast<DWORD>(frame_bytes), &written, nullptr);
+            wrote_ok = ok && written == frame_bytes;
+            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        } else {
+            // Map failed (driver pressure?). Fall through to next iteration
+            // — losing a single frame is preferable to a hard stop.
+            wrote_ok = false;
+        }
+    }
+
+    // Issue the async read into THIS frame's PBO. Last argument is 0
+    // = offset 0 into the bound PIXEL_PACK_BUFFER, signalling the
+    // driver to DMA out to the PBO instead of CPU-blocking.
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos_[pbo_write_idx_]);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, width_, height_, GL_RGB, GL_UNSIGNED_BYTE,
+                  reinterpret_cast<void*>(0));
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+    pbo_write_idx_ = (pbo_write_idx_ + 1) % kPboCount;
+    if (pbo_filled_ < kPboCount) pbo_filled_++;
+
+    return wrote_ok;
 }
 
 bool VideoRecorder::push_frame_from_bgra(const uint8_t* src, int src_w, int src_h,
@@ -243,6 +289,44 @@ bool VideoRecorder::push_frame_from_bgra(const uint8_t* src, int src_w, int src_
 
 void VideoRecorder::stop() {
     if (!recording_) return;
+
+    // ADR-0002 Phase 2b: drain the PBO ring before ffmpeg shuts down.
+    // The last kPboCount-1 PBOs hold queued data that hasn't been
+    // forwarded yet. Map each oldest-first and flush.
+    if (pbo_filled_ > 0) {
+        auto* pipe = static_cast<WinPipe*>(ffmpeg_handle_);
+        const size_t frame_bytes = static_cast<size_t>(width_) * height_ * 3;
+        // PBOs at indices [pbo_write_idx_, pbo_write_idx_+1, ...
+        // pbo_write_idx_ + min(pbo_filled_, kPboCount)-1] (mod kPboCount)
+        // hold queued data, oldest first.
+        const int n_pending = (pbo_filled_ < kPboCount) ? pbo_filled_ : kPboCount;
+        // We've already drained 'kPboCount' frames during the loop,
+        // so only the most recent (n_pending - kPboCount + extra) are
+        // pending. Simpler: just drain everything still readable.
+        for (int k = 0; k < n_pending; ++k) {
+            const int idx = (pbo_write_idx_ + k) % kPboCount;
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos_[idx]);
+            const void* p = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0,
+                                              static_cast<GLsizeiptr>(frame_bytes),
+                                              GL_MAP_READ_BIT);
+            if (p && pipe && pipe->write_to_ffmpeg) {
+                DWORD written = 0;
+                WriteFile(pipe->write_to_ffmpeg, p,
+                          static_cast<DWORD>(frame_bytes), &written, nullptr);
+                glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+            } else if (p) {
+                glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+            }
+        }
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    }
+    if (pbos_[0] != 0) {
+        glDeleteBuffers(kPboCount, pbos_);
+        for (int i = 0; i < kPboCount; ++i) pbos_[i] = 0;
+    }
+    pbo_write_idx_ = 0;
+    pbo_filled_    = 0;
+
     auto* pipe = static_cast<WinPipe*>(ffmpeg_handle_);
     if (pipe) {
         if (pipe->write_to_ffmpeg) {

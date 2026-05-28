@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.26)
 
 project(tubelight
-    VERSION 0.1.5
+    VERSION 0.1.6
     DESCRIPTION "High-fidelity CRT overlay for Windows and Linux"
     HOMEPAGE_URL "https://github.com/gs-run/tubelight"
     LANGUAGES CXX

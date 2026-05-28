@@ -241,8 +241,21 @@ bool Pipeline::render_to_screen(GLuint source_tex) {
 
     GLuint current_input = source_tex;
 
+    // ADR-0002 Phase 2c: skip pass 5 (i==6) entirely when the user-
+    // selected persistence is sub-threshold for all three channels.
+    // The pass shader already early-outs in this case (it samples the
+    // current frame and writes it unchanged) but the FBO bind + clear
+    // + dispatch + history snapshot cost ~0.4ms on a mid-tier GPU.
+    // Skipping cuts that whole block when it's redundant.
+    const float kPersistenceEps = 1e-3f;
+    const float persistence_total =
+        params_.persistence_strength * (params_.persistence_ratio_r
+                                       + params_.persistence_ratio_g
+                                       + params_.persistence_ratio_b);
+    const bool skip_pass5 = persistence_total < kPersistenceEps;
+
     for (int i = 0; i < kPassCount; ++i) {
-        if (!enabled_[static_cast<size_t>(i)]) {
+        if (!enabled_[static_cast<size_t>(i)] || (i == 6 && skip_pass5)) {
             // Identity pass: the next pass reads from current_input directly.
             // We still bind the FBO to keep state consistent in case a later
             // disabled→enabled toggle expects a known texture.

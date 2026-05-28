@@ -1,9 +1,9 @@
 {
   "meta": {
     "app_name": "Tubelight",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "git_sha": "HEAD",
-    "git_tag": "v0.1.5",
+    "git_tag": "v0.1.6",
     "archetype": "desktop-app",
     "lang_default": "es",
     "generated_at": "2026-05-27T00:00:00Z",

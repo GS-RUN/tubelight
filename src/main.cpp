@@ -31,7 +31,7 @@ namespace {
 
 constexpr int kDefaultWidth  = 1280;
 constexpr int kDefaultHeight = 960;
-constexpr const char* kVersion = "0.1.5";
+constexpr const char* kVersion = "0.1.6";
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing

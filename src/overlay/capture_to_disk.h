@@ -78,6 +78,20 @@ private:
     // Reused across push_frame() calls so we don't allocate 3*W*H bytes per
     // frame while recording (~370 MB/s churn at 1920x1080@60).
     std::vector<std::uint8_t> frame_buf_;
+
+    // ADR-0002 Phase 2b: PBO ring for async glReadPixels. push_frame()
+    // issues the read into pbos_[write_idx_] (returns immediately), and
+    // before overwriting maps the data from kPboCount frames ago. The
+    // GL driver has time to DMA-transfer those bytes off the GPU without
+    // stalling the main loop. Lag introduced: kPboCount frames (~50ms
+    // at 60 Hz with kPboCount=3) — acceptable for recorded video where
+    // sync to source is not frame-perfect anyway. push_frame_from_bgra()
+    // does NOT use PBOs because its data is already CPU-side (DXGI/Mag
+    // shared buffer).
+    static constexpr int kPboCount = 3;
+    unsigned int pbos_[kPboCount] = { 0, 0, 0 };
+    int          pbo_write_idx_   = 0;
+    int          pbo_filled_      = 0; // ring priming counter
 };
 
 } // namespace tubelight::overlay
