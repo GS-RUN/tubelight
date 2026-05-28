@@ -17,8 +17,14 @@
 
 **Manual de usuario**: [`../docs/USER_GUIDE.md`](../docs/USER_GUIDE.md) — build + run cross-platform.
 
-**Última actualización**: 2026-05-26
-**HEAD git**: pendiente (proyecto no inicializado todavía como repo)
+**Última actualización**: 2026-05-27 (post-v0.1.3 + ADR-0001 abierta para Phase 1 UX always-on)
+**HEAD git**: `a4038ee` en `main` (público en https://github.com/GS-RUN/tubelight)
+
+## ADRs activas
+
+| ADR | Estado | Resumen |
+|---|---|---|
+| [ADR-0001](../docs/adr/0001-always-on-recordable-and-clickthrough.md) | accepted | Drop de Ctrl+Alt+R y Ctrl+Alt+C como toggles; recordable + click-through son siempre on. Chrome visible siempre + body click-through. Drag/resize via low-level mouse hook. Fix Mag `src_rect_` bug. Aplica a v0.1.4. |
 **Próxima decisión pendiente del usuario**:
 1. Revisar SPEC.md (especialmente métricas M1-M8 y no-goals N1-N7).
 2. Aprobar/ajustar PLAN.md (orden de fases, estimaciones).

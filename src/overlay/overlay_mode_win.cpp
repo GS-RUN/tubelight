@@ -94,27 +94,22 @@ std::atomic<bool> g_hk_toggle_video{false};
 std::atomic<bool> g_hk_toggle_fullscreen{false};
 std::atomic<bool> g_hk_toggle_target{false};
 std::atomic<bool> g_hk_toggle_hud{false};
-std::atomic<bool> g_hk_toggle_clickthrough{false};
-std::atomic<bool> g_hk_toggle_recordable{false};
+std::atomic<bool> g_hk_toggle_clickthrough{false}; // kept dynamic until ADR-0001 Phase 1b
+std::atomic<bool> g_hk_toggle_recordable{false};   // unused after ADR-0001, never fires
+// Stored as atomic for ABI compatibility with consumers (grab_source,
+// menu writes, etc.). Per ADR-0001 (2026-05-27) recordable is always
+// true at runtime — initialized at startup and never written false.
+std::atomic<bool> g_recordable_mode{true};
 
-// True while the user has recordable mode on (Ctrl+Alt+R or menu).
-// Read by apply_capture_affinity() so every code path that re-asserts
-// the WDA flag honours the current state. Sticky across mode changes
-// (windowed â†” fullscreen â†” target â†” region).
-std::atomic<bool> g_recordable_mode{false};
-
-// Picks WDA_NONE (overlay shows up in external captures while recording
-// with Snipping Tool / Game Bar / OBS) vs WDA_EXCLUDEFROMCAPTURE (the
-// default â€” keeps DXGI Desktop Duplication from feedback-looping our
-// own output). The feedback-prevention story while recordable is on is
-// handled separately, by swapping the source capture backend to the
-// Magnification API with our HWND in its filter-exclude list â€” see
-// MagCapture below. WDA itself is binary across DWM, no per-capturer
-// dial; the Magnification API is the only Win32 mechanism that does
-// give per-capturer exclusion.
+// WDA_NONE always — the overlay must be visible to external recorders
+// (Snipping Tool / Game Bar / OBS) at all times. Feedback prevention is
+// handled by routing internal capture through the Magnification API
+// with our HWND in MagSetWindowFilterList(MW_FILTERMODE_EXCLUDE, ...),
+// which is the only Win32 mechanism that gives per-capturer exclusion
+// (WDA is binary across DWM).
 inline void apply_capture_affinity(HWND hwnd) {
-    SetWindowDisplayAffinity(hwnd,
-        g_recordable_mode.load() ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
+    (void)hwnd;
+    SetWindowDisplayAffinity(hwnd, WDA_NONE);
 }
 
 // Track which interesting keys are currently held so we only fire on the
@@ -153,11 +148,8 @@ LRESULT CALLBACK kb_hook_proc(int nCode, WPARAM wParam, LPARAM lParam) {
         else if (vk == VK_RETURN)                 g_hk_toggle_fullscreen = true;
         else if (vk == 'T')                       g_hk_toggle_target = true;
         else if (vk == 'H')                       g_hk_toggle_hud = true;
-        else if (vk == 'C') {
-            g_hk_toggle_clickthrough = true;
-            std::fprintf(stderr, "[overlay] LL hook fired Ctrl+Alt+C\n");
-        }
-        else if (vk == 'R')                       g_hk_toggle_recordable = true;
+        // Ctrl+Alt+C and Ctrl+Alt+R removed per ADR-0001 — recordable
+        // and click-through are now always-on, no user toggle.
         else if (vk == '0' || vk == VK_NUMPAD0)   g_hk_all_on = true;
         else if (vk >= '1' && vk <= '8')          g_hk_toggle_pass = static_cast<int>(vk - '1');
         else if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD8)
@@ -288,23 +280,8 @@ LRESULT CALLBACK tubelight_subclass_proc(HWND hwnd, UINT msg,
             return MA_NOACTIVATEANDEAT;
         }
         break;
-    case WM_KEYDOWN:
-    case WM_SYSKEYDOWN: {
-        // Fallback path for the global hotkeys when the LL hook is being
-        // intercepted by another driver (NVIDIA, Logitech, antivirus,
-        // some screen-grabber tools insert themselves first). The window
-        // sees these directly when focused. We only fire the click-through
-        // toggle here since that's the one users have reported as broken;
-        // the other hotkeys are less likely to need a fallback.
-        const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        const bool alt  = (GetAsyncKeyState(VK_MENU)    & 0x8000) != 0;
-        if (ctrl && alt && wp == 'C') {
-            g_hk_toggle_clickthrough = true;
-            std::fprintf(stderr, "[overlay] WndProc fallback fired Ctrl+Alt+C\n");
-            return 0;
-        }
-        break;
-    }
+    // Ctrl+Alt+C WndProc fallback removed per ADR-0001 — click-through
+    // is always-on now, no user toggle to fall back to.
     case WM_NCCALCSIZE:
         // wp == TRUE means lp points to NCCALCSIZE_PARAMS and we're asked
         // for the *new* client rect. Returning 0 with rgrc[0] left at the
@@ -725,6 +702,42 @@ public:
     int origin_y() const { return origin_y_; }
     const uint8_t* pixels() const { return cpu_buffer_.data(); }
     bool is_initialized() const { return initialized_; }
+
+    // Update the source rect that the Mag callback reads from. Fix for
+    // ADR-0001 §3: prior to this, src_rect_ was set once in init() to
+    // the full monitor and never updated, so target/region attaches at
+    // runtime ended up capturing the whole screen instead of the new
+    // target area. Now do_attach_target() / do_attach_region() /
+    // do_toggle_fullscreen() each call this with their new rect.
+    //
+    // The rect is in SCREEN coordinates. Also updates the internal
+    // width/height/origin so callers (CPU buffer mirror, GL texture
+    // upload) see the new dimensions.
+    void set_source_rect(int x, int y, int w, int h) {
+        if (!initialized_ || w <= 0 || h <= 0) return;
+        src_rect_.left   = x;
+        src_rect_.top    = y;
+        src_rect_.right  = x + w;
+        src_rect_.bottom = y + h;
+        // Resize the magnifier child so the scaling output matches.
+        if (hwnd_mag_) {
+            SetWindowPos(hwnd_mag_, nullptr, 0, 0, w, h,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        width_    = w;
+        height_   = h;
+        origin_x_ = x;
+        origin_y_ = y;
+        // cpu_buffer_ must hold W*H*4 bytes (BGRA). Resize defensively.
+        const size_t need = static_cast<size_t>(w) * static_cast<size_t>(h) * 4;
+        if (cpu_buffer_.size() < need) {
+            cpu_buffer_.resize(need);
+        }
+        MagSetWindowSource(hwnd_mag_, src_rect_);
+        std::fprintf(stderr,
+            "[overlay] Mag source rect updated: %dx%d at (%d,%d)\n",
+            w, h, x, y);
+    }
 
 private:
     static BOOL CALLBACK scaling_callback(HWND /*hwnd*/, void* srcdata,
@@ -1236,10 +1249,17 @@ int run(const Options& opts) {
             // Hide non-client (NCCALCSIZEâ†’0) + size to monitor minus 1px
             // at the bottom to dodge Win11 Independent-Flip promotion.
             g_hide_nonclient = true;
-            SetWindowPos(hwnd, HWND_TOPMOST,
-                         capture.origin_x(), capture.origin_y(),
-                         capture.width(),    capture.height() - 1,
+            const int fs_x = capture.origin_x();
+            const int fs_y = capture.origin_y();
+            const int fs_w = capture.width();
+            const int fs_h = capture.height() - 1;
+            SetWindowPos(hwnd, HWND_TOPMOST, fs_x, fs_y, fs_w, fs_h,
                          SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            // ADR-0001 §3: keep Mag source rect in sync with the new
+            // fullscreen extent.
+            if (mag_capture.is_initialized()) {
+                mag_capture.set_source_rect(fs_x, fs_y, fs_w, fs_h);
+            }
             fullscreen_active = true;
             std::fprintf(stderr, "[overlay] fullscreen ON (borderless, IF-safe)\n");
         }
@@ -1282,6 +1302,12 @@ int run(const Options& opts) {
             target_x = tx; target_y = ty; target_w = tw; target_h = th;
             SetWindowPos(hwnd, HWND_TOPMOST, tx, ty, tw, th,
                          SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            // ADR-0001 §3: keep Mag source rect in sync with the target.
+            // Without this, the Mag callback continues sampling the full
+            // monitor and we capture the wrong area on every frame.
+            if (mag_capture.is_initialized()) {
+                mag_capture.set_source_rect(tx, ty, tw, th);
+            }
         }
         apply_capture_affinity(hwnd);
 
@@ -1310,6 +1336,14 @@ int run(const Options& opts) {
         glfwSetWindowPos(window,  saved_win_x, saved_win_y);
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        // ADR-0001 §3: when detaching from target, the overlay returns
+        // to free windowed mode — Mag should sample the full monitor
+        // again so the user can move/resize the window without losing
+        // capture.
+        if (mag_capture.is_initialized()) {
+            mag_capture.set_source_rect(capture.origin_x(), capture.origin_y(),
+                                         capture.width(),    capture.height());
+        }
         apply_capture_affinity(hwnd);
         apply_aspect_lock();
         std::fprintf(stderr, "[overlay] target detached\n");
@@ -1333,9 +1367,15 @@ int run(const Options& opts) {
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
         g_hide_nonclient = true;
 
+        const int screen_x = capture.origin_x() + rx;
+        const int screen_y = capture.origin_y() + ry;
         SetWindowPos(hwnd, HWND_TOPMOST,
-                     capture.origin_x() + rx, capture.origin_y() + ry, rw, rh,
+                     screen_x, screen_y, rw, rh,
                      SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        // ADR-0001 §3: keep Mag source rect in sync with the region.
+        if (mag_capture.is_initialized()) {
+            mag_capture.set_source_rect(screen_x, screen_y, rw, rh);
+        }
         apply_capture_affinity(hwnd);
         std::fprintf(stderr, "[overlay] region attached at (%d,%d) %dx%d\n",
                      rx, ry, rw, rh);
@@ -1352,6 +1392,11 @@ int run(const Options& opts) {
         glfwSetWindowPos(window,  saved_win_x, saved_win_y);
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        // ADR-0001 §3: return Mag to full-monitor sampling.
+        if (mag_capture.is_initialized()) {
+            mag_capture.set_source_rect(capture.origin_x(), capture.origin_y(),
+                                         capture.width(),    capture.height());
+        }
         apply_capture_affinity(hwnd);
         apply_aspect_lock();
         std::fprintf(stderr, "[overlay] region detached\n");
@@ -1429,21 +1474,10 @@ int run(const Options& opts) {
         settings.low_latency = false;
         save_settings(settings);
     }
-    if (settings.clickthrough_user) {
-        std::fprintf(stderr, "[overlay] migrating settings.clickthrough_user true â†’ false\n");
-        settings.clickthrough_user = false;
-        save_settings(settings);
-    }
-    // Same per-session-only pattern for recordable: if persisted true,
-    // Mag init runs at startup, and any failure there leaves Tubelight
-    // unstartable until the user manually edits settings.json. So we
-    // force it off on every launch â€” the user re-enables it via
-    // Ctrl+Alt+R or the menu when they're actively ready to record.
-    if (settings.recordable) {
-        std::fprintf(stderr, "[overlay] migrating settings.recordable true â†’ false (no longer auto-applied at startup)\n");
-        settings.recordable = false;
-        save_settings(settings);
-    }
+    // ADR-0001: settings.clickthrough_user / settings.recordable are
+    // deprecated. Their persisted values are silently ignored; nothing
+    // to migrate because behaviour is now hardcoded to "always on" at
+    // runtime regardless of the file contents.
     std::string effective_capture_dir =
         settings.capture_dir.empty() ? default_capture_dir() : settings.capture_dir;
     std::string ui_capture_dir = settings.capture_dir;
@@ -1451,23 +1485,23 @@ int run(const Options& opts) {
     bool  audio_enabled = settings.crt_audio_enabled;
     float audio_volume  = settings.crt_audio_volume;
     bool  low_latency   = settings.low_latency;
-    bool  recordable    = settings.recordable;
-    g_recordable_mode.store(recordable);
-    // Recordable-mode application is now an inline helper rather than a
-    // [&]-capturing lambda. Earlier diagnostic builds (ckpt 16.8 OK,
-    // 16.9 never printed) pinpointed a /GS canary trip on the conditional
-    // call through the lambda â€” the closure's stack placement appeared
-    // to trigger MSVC's security check. Inlining sidesteps the closure
-    // entirely while keeping the same semantics. We repeat the body at
-    // the (small) handful of call sites instead of factoring; cheap
-    // duplication beats hidden ABI risk here.
-    if (recordable) {
-        if (!mag_capture.is_initialized()) {
-            mag_capture.init(opts.monitor_index, hwnd,
-                              GetModuleHandleW(nullptr));
-        }
-        apply_capture_affinity(hwnd);
+    // ADR-0001 §1: recordable is hardcoded ON. The local boolean is
+    // retained as `true` for code paths that still read it; the global
+    // atomic `g_recordable_mode` defaults to true in its declaration.
+    bool  recordable    = true;
+    g_recordable_mode.store(true);
+    // Initialise Mag at startup unconditionally. If MagInit fails (driver
+    // issue, headless test, future Windows that pulls the API), the rest
+    // of the overlay still works — grab_source() falls back to DXGI when
+    // mag_capture.is_initialized() is false, and the user just sees the
+    // pre-ADR-0001 feedback risk (overlay may collapse to black in some
+    // capture configurations). This is the "circuit breaker" called out
+    // in RISKS R11.
+    if (!mag_capture.is_initialized()) {
+        mag_capture.init(opts.monitor_index, hwnd,
+                          GetModuleHandleW(nullptr));
     }
+    apply_capture_affinity(hwnd);
     glfwSwapInterval(low_latency ? 0 : 1);
     int   rec_source    = settings.record_source;
     int   rec_rx        = settings.record_rect_x;
@@ -1529,7 +1563,8 @@ int run(const Options& opts) {
     g_hk_freeze_toggle = false;
     g_hk_all_on = false;
     g_hk_toggle_pass = -1;
-    g_hk_toggle_recordable = false;
+    // g_hk_toggle_recordable / g_hk_toggle_clickthrough are no-ops per
+    // ADR-0001; left initialised to false in their definition.
 
     std::atomic<DWORD> hk_tid{0};
     std::atomic<HHOOK> hk_handle{nullptr};
@@ -2165,32 +2200,12 @@ int run(const Options& opts) {
             settings.hud_visible = hud_visible;
             save_settings(settings);
         }
-        if (g_hk_toggle_clickthrough.exchange(false)) {
-            // Only meaningful in plain windowed mode. Fullscreen / target /
-            // region already manage click-through themselves.
-            if (!initial_fullscreen && !fullscreen_active && !target_active && !region_active) {
-                apply_clickthrough_user(!clickthrough_user);
-            }
-        }
-        if (g_hk_toggle_recordable.exchange(false)) {
-            recordable = !recordable;
-            g_recordable_mode.store(recordable);
-            if (recordable) {
-                if (!mag_capture.is_initialized()) {
-                    mag_capture.init(opts.monitor_index, hwnd,
-                                      GetModuleHandleW(nullptr));
-                }
-            } else {
-                if (mag_capture.is_initialized()) mag_capture.shutdown();
-            }
-            apply_capture_affinity(hwnd);
-            settings.recordable = recordable;
-            save_settings(settings);
-            toast_text = recordable
-                ? "RECORDABLE: ON  (overlay live + visible to Snipping Tool / Game Bar / OBS)"
-                : "RECORDABLE: OFF (external recorders won't see overlay)";
-            toast_time = std::chrono::steady_clock::now();
-        }
+        // ADR-0001: g_hk_toggle_clickthrough and g_hk_toggle_recordable
+        // are now no-op atomics — the LL keyboard hook no longer sets
+        // them and no other code path reaches them. They're left in
+        // place for ABI compatibility with grab_source / menu readers.
+        // The .exchange(false) discards is intentionally absent so the
+        // CPU doesn't run an atomic write on every frame for dead flags.
         // Screenshot: read the framebuffer AFTER the pipeline rendered but
         // BEFORE swap, so we capture exactly what the user sees. The PNG
         // zlib encode runs on a background thread (at 1920x1200 in
