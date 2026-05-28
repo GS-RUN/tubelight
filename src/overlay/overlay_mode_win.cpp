@@ -1058,6 +1058,18 @@ int run_dx12(const Options& opts) {
     // fullscreen/monitor capture; harmless for per-window capture.
     SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
 
+    // Borderless overlay should not steal focus or show in the taskbar.
+    // NOTE: we deliberately do NOT add WS_EX_LAYERED/WS_EX_TRANSPARENT —
+    // layered windows are incompatible with the DXGI flip-model swap chain,
+    // so true cross-process mouse click-through needs DirectComposition
+    // (Phase 4a). NOACTIVATE keeps focus on whatever is underneath; the
+    // global keyboard hook below drives the hotkeys regardless of focus.
+    if (!chrome) {
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ex |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+    }
+
     int fb_w = 0, fb_h = 0;
     glfwGetFramebufferSize(window, &fb_w, &fb_h);
     if (fb_w <= 0 || fb_h <= 0) { fb_w = W; fb_h = H; }
@@ -1158,14 +1170,84 @@ int run_dx12(const Options& opts) {
                  chrome ? 0 : W, chrome ? 0 : H,
                  (chrome ? (SWP_NOMOVE | SWP_NOSIZE) : 0) | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
+    // Global low-level keyboard hook so Ctrl+Alt+<key> works regardless of
+    // focus — essential because the borderless overlay is WS_EX_NOACTIVATE
+    // and won't receive GLFW key events. Same pattern + same kb_hook_proc /
+    // g_hk_* atomics as the GL path. Runs on a worker thread with its own
+    // message pump; torn down via PostThreadMessage(WM_QUIT) + join.
+    g_hk_quit          = false;
+    g_hk_freeze_toggle = false;
+    g_hk_all_on        = false;
+    g_hk_toggle_pass   = -1;
+    std::atomic<DWORD> hk_tid{0};
+    std::thread hotkey_thread([&]() {
+        hk_tid = GetCurrentThreadId();
+        HHOOK h = SetWindowsHookEx(WH_KEYBOARD_LL, kb_hook_proc,
+                                   GetModuleHandleW(nullptr), 0);
+        if (!h) {
+            std::fprintf(stderr,
+                "[overlay] dx12: SetWindowsHookEx failed GLE=%lu — "
+                "Ctrl+Alt+Q won't work\n", GetLastError());
+        }
+        MSG msg;
+        while (GetMessage(&msg, nullptr, 0, 0) > 0) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+        if (h) UnhookWindowsHookEx(h);
+    });
+    while (hk_tid.load() == 0) std::this_thread::yield();
+
     std::printf(
-        "[overlay] dx12 hotkeys: ESC quit | 1..8 toggle pass | 0 all on | F freeze\n");
+        "[overlay] dx12 hotkeys: ESC / Ctrl+Alt+Q quit | (Ctrl+Alt+)1..8 "
+        "toggle pass | (Ctrl+Alt+)0 all on | (Ctrl+Alt+)F freeze\n");
 
     double t0 = glfwGetTime();
     tubelight::TextureHandle last_h{0};
     unsigned long long frames_rendered = 0;
+    int target_lost_frames = 0;
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+
+        // Global-hotkey actions (focus-independent).
+        if (g_hk_quit.load()) break;
+        if (g_hk_freeze_toggle.exchange(false)) {
+            state.freeze = !state.freeze;
+            std::printf("[overlay] freeze: %s\n", state.freeze ? "ON" : "OFF");
+        }
+        if (g_hk_all_on.exchange(false)) {
+            for (int i = 0; i < tubelight::Pipeline::kPassCount; ++i)
+                pipeline.set_pass_enabled(i, true);
+            std::printf("[overlay] all passes ON\n");
+        }
+        if (int p = g_hk_toggle_pass.exchange(-1); p >= 0) {
+            bool cur = pipeline.is_pass_enabled(p);
+            pipeline.set_pass_enabled(p, !cur);
+            std::printf("[overlay] %s: %s\n",
+                        tubelight::pass_display_name(p), !cur ? "ON" : "OFF");
+        }
+
+        // Target-window tracking: follow the target as it moves so the
+        // overlay stays glued on top of it. Size tracking (WGC pool
+        // recreate) is deferred to v0.2.1 — launch size is kept. Exit
+        // gracefully if the target window is gone for several frames.
+        if (mode_target) {
+            if (!IsWindow(target_hwnd)) {
+                if (++target_lost_frames > 30) {
+                    std::printf("[overlay] dx12: target window closed; exiting\n");
+                    break;
+                }
+            } else {
+                target_lost_frames = 0;
+                int nx, ny, nw, nh;
+                if (get_target_screen_rect(target_hwnd, nx, ny, nw, nh) &&
+                    (nx != win_x || ny != win_y)) {
+                    win_x = nx; win_y = ny;
+                    SetWindowPos(hwnd, HWND_TOPMOST, win_x, win_y, 0, 0,
+                                 SWP_NOSIZE | SWP_NOACTIVATE);
+                }
+            }
+        }
 
         if (!state.freeze) {
             int tw = 0, th = 0;
@@ -1196,6 +1278,11 @@ int run_dx12(const Options& opts) {
     std::printf("[overlay] dx12: %llu frames rendered, %llu captured\n",
                 frames_rendered,
                 static_cast<unsigned long long>(wgc.frame_count()));
+
+    // Tear down the keyboard hook thread.
+    PostThreadMessage(hk_tid.load(), WM_QUIT, 0, 0);
+    if (hotkey_thread.joinable()) hotkey_thread.join();
+
     wgc.stop();
     glfwDestroyWindow(window);
     glfwTerminate();
