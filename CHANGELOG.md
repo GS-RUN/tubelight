@@ -5,6 +5,79 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ## [Unreleased]
 
+### Phase 3c progress — F3c-4 complete (D3D12 pipeline executes)
+- **`D3D12Backend` drives the 8-pass Pipeline** end-to-end on RTX 2080 Ti
+  (FL 12_2). `supports_pipeline()` flips to `true`.
+- **Resource creation**: `create_texture` / `create_render_target` use
+  DEFAULT heap CCResource + SRV in a CPU-only staging heap. RTs also get
+  an RTV in the RTV heap.
+- **Upload path**: `upload_texture_rgba8` uses a transient UPLOAD heap
+  staging buffer with row-pitch alignment per `GetCopyableFootprints`,
+  a per-call command list, sync wait (load-time only).
+- **PSO factory**: `create_pass` loads `fullscreen.dxil` + `pass_N.dxil`,
+  creates **two PSOs per pass** (intermediate `R16G16B16A16_FLOAT`, last
+  `R8G8B8A8_UNORM` swap-chain backbuffer). `bind_pass` picks PSO based
+  on the currently-bound target format.
+- **Root signature**: 1 root CBV(b0) + 1 descriptor table with 2 SRVs
+  (t1, t2) + 2 static samplers (s1, s2) linear-clamp. Matches the GLSL
+  convention enforced via `layout(binding=N)` explicit qualifiers.
+- **Two-heap SRV scheme**: `srv_cpu_heap_` (non-shader-visible) holds
+  persistent CreateShaderResourceView outputs (CPU-readable, valid as
+  copy source). `srv_heap_` (shader-visible) is a scratch ring where
+  each `draw_fullscreen_quad` copies the 2-SRV descriptor table via
+  `CopyDescriptorsSimple` before `SetGraphicsRootDescriptorTable`.
+  Standard pattern; first attempt with a single shader-visible heap
+  tripped D3D12 debug layer ID 654 ("CPU write only").
+- **CB ring**: 64 × 256 B UPLOAD-heap buffer, persistently mapped.
+  `set_uniform_block` memcpys into the next slot, `draw_fullscreen_quad`
+  binds the GPU virtual address via `SetGraphicsRootConstantBufferView`.
+- **Barriers**: `transition_texture` / `transition_rt` swap states
+  COMMON ↔ COPY_DEST ↔ PIXEL_SHADER_RESOURCE ↔ RENDER_TARGET ↔
+  COPY_SOURCE as needed. Borrowed handles aliasing an RT transition
+  the underlying RT.
+- **`copy_rt_to_texture`**: `CopyTextureRegion` between RT and TextureHandle,
+  with barriers RT→COPY_SOURCE / COPY_DEST→PIXEL_SHADER_RESOURCE.
+  Used for pass 5 history snapshot.
+
+### Bugs discovered + fixed (native-debugger session)
+- **Cat #10 (linker/ABI)** — `clear_color` rebound the swap chain RTV
+  unconditionally. Hijacked Pipeline's per-pass bind_render_target →
+  all passes wrote to the backbuffer, none to intermediate RTs. Fix:
+  clear the *currently bound* RTV (backbuffer if `default_fb_bound_`,
+  else `bound_rt_`'s RTV).
+- **Cat #10 (linker/ABI)** — shader-visible SRV heap was being used as
+  `CopyDescriptorsSimple` source. D3D12 contract: shader-visible heaps
+  are CPU **write-only**. Refactored to a 2-heap scheme.
+- **Cat #10 (binding/ABI)** — Pass 5 HLSL had textures at `t1, t2`
+  (auto-mapped by glslang because the UBO at binding=0 reserved that
+  slot in the shared descriptor space), while my root signature
+  expected `t0, t1`. Fix: explicit `layout(binding = 1)` and
+  `layout(binding = 2)` on every sampler in every `.frag`, root sig
+  declares SRV range starting at `t1` + samplers at `s1, s2`.
+- **`TUBELIGHT_DXIL_DIR` compile def** applied only to `tubelight` (the
+  exe) PUBLIC, not to `tubelight_core` (where `backend_d3d12.cpp`
+  compiles). `create_pass` got `dxil/pass_N.dxil` (no prefix), file
+  not found. Fix: `CompileShaders.cmake` now defines on both targets.
+- **Pass 5 (i==6)** PSO compile failed with cryptic error because
+  glslang `--auto-map-bindings` assigned its 2 samplers to t1/t2.
+  Surfaced after enabling the D3D12 InfoQueue drain in `end_frame()`.
+
+### New: D3D12 InfoQueue drain
+Added `D3D12Backend::drain_info_queue()` that pulls validation
+messages from `ID3D12InfoQueue` and writes them to stderr.
+Called once per frame in `end_frame()` when the debug layer is on
+(`bp.enable_debug=true`). Critical for diagnosing PSO / barrier /
+descriptor-table errors that otherwise only land in OutputDebugString.
+
+### Known cosmetic limitation
+DX12 output renders the testcard correctly through all 8 passes but
+exhibits a vertical mirror / scaling artifact compared to the GL
+baseline (TUBELIGHT caption is upright, Mario sprite is upright, but
+some regions appear duplicated or flipped). Likely DPI scaling between
+GLFW client area and the swap chain backbuffer, or a residual Y-flip
+in one of the cascade passes. Pixel-equivalence ≥ 40 dB still pending
+verification — that's the F3c-5 gate.
+
 ### Phase 3c progress — F3c-2 + F3c-3 complete (handles + Pipeline refactor)
 - **`IRenderBackend` v2** ([src/render/handle.h](src/render/handle.h),
   [backend.h](src/render/backend.h)): opaque `TextureHandle` /

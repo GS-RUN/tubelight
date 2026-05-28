@@ -8,8 +8,9 @@
 layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
-uniform sampler2D u_source;
-uniform sampler2D u_bezel_tex;   // optional photo-real bezel PNG
+// Phase 3c convention: samplers at bindings 1+2 (see pass5_temporal.frag).
+layout(binding = 1) uniform sampler2D u_source;
+layout(binding = 2) uniform sampler2D u_bezel_tex;   // optional photo-real bezel PNG
 
 // Phase 3c: scalar/vec uniforms in explicit std140 cbuffer for
 // deterministic HLSL layout. See pass4_bloom.frag for the rationale.

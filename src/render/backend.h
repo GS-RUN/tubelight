@@ -152,15 +152,25 @@ public:
                                     const void* data,
                                     size_t bytes) = 0;
 
-    // ----- GL-specific escape hatch (TODO_F3C4) ----------------------
-    // Pipeline still does slot-0 binding via raw glBindTexture in the
-    // cascade (each pass samples the previous pass's RT as u_source).
-    // Until F3c-4 introduces a real handle-only path for the input
-    // texture, this method gives Pipeline the GL texture id behind a
-    // RT handle. GL backend returns the FBO's color attachment; D3D12
-    // returns 0 (Pipeline must check supports_pipeline() first, but if
-    // it sneaks through it gets a clear NULL bind).
-    virtual uint32_t gl_color_attachment(RenderTargetHandle) const { return 0; }
+    // ----- Resource interop helpers ----------------------------------
+    // Get a TextureHandle view of an RT's color attachment, so the next
+    // pass in a cascade can bind it as input. Backend may return a
+    // borrowed/aliased handle that's valid as long as the RT is.
+    virtual TextureHandle rt_as_texture(RenderTargetHandle h) = 0;
+
+    // ----- GL-specific escape hatch (TODO_FUTURE) --------------------
+    // overlay_mode_win.cpp owns a Texture2D directly (DXGI capture
+    // result). It hands its GLuint to Pipeline; Pipeline asks the
+    // backend to wrap it into a non-owning handle so the rest of the
+    // pipeline can treat it like any other texture. The returned
+    // handle does NOT own the GL texture — destroy_texture() on it is
+    // a no-op for the underlying id.
+    // D3D12 returns {0}; D3D12 callers must always upload via
+    // upload_texture_rgba8 into a real owned handle.
+    virtual TextureHandle wrap_external_gl_texture(uint32_t /*gl_id*/,
+                                                    int /*w*/, int /*h*/) {
+        return {0};
+    }
 };
 
 // Factory. Returns nullptr if `kind` is unsupported in this build.

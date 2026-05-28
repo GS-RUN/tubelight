@@ -58,7 +58,8 @@ public:
     void bind_pass(PassHandle) override;
     void bind_texture(int slot, TextureHandle) override;
     void set_uniform_block(PassHandle, const void* data, size_t bytes) override;
-    uint32_t gl_color_attachment(RenderTargetHandle) const override;
+    TextureHandle rt_as_texture(RenderTargetHandle h) override;
+    TextureHandle wrap_external_gl_texture(uint32_t gl_id, int w, int h) override;
 
 private:
     // Each create_* call returns a strictly-increasing id; lookups are
@@ -66,6 +67,14 @@ private:
     struct TextureEntry {
         Texture2D tex;
         PixelFormat format = PixelFormat::RGBA8_UNORM;
+        // borrowed: this entry doesn't own its GL texture id (it wraps
+        // an external Texture2D::id() or an FBO color attachment).
+        // destroy_texture is a no-op for borrowed entries; the source
+        // owns the GL resource.
+        bool     borrowed     = false;
+        uint32_t borrowed_id  = 0;
+        int      borrowed_w   = 0;
+        int      borrowed_h   = 0;
     };
     struct RenderTargetEntry {
         FBO fbo;

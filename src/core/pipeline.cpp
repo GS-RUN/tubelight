@@ -254,6 +254,8 @@ bool Pipeline::create_passes() {
             std::fprintf(stderr, "[tubelight] create_render_target failed for pass %d\n", i);
             return false;
         }
+        rt_as_tex_[static_cast<size_t>(i)] = backend_->rt_as_texture(
+            rt_handles_[static_cast<size_t>(i)]);
     }
     return true;
 }
@@ -312,11 +314,17 @@ void Pipeline::resize(int width, int height) {
     // Recreate the RTs at the new size. Pass handles are size-independent
     // (shaders + PSO state only) — keep them.
     for (int i = 0; i < kPassCount; ++i) {
+        if (rt_as_tex_[static_cast<size_t>(i)].is_valid()) {
+            backend_->destroy_texture(rt_as_tex_[static_cast<size_t>(i)]);
+            rt_as_tex_[static_cast<size_t>(i)] = {0};
+        }
         if (rt_handles_[static_cast<size_t>(i)].is_valid()) {
             backend_->destroy_render_target(rt_handles_[static_cast<size_t>(i)]);
         }
         rt_handles_[static_cast<size_t>(i)] = backend_->create_render_target(
             width, height, PixelFormat::RGBA16_FLOAT);
+        rt_as_tex_[static_cast<size_t>(i)] = backend_->rt_as_texture(
+            rt_handles_[static_cast<size_t>(i)]);
     }
     if (history_rt_.is_valid())  backend_->destroy_render_target(history_rt_);
     if (history_tex_.is_valid()) backend_->destroy_texture(history_tex_);
@@ -341,15 +349,31 @@ bool Pipeline::is_pass_enabled(int pass_index) const {
 }
 
 bool Pipeline::render_to_screen(uint32_t source_tex) {
+    // Legacy GL-only entry point. Wrap the raw id and delegate to the
+    // handle-based overload. Borrowed handle is invalidated at the end.
+    if (!backend_) return false;
+    // Width/height are informational; GL bind doesn't read them.
+    TextureHandle borrowed = backend_->wrap_external_gl_texture(
+        source_tex, output_width_, output_height_);
+    if (!borrowed.is_valid()) {
+        std::fprintf(stderr,
+            "[tubelight] render_to_screen(uint32_t) needs a GL backend; "
+            "use the TextureHandle overload with D3D12.\n");
+        return false;
+    }
+    const bool ok = render_to_screen(borrowed);
+    backend_->destroy_texture(borrowed);
+    return ok;
+}
+
+bool Pipeline::render_to_screen(TextureHandle source) {
     if (output_width_ <= 0 || output_height_ <= 0 || !backend_) {
         return false;
     }
 
-    // The "current input" for slot 0 is a raw GL texture id on the first
-    // pass (the user's source), then the previous pass's RT color
-    // attachment for subsequent passes. Both paths use direct glBindTexture
-    // (TODO_F3C4: when D3D12 drives Pipeline this must become handles).
-    uint32_t current_input = source_tex;
+    // The "current input" for slot 0 starts as the user's source texture
+    // and becomes the previous RT's color attachment for cascading passes.
+    TextureHandle current_input = source;
 
     // ADR-0002 Phase 2c: skip pass 5 (i==6) entirely when the user-
     // selected persistence is sub-threshold for all three channels.
@@ -379,12 +403,7 @@ bool Pipeline::render_to_screen(uint32_t source_tex) {
         backend_->bind_pass(pass_handles_[static_cast<size_t>(i)]);
 
         // --- Slot 0: u_source ---
-        // GL backdoor (TODO_F3C4) — the source for the first pass is the
-        // caller's raw GLuint; for cascaded passes it's the previous RT's
-        // color attachment.
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, current_input);
-        glActiveTexture(GL_TEXTURE0);
+        backend_->bind_texture(0, current_input);
 
         // --- Slot 1: pass-specific secondary input ---
         if (i == 6) {
@@ -432,8 +451,9 @@ bool Pipeline::render_to_screen(uint32_t source_tex) {
         }
 
         if (!is_last) {
-            current_input = backend_->gl_color_attachment(
-                rt_handles_[static_cast<size_t>(i)]);
+            // Next pass samples this pass's output. Cached at
+            // create_passes() so we don't allocate per-frame.
+            current_input = rt_as_tex_[static_cast<size_t>(i)];
         }
     }
 

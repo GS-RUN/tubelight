@@ -220,8 +220,16 @@ function(tubelight_compile_shaders consumer_target)
     )
 
     # Surface the runtime DXIL dir to C++ via a compile definition so the
-    # D3D12 backend can locate them at any working directory.
+    # D3D12 backend can locate them at any working directory. tubelight_core
+    # is where backend_d3d12.cpp actually compiles, so the def must reach
+    # IT — applying to the consumer target alone leaves the library blind.
+    set(_dxil_dir "$<TARGET_FILE_DIR:${consumer_target}>/shaders/dxil")
     target_compile_definitions(${consumer_target} PUBLIC
-        TUBELIGHT_DXIL_DIR="$<TARGET_FILE_DIR:${consumer_target}>/shaders/dxil"
+        TUBELIGHT_DXIL_DIR="${_dxil_dir}"
     )
+    if(TARGET tubelight_core)
+        target_compile_definitions(tubelight_core PUBLIC
+            TUBELIGHT_DXIL_DIR="${_dxil_dir}"
+        )
+    endif()
 endfunction()

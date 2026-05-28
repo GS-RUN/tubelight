@@ -59,15 +59,18 @@ public:
     bool create(int output_width, int output_height);
     void resize(int width, int height);
 
-    // Applies all enabled passes to source_tex and renders the result to the
-    // currently bound default framebuffer (i.e. the window). Returns false
-    // only if the pipeline is unusable.
+    // Applies all enabled passes to a source texture and renders the
+    // result to the currently bound default framebuffer (the window).
+    // Returns false only if the pipeline is unusable.
     //
-    // source_tex is a raw GL texture object id, NOT a TextureHandle —
-    // historical accommodation for callers that own a Texture2D directly
-    // (run_shader_only, overlay capture loop). Phase 3c F3c-4 will migrate
-    // this to TextureHandle when D3D12 needs it; until then we slot-0 bind
-    // it as a GL backdoor.
+    // Two overloads:
+    //   render_to_screen(TextureHandle) — the path Phase 3c+ targets;
+    //     works with both GL and D3D12 backends.
+    //   render_to_screen(uint32_t)      — GL-only legacy entry point;
+    //     keeps overlay_mode_win.cpp (DXGI capture loop) working until
+    //     it gets migrated. GL backend wraps the raw id into an internal
+    //     borrowed handle. D3D12 backend rejects this overload.
+    bool render_to_screen(TextureHandle source);
     bool render_to_screen(uint32_t source_tex);
 
     // Toggles a single pass. Disabled passes act as identity (pass-through).
@@ -186,6 +189,10 @@ private:
 
     std::array<PassHandle, kPassCount>         pass_handles_;
     std::array<RenderTargetHandle, kPassCount> rt_handles_;
+    // Borrowed texture handles wrapping each RT's color attachment.
+    // Cached at create_passes() so the per-frame cascade doesn't allocate
+    // a new entry every pass × frame (would leak into the backend's pool).
+    std::array<TextureHandle, kPassCount>      rt_as_tex_;
     std::array<bool, kPassCount>               enabled_;
 
     GlobalParams params_;

@@ -16,7 +16,7 @@
 layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
-uniform sampler2D u_source;
+layout(binding = 1) uniform sampler2D u_source;  // Phase 3c convention: t1
 
 // Phase 3c: scalar/vec uniforms wrapped in explicit std140 block. Produces
 // a deterministic HLSL cbuffer on the SPIRV-Cross → dxc path (no $Globals

@@ -18,6 +18,7 @@
 #include "core/pipeline.h"
 #include "core/texture.h"
 #include "export/slangp_exporter.h"
+#include "io/image_io.h"
 #include "overlay/overlay_mode.h"
 #include "profile/profile_loader.h"
 #include "profile/validator.h"
@@ -384,23 +385,25 @@ int run_shader_only(const std::string& image_path,
     return 0;
 }
 
-// Phase 3b proof-of-life: open a window with no GL context, create a
-// D3D12Backend on the HWND, clear to a tubelight-coloured background, and
-// loop until ESC. Doesn't apply the CRT pipeline (3c-pending). Returns 1
-// if the device cannot be created — caller may fall back to GL.
-int run_shader_only_dx12(const std::string& image_path) {
+// Phase 3c F3c-4: open a NO_API window with a Win32 HWND, drive the full
+// 8-pass Pipeline on a D3D12Backend. Loads the testcard via stb_image,
+// uploads it into a backend-owned TextureHandle, then per-frame:
+//   backend->begin_frame() → pipeline.render_to_screen(handle) → backend->end_frame()
+// Returns 1 if any step fails — caller may fall back to GL.
+int run_shader_only_dx12(const std::string& image_path,
+                          const std::string& profile_id,
+                          const std::string& signal_id) {
 #if defined(_WIN32) && defined(TUBELIGHT_HAVE_D3D12)
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
         std::fprintf(stderr, "[tubelight] glfwInit failed\n");
         return 1;
     }
-    // No GL context — we want a bare Win32 HWND for the swap chain.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE,  GLFW_TRUE);
 
     const std::string title = std::string("Tubelight ") + kVersion +
-                              " — D3D12 skeleton (3b proof-of-life, ESC to quit)";
+                              " — shader-only D3D12 (ESC to quit)";
     GLFWwindow* window = glfwCreateWindow(kDefaultWidth, kDefaultHeight,
                                           title.c_str(), nullptr, nullptr);
     if (!window) {
@@ -424,7 +427,7 @@ int run_shader_only_dx12(const std::string& image_path) {
     bp.native_window_handle = hwnd;
     bp.width  = fb_w;
     bp.height = fb_h;
-    bp.enable_debug = false;
+    bp.enable_debug = false;  // re-enable when iterating on render quality
     if (!backend->init(bp)) {
         std::fprintf(stderr,
             "[tubelight] D3D12Backend::init failed — fallback to GL backend will be tried.\n");
@@ -433,15 +436,97 @@ int run_shader_only_dx12(const std::string& image_path) {
         return 1;
     }
     std::printf("[tubelight] %s\n", backend->name());
-    std::printf("[tubelight] D3D12 skeleton up. CRT pipeline NOT applied (Phase 3c pending).\n");
-    std::printf("[tubelight] Source image '%s' is ignored in this mode.\n", image_path.c_str());
-    std::printf("[tubelight] ESC to quit.\n");
 
-    struct DXResize { tubelight::IRenderBackend* be; } ctx{ backend.get() };
+    // Load testcard via stb_image into a CPU RGBA8 buffer, then upload
+    // into a backend-owned TextureHandle. No GL Texture2D needed.
+    // D3D12 texture Y origin is top-left (matches PNG row order); GL is
+    // bottom-left. Don't flip on load — DX12 path consumes natural order.
+    tubelight::ImageData img;
+    std::string img_err;
+    if (!tubelight::load_image(image_path, img, img_err, /*flip_vertical=*/false)) {
+        std::fprintf(stderr, "[tubelight] cannot load %s: %s\n",
+                     image_path.c_str(), img_err.c_str());
+        backend->shutdown();
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 2;
+    }
+    if (img.channels != 4) {
+        std::fprintf(stderr, "[tubelight] testcard must be RGBA8 (got %d channels)\n",
+                     img.channels);
+        backend->shutdown();
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 2;
+    }
+    const int img_w = img.width;
+    const int img_h = img.height;
+    const uint8_t* pixels = img.pixels.data();
+
+    // Inject backend into Pipeline BEFORE create() so Pipeline doesn't
+    // instantiate a default GL backend.
+    tubelight::Pipeline pipeline;
+    auto* backend_raw = backend.get();
+    pipeline.set_backend(std::move(backend));
+    if (!pipeline.create(fb_w, fb_h)) {
+        std::fprintf(stderr, "[tubelight] pipeline.create failed on D3D12\n");
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
+    }
+
+    tubelight::TextureDesc td;
+    td.width  = img_w;
+    td.height = img_h;
+    td.format = tubelight::PixelFormat::RGBA8_UNORM;
+    tubelight::TextureHandle source_h = backend_raw->create_texture(td);
+    if (!source_h.is_valid()) {
+        std::fprintf(stderr, "[tubelight] D3D12 source texture create failed\n");
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
+    }
+    if (!backend_raw->upload_texture_rgba8(source_h, pixels, img_w, img_h)) {
+        std::fprintf(stderr, "[tubelight] D3D12 source texture upload failed\n");
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
+    }
+    // img owns the pixel buffer via std::vector; nothing to free.
+
+    if (!profile_id.empty()) {
+        std::string err;
+        auto p = tubelight::load_crt_profile_by_id(profile_id, err);
+        if (p.has_value()) {
+            pipeline.apply_crt_profile(p.value());
+            std::printf("[tubelight] CRT profile: %s\n", p->display_name.c_str());
+        } else {
+            std::fprintf(stderr, "[tubelight] CRT profile '%s' not loaded: %s\n",
+                         profile_id.c_str(), err.c_str());
+        }
+    }
+    if (!signal_id.empty()) {
+        std::string err;
+        auto s = tubelight::load_signal_profile_by_id(signal_id, err);
+        if (s.has_value()) {
+            pipeline.apply_signal_profile(s.value());
+            std::printf("[tubelight] signal profile: %s\n", s->display_name.c_str());
+        } else {
+            std::fprintf(stderr, "[tubelight] signal profile '%s' not loaded: %s\n",
+                         signal_id.c_str(), err.c_str());
+        }
+    }
+
+    struct DXResize {
+        tubelight::IRenderBackend* be;
+        tubelight::Pipeline* pl;
+    } ctx{ backend_raw, &pipeline };
     glfwSetWindowUserPointer(window, &ctx);
     glfwSetFramebufferSizeCallback(window, [](GLFWwindow* w, int ww, int hh) {
         auto* c = static_cast<DXResize*>(glfwGetWindowUserPointer(w));
-        if (c && c->be) c->be->resize(ww, hh);
+        if (!c) return;
+        if (c->be) c->be->resize(ww, hh);
+        if (c->pl) c->pl->resize(ww, hh);
     });
     glfwSetKeyCallback(window, [](GLFWwindow* w, int key, int, int act, int) {
         if (act == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
@@ -449,24 +534,24 @@ int run_shader_only_dx12(const std::string& image_path) {
         }
     });
 
+    std::printf("[tubelight] D3D12 shader-only running on %s (%dx%d).\n",
+                image_path.c_str(), img_w, img_h);
+
+    double t0 = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
-        backend->begin_frame();
-        backend->bind_default_framebuffer();
-        backend->set_viewport(0, 0, fb_w, fb_h);
-        // Tubelight-blue background so users can see the device is alive
-        // and producing frames (vs. desktop colour bleeding through).
-        backend->clear_color(0.05f, 0.10f, 0.18f, 1.0f);
-        backend->end_frame();
+        pipeline.set_time(static_cast<float>(glfwGetTime() - t0));
+        backend_raw->begin_frame();
+        pipeline.render_to_screen(source_h);
+        backend_raw->end_frame();
         glfwPollEvents();
         glfwGetFramebufferSize(window, &fb_w, &fb_h);
     }
 
-    backend->shutdown();
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
 #else
-    (void)image_path;
+    (void)image_path; (void)profile_id; (void)signal_id;
     std::fprintf(stderr, "[tubelight] D3D12 backend not available on this build/platform.\n");
     return 1;
 #endif
@@ -562,7 +647,8 @@ int main(int argc, char** argv) {
     }
     if (!args.shader_only_input.empty()) {
         if (args.backend == tubelight::BackendKind::D3D12) {
-            int rc = run_shader_only_dx12(args.shader_only_input);
+            int rc = run_shader_only_dx12(args.shader_only_input,
+                                            args.profile_id, args.signal_id);
             if (rc == 0) return 0;
             std::fprintf(stderr,
                 "[tubelight] D3D12 path failed (rc=%d); falling back to OpenGL.\n", rc);

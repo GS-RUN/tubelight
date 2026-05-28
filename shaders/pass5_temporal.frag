@@ -26,8 +26,10 @@
 layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
-uniform sampler2D u_source;       // this frame's pass-4 output
-uniform sampler2D u_prev_frame;   // last frame's pass-5 output (history FBO)
+// Phase 3c convention: samplers at bindings 1+2 so the D3D12 root
+// signature can declare a fixed [t1, t2] descriptor table for all passes.
+layout(binding = 1) uniform sampler2D u_source;       // this frame's pass-4 output
+layout(binding = 2) uniform sampler2D u_prev_frame;   // last frame's pass-5 output (history FBO)
 
 // Phase 3c: scalar/vec uniforms in explicit std140 cbuffer for
 // deterministic HLSL layout. See pass4_bloom.frag for the rationale.

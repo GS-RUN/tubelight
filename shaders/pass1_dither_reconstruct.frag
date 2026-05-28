@@ -17,7 +17,7 @@
 layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 
-uniform sampler2D u_source;       // Pass 0 output: rgb = source, a = dither mask
+layout(binding = 1) uniform sampler2D u_source;       // Pass 0 output: rgb = source, a = dither mask
 
 // Phase 3c: scalar/vec uniforms in explicit std140 cbuffer for
 // deterministic HLSL layout. See pass4_bloom.frag for the rationale.

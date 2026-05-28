@@ -158,6 +158,10 @@ PassHandle GLBackend::create_pass(const PassDesc& d) {
 }
 
 void GLBackend::destroy_texture(TextureHandle h) {
+    // For borrowed entries, the underlying GL id belongs to someone else
+    // (an FBO color attachment or an external Texture2D). erase() drops
+    // the entry but never calls glDeleteTextures — Texture2D's RAII
+    // dtor / FBO::destroy own that responsibility.
     textures_.erase(h.id);
 }
 void GLBackend::destroy_render_target(RenderTargetHandle h) {
@@ -179,6 +183,10 @@ bool GLBackend::upload_texture_rgba8(TextureHandle h, const void* data,
                                       int width, int height) {
     auto it = textures_.find(h.id);
     if (it == textures_.end() || !data) return false;
+    if (it->second.borrowed) {
+        std::fprintf(stderr, "[tubelight][gl] upload_texture_rgba8: refused on borrowed handle\n");
+        return false;
+    }
     if (it->second.format != PixelFormat::RGBA8_UNORM) {
         std::fprintf(stderr, "[tubelight][gl] upload_texture_rgba8: format mismatch\n");
         return false;
@@ -236,8 +244,11 @@ void GLBackend::bind_pass(PassHandle h) {
 void GLBackend::bind_texture(int slot, TextureHandle h) {
     auto it = textures_.find(h.id);
     if (it == textures_.end()) return;
+    const GLuint gl_id = it->second.borrowed
+        ? it->second.borrowed_id
+        : it->second.tex.id();
     glActiveTexture(GL_TEXTURE0 + static_cast<GLenum>(slot));
-    glBindTexture(GL_TEXTURE_2D, it->second.tex.id());
+    glBindTexture(GL_TEXTURE_2D, gl_id);
     glActiveTexture(GL_TEXTURE0);
     // Tell the bound shader that the sampler is at this unit. Sampler
     // names are conventional: slot 0 = u_source, slot 1 = secondary
@@ -261,10 +272,32 @@ void GLBackend::bind_texture(int slot, TextureHandle h) {
     }
 }
 
-uint32_t GLBackend::gl_color_attachment(RenderTargetHandle h) const {
+TextureHandle GLBackend::rt_as_texture(RenderTargetHandle h) {
     auto it = rts_.find(h.id);
-    if (it == rts_.end()) return 0;
-    return it->second.fbo.texture();
+    if (it == rts_.end()) return {0};
+    // Build a borrowed entry pointing to the FBO's color attachment.
+    // Valid as long as the RT is — caller doesn't destroy this handle.
+    TextureEntry e;
+    e.format       = it->second.format;
+    e.borrowed     = true;
+    e.borrowed_id  = it->second.fbo.texture();
+    e.borrowed_w   = it->second.fbo.width();
+    e.borrowed_h   = it->second.fbo.height();
+    const uint32_t id = next_id_++;
+    textures_.emplace(id, std::move(e));
+    return TextureHandle{id};
+}
+
+TextureHandle GLBackend::wrap_external_gl_texture(uint32_t gl_id, int w, int h) {
+    TextureEntry e;
+    e.format      = PixelFormat::RGBA8_UNORM;  // conventional; not actually used
+    e.borrowed    = true;
+    e.borrowed_id = gl_id;
+    e.borrowed_w  = w;
+    e.borrowed_h  = h;
+    const uint32_t id = next_id_++;
+    textures_.emplace(id, std::move(e));
+    return TextureHandle{id};
 }
 
 void GLBackend::set_uniform_block(PassHandle h, const void* data, size_t bytes) {
