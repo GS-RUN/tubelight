@@ -5,7 +5,53 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ## [Unreleased]
 
-### Phase 3d started — WGC + D3D11On12 core complete (overlay integration pending)
+### Phase 3d COMPLETE — WGC + D3D12 overlay live (T5.5)
+
+The overlay now runs the full 8-pass CRT pipeline on Direct3D 12 when
+`--renderer dx12` is combined with any `--overlay*` mode, capturing via
+Windows.Graphics.Capture instead of DXGI Desktop Duplication.
+
+- **`run_dx12()`** ([src/overlay/overlay_mode_win.cpp](src/overlay/overlay_mode_win.cpp)):
+  a dedicated path dispatched from `overlay::run()` when
+  `Options::backend == D3D12`. The 2.3k-LOC GL body is left untouched
+  (zero regression). Per-frame loop mirrors `main.cpp::run_wgc_test`:
+  `wgc.latest_frame()` → `D3D12Backend::wrap_d3d11_texture()` (zero-copy
+  D3D11On12 unwrap) → `pipeline.render_to_screen(handle)` → `end_frame()`.
+- **WGC target by overlay mode**: `--overlay-target` → `init_for_window`;
+  `--overlay-fullscreen` / `--overlay` / `--overlay-region` →
+  `init_for_monitor` (monitor picked by `--monitor` index via
+  `EnumDisplayMonitors`, primary fallback).
+- **Feedback prevention**: `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`
+  on the overlay HWND — WGC honours it, so monitor capture excludes our
+  own window. (The GL path instead uses WDA_NONE + Magnification-API
+  exclusion; WGC has no per-capturer exclude list.)
+- **Global hotkeys**: reuses the GL path's `WH_KEYBOARD_LL` hook +
+  `g_hk_*` atomics, so Ctrl+Alt+Q (quit) / Ctrl+Alt+1..8 (toggle pass) /
+  Ctrl+Alt+0 (all on) / Ctrl+Alt+F (freeze) work regardless of focus.
+- **Borderless overlay** uses `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` so it
+  doesn't steal focus or show in the taskbar. Deliberately NOT
+  `WS_EX_LAYERED` — layered windows are incompatible with the DXGI
+  flip-model swap chain, so cross-process mouse click-through stays a
+  Phase 4a (DirectComposition) item.
+- **Target tracking**: the overlay follows the target window's position
+  every frame (`SetWindowPos` on change) and exits gracefully when the
+  target is gone for >30 frames.
+- `overlay::Options` gains a `BackendKind backend` field; `main.cpp`
+  forwards `--renderer` into it. `--help` / `--renderer` text refreshed
+  (the old wording called dx12 a skeleton and denied any rendering-API
+  switch — both stale post-3c/3d).
+
+Verified on RTX 2080 Ti FL 12_2: `--wgc-test` regression green;
+fullscreen + windowed + target-window all render; injected Ctrl+Alt+Q
+exits cleanly (147 frames, hook thread join no hang); GL overlay path
+unchanged (DXGI duplication still ready).
+
+**Deferred to v0.2.1 (Phase 4a / DirectComposition)**: ImGui menu under
+the DX12 backend (stays GL-only for now), cross-process mouse
+click-through, true region/windowed sub-rect crop (WGC has monitor
+granularity), and target *size* tracking (WGC frame-pool recreate).
+
+### Phase 3d core — WGC + D3D11On12 infrastructure
 
 - **`tubelight::WgcCapture`** ([src/capture/wgc_capture.{h,cpp}](src/capture/)):
   RAII C++/WinRT wrapper around Windows.Graphics.Capture. PIMPL'd so
@@ -38,14 +84,6 @@ Versioning: [SemVer 2.0](https://semver.org/).
 `tubelight --wgc-test --profile pvm-8220 --signal composite_ntsc --screenshot wgc.png`
 produces a CRT-processed capture of the primary monitor. WGC pipeline
 to D3D12 unwrap zero-copy, no DXGI roundtrip.
-
-### Deferred to next session (T5.5)
-Wiring WGC + DX12 into `overlay_mode_win.cpp` (2000+ LOC). The
-current overlay uses DXGI Desktop Duplication on the GL backend; the
-WGC + D3D12 path is a parallel mode that needs careful coexistence
-with the existing input/drag/menu/screenshot/video machinery. Phase
-3d core (this commit) provides the infrastructure; T5.5 is the
-integration layer.
 
 ## [0.2.0-beta.0] — 2026-05-28
 
