@@ -19,6 +19,38 @@ Versioning: [SemVer 2.0](https://semver.org/).
   `--overlay-target <title>` which initializes correctly. Fix deferred
   to v0.2.0.
 
+## [0.1.5] — 2026-05-27
+
+### Added
+- **ADR-0002** (`docs/adr/0002-d3d12-dcomp-wgc-hdr-slang-blueprint.md`)
+  — architectural blueprint of the next-generation rendering and
+  capture stack: D3D12 + DirectComposition (chrome / body visuals
+  separately) + Windows Graphics Capture (per-window) + scRGB FP16 →
+  HDR10 output + Variable Rate Shading on bloom/halation passes +
+  async compute pairing + Slang shader sources compiled to SPIRV +
+  DXIL + HLSL bytecode. Implementation lands incrementally across
+  v0.1.5 → v0.3.x (full plan in the ADR Phase table). No code change
+  in this release beyond the doc.
+
+### Changed (perf)
+- **Skip the ImGui begin/end frame cycle when no UI is on screen**
+  (`overlay_mode_win.cpp:1845`). Earlier builds always paid the
+  ~30-50µs `ImGui::NewFrame()` + 50-100µs `ImGui::Render()` even when
+  the menu was closed, the HUD off, no toast active and no recording.
+  Now the cycle only fires when at least one is visible. Marginal
+  CPU saving (~0.5% sustained on 60 Hz) but cleaner separation
+  between idle and active overlay states; sets up the
+  conditional-rendering pattern that the D3D12 backend will follow.
+
+### Notes
+- WS_EX_LAYERED is no longer added to the plain `--overlay` (windowed)
+  window. The path that added it (Ctrl+Alt+C toggle, removed in v0.1.4)
+  is gone. v0.1.5 confirms this as the intentional design — the DWM
+  composition cost in windowed mode dropped accordingly. The
+  layered-window path is still used for the Magnification API host and
+  for target/region/fullscreen overlay modes (where WS_EX_TRANSPARENT
+  is required for cross-process click-through).
+
 ## [0.1.4] — 2026-05-27
 
 ### Changed (UX / breaking)

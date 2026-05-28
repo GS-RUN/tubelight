@@ -1843,7 +1843,21 @@ int run(const Options& opts) {
         }
 
         // In-app menu (compiled-in optional).
-        if (has_menu) {
+        // Phase 2a (ADR-0002): skip the full ImGui::NewFrame / Render
+        // cycle when no UI element is actually visible. begin_frame()
+        // costs ~30-50µs and end_frame_to_screen() another ~50-100µs
+        // for an empty draw list; cheap individually but pure waste
+        // when nothing's on screen. Activate the cycle only when the
+        // menu is open, the HUD is shown, a toast is still on, or we
+        // need the REC dot.
+        const auto now_for_ui = std::chrono::steady_clock::now();
+        const bool toast_active_now = !toast_text.empty() &&
+                                       (now_for_ui - toast_time < kToastShown);
+        const bool ui_visible = (has_menu && menu.is_open())
+                              || hud_visible
+                              || toast_active_now
+                              || video_recorder.is_recording();
+        if (has_menu && ui_visible) {
             menu.begin_frame();
             bool want_quit_from_menu = false;
             std::string prev_profile = current_profile_id;
