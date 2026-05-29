@@ -1060,6 +1060,9 @@ std::atomic<bool> g_dx12_ct_active{false};
 
 void ct_log_open() {
     if (g_ct_log) return;
+    // Off by default — set TUBELIGHT_CT_LOG=1 to capture the click-through
+    // trace to tubelight_clickthrough.log next to the exe.
+    if (!std::getenv("TUBELIGHT_CT_LOG")) return;
     wchar_t path[MAX_PATH]{};
     DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
     std::wstring p(path, n);
