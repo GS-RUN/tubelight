@@ -5,6 +5,8 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0-rc.0] — 2026-05-29
+
 ### Phase 3d COMPLETE — WGC + D3D12 overlay live (T5.5)
 
 The overlay now runs the full 8-pass CRT pipeline on Direct3D 12 when
@@ -692,5 +694,6 @@ parameters, and platform-specific injection scaffolding.
 - ARM64 builds — v2.0+
 - Vector display mode (Asteroids / Tempest) — v2.0+
 
-[Unreleased]: https://github.com/gs-run/tubelight/compare/v0.1.0-alpha...HEAD
+[Unreleased]: https://github.com/gs-run/tubelight/compare/v0.2.0-rc.0...HEAD
+[0.2.0-rc.0]: https://github.com/gs-run/tubelight/releases/tag/v0.2.0-rc.0
 [0.1.0-alpha]: https://github.com/gs-run/tubelight/releases/tag/v0.1.0-alpha

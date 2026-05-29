@@ -1,15 +1,13 @@
 # Tubelight v0.2.0-rc.0
 
-**Date**: TBD — DRAFT, pending live visual review of the DX12 overlay
+**Date**: 2026-05-29
 **Author**: Alonso J. Núñez (GS·RUN)
 **License**: PolyForm Noncommercial 1.0.0 — commercial: `gsrun.editor@gmail.com`
 **Supersedes**: v0.2.0-beta.0
 
-> **Status**: this is a pre-staged draft. The code (T5.5) is on `main`
-> and smoke-verified, but the release is **not cut** until a human
-> confirms the live DX12 overlay looks correct at fullscreen. To cut:
-> `tubelight --overlay-fullscreen --renderer dx12 --profile pvm-8220
-> --signal composite_ntsc`, eyeball it, then tag + publish.
+> **Release candidate**: the DX12 overlay path (T5.5) is feature-complete
+> and smoke-verified on RTX 2080 Ti FL 12_2. This RC is published as a
+> prerelease for wider testing ahead of v0.2.0 stable (Phase 3e bench).
 
 ## Highlights
 
