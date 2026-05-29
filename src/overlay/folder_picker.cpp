@@ -12,6 +12,7 @@
 #include <shobjidl.h>
 #include <shlobj.h>
 #include <vector>
+#include <thread>
 
 namespace tubelight::overlay {
 
@@ -38,47 +39,64 @@ std::wstring utf8_to_wide(const std::string& s) {
 } // namespace
 
 std::string browse_for_folder(const std::string& title) {
-    HRESULT hr = CoInitializeEx(nullptr,
-                                 COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    const bool we_initialised = SUCCEEDED(hr);
+    // The overlay is WS_EX_TOPMOST and (on the DX12 path) the main thread
+    // is in a WinRT apartment incompatible with the shell file dialogs
+    // (they need STA) — showing the dialog on the main thread there HANGS.
+    // Two-part fix:
+    //   1. Run the dialog on a dedicated STA worker thread (a fresh thread
+    //      has no apartment, so CoInitializeEx(STA) succeeds there).
+    //   2. Use Show(nullptr) — NO owner. An owner on another (non-pumping,
+    //      join-blocked) thread would deadlock on the modal WM_ENABLE
+    //      SendMessage. Instead we drop the overlay's TOPMOST below while
+    //      the dialog (which takes the foreground itself) is up, then
+    //      restore it — so the unowned dialog still appears on top.
+    HWND owner = GetActiveWindow();
+    if (!owner) owner = GetForegroundWindow();
+    if (owner) {
+        SetWindowPos(owner, HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
 
     std::string result;
-    IFileOpenDialog* dlg = nullptr;
-    hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL,
-                          IID_PPV_ARGS(&dlg));
-    if (SUCCEEDED(hr) && dlg) {
-        DWORD options = 0;
-        dlg->GetOptions(&options);
-        dlg->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM |
-                                  FOS_PATHMUSTEXIST | FOS_FORCESHOWHIDDEN);
+    std::thread worker([&result, &title]() {
+        HRESULT hr = CoInitializeEx(nullptr,
+                                     COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        const bool we_initialised = SUCCEEDED(hr);
 
-        if (!title.empty()) {
-            std::wstring wt = utf8_to_wide(title);
-            dlg->SetTitle(wt.c_str());
-        }
-
-        // Own the dialog to the overlay window so it appears ABOVE it —
-        // the overlay is WS_EX_TOPMOST, and an unowned (Show(nullptr))
-        // dialog renders behind a topmost window (and behind the console).
-        // An owned dialog is always above its owner in z-order. When the
-        // menu is open the overlay is the active/foreground window.
-        HWND owner = GetActiveWindow();
-        if (!owner) owner = GetForegroundWindow();
-        hr = dlg->Show(owner);
-        if (SUCCEEDED(hr)) {
-            IShellItem* item = nullptr;
-            if (SUCCEEDED(dlg->GetResult(&item)) && item) {
-                PWSTR path = nullptr;
-                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-                    result = wide_to_utf8(path);
-                    CoTaskMemFree(path);
-                }
-                item->Release();
+        IFileOpenDialog* dlg = nullptr;
+        hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL,
+                              IID_PPV_ARGS(&dlg));
+        if (SUCCEEDED(hr) && dlg) {
+            DWORD options = 0;
+            dlg->GetOptions(&options);
+            dlg->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM |
+                                      FOS_PATHMUSTEXIST | FOS_FORCESHOWHIDDEN);
+            if (!title.empty()) {
+                std::wstring wt = utf8_to_wide(title);
+                dlg->SetTitle(wt.c_str());
             }
+            hr = dlg->Show(nullptr);
+            if (SUCCEEDED(hr)) {
+                IShellItem* item = nullptr;
+                if (SUCCEEDED(dlg->GetResult(&item)) && item) {
+                    PWSTR path = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                        result = wide_to_utf8(path);
+                        CoTaskMemFree(path);
+                    }
+                    item->Release();
+                }
+            }
+            dlg->Release();
         }
-        dlg->Release();
+        if (we_initialised) CoUninitialize();
+    });
+    worker.join();
+
+    if (owner) {
+        SetWindowPos(owner, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
-    if (we_initialised) CoUninitialize();
     return result;
 }
 
