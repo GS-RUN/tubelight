@@ -1213,6 +1213,22 @@ int run_dx12(const Options& opts) {
         if (s->pipeline) s->pipeline->resize(ww, hh);
     });
 
+    // Phase 4a.3: in-app ImGui menu on the D3D12 backend. Init AFTER our
+    // key_cb so ImGui_ImplGlfw chains it. Ctrl+Alt+M toggles (global hook).
+    Menu menu;
+    const bool has_menu = menu.init_dx12(window, d12->device(), d12->command_queue(),
+                                         static_cast<int>(d12->frames_in_flight()),
+                                         d12->backbuffer_format());
+    g_hk_toggle_menu = false;
+    // Persistent menu IO state (most are inert in the DX12 path for now;
+    // profile/signal changes are dispatched live).
+    std::string cur_profile = opts.profile_id;
+    std::string cur_signal  = opts.signal_id;
+    float menu_intensity = 1.0f;
+    bool  m_hud=false, m_aud=false, m_ct=false, m_ll=false, m_rec=true;
+    float m_vol=0.5f;
+    int   m_rs=0, m_rx=0, m_ry=0, m_rw=0, m_rh=0;
+
     glfwShowWindow(window);
     SetWindowPos(hwnd, HWND_TOPMOST, win_x, win_y,
                  chrome ? 0 : W, chrome ? 0 : H,
@@ -1247,8 +1263,8 @@ int run_dx12(const Options& opts) {
     while (hk_tid.load() == 0) std::this_thread::yield();
 
     std::printf(
-        "[overlay] dx12 hotkeys: ESC / Ctrl+Alt+Q quit | (Ctrl+Alt+)1..8 "
-        "toggle pass | (Ctrl+Alt+)0 all on | (Ctrl+Alt+)F freeze\n");
+        "[overlay] dx12 hotkeys: ESC / Ctrl+Alt+Q quit | Ctrl+Alt+M menu | "
+        "(Ctrl+Alt+)1..8 toggle pass | (Ctrl+Alt+)0 all on | (Ctrl+Alt+)F freeze\n");
 
     double t0 = glfwGetTime();
     tubelight::TextureHandle last_h{0};
@@ -1280,6 +1296,24 @@ int run_dx12(const Options& opts) {
             pipeline.set_pass_enabled(p, !cur);
             std::printf("[overlay] %s: %s\n",
                         tubelight::pass_display_name(p), !cur ? "ON" : "OFF");
+        }
+        // Ctrl+Alt+M: toggle the menu. Opening it must drop click-through +
+        // no-activate and focus the window so ImGui receives the mouse;
+        // closing restores click-through for borderless modes. (Toggling
+        // WS_EX_TRANSPARENT at runtime is safe — unlike WS_EX_LAYERED.)
+        if (has_menu && g_hk_toggle_menu.exchange(false)) {
+            menu.toggle();
+            LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            if (menu.is_open()) {
+                ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                SetForegroundWindow(hwnd);
+                SetActiveWindow(hwnd);
+            } else if (!chrome) {
+                ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+            }
+            std::printf("[overlay] dx12: menu %s\n", menu.is_open() ? "OPEN" : "closed");
         }
 
         // Target-window tracking: follow the target as it moves so the
@@ -1327,6 +1361,43 @@ int run_dx12(const Options& opts) {
         pipeline.set_time(static_cast<float>(glfwGetTime() - t0));
         backend_raw->begin_frame();
         pipeline.render_to_screen(last_h);
+        // Phase 4a.3: draw the ImGui menu on top of the CRT output, into the
+        // backend's still-open command list (backbuffer RTV bound by the
+        // pipeline's final pass), before end_frame closes + presents it.
+        if (has_menu && menu.is_open()) {
+            menu.begin_frame_dx12();
+            bool want_quit = false, cap_changed = false;
+            bool hud_c=false, aud_c=false, ct_c=false, rec_c=false,
+                 ll_c=false, recordable_c=false;
+            std::string cap_dir;
+            WindowActions wa{};
+            wa.is_fullscreen      = mode_fullscreen;
+            wa.is_tracking_target = mode_target;
+            wa.is_region_active   = mode_region;
+            Menu::SettingsIO sio{
+                m_hud, hud_c,
+                m_aud, m_vol, aud_c,
+                m_ct, ct_c,
+                m_rs, m_rx, m_ry, m_rw, m_rh, rec_c,
+                m_ll, ll_c,
+                m_rec, recordable_c
+            };
+            const std::string prev_profile = cur_profile, prev_signal = cur_signal;
+            menu.build_widgets(pipeline, cur_profile, cur_signal, menu_intensity,
+                               want_quit, cap_dir, cap_changed, wa, sio);
+            if (cur_profile != prev_profile && !cur_profile.empty()) {
+                std::string err;
+                auto p = tubelight::load_crt_profile_by_id(cur_profile, err);
+                if (p) pipeline.apply_crt_profile(*p);
+            }
+            if (cur_signal != prev_signal && !cur_signal.empty()) {
+                std::string err;
+                auto s = tubelight::load_signal_profile_by_id(cur_signal, err);
+                if (s) pipeline.apply_signal_profile(*s);
+            }
+            if (want_quit) glfwSetWindowShouldClose(window, GLFW_TRUE);
+            menu.end_frame_to_screen_dx12(d12->command_list());
+        }
         backend_raw->end_frame();
         if (frames_rendered == 0) {
             std::fprintf(stderr,
@@ -1343,6 +1414,8 @@ int run_dx12(const Options& opts) {
     std::printf("[overlay] dx12: %llu frames rendered, %llu captured\n",
                 frames_rendered,
                 static_cast<unsigned long long>(wgc.frame_count()));
+
+    if (has_menu) menu.shutdown();
 
     // Tear down the keyboard hook thread.
     PostThreadMessage(hk_tid.load(), WM_QUIT, 0, 0);

@@ -15,6 +15,10 @@
 #include <vector>
 
 struct GLFWwindow;
+// Forward declares so this cross-platform header doesn't pull in d3d12.h.
+struct ID3D12Device;
+struct ID3D12CommandQueue;
+struct ID3D12GraphicsCommandList;
 
 namespace tubelight::overlay {
 
@@ -53,6 +57,14 @@ public:
 
     // Returns false if ImGui is not compiled in (then is_open() is always false).
     bool init(GLFWwindow* window);
+
+    // Phase 4a.3: initialise ImGui on the D3D12 backend instead of GL
+    // (ImGui_ImplGlfw_InitForOther + ImGui_ImplDX12). The menu owns a small
+    // shader-visible SRV heap for its font/textures. rtv_format is a
+    // DXGI_FORMAT (passed as unsigned to keep d3d12.h out of this header).
+    bool init_dx12(GLFWwindow* window, ID3D12Device* device,
+                   ID3D12CommandQueue* queue, int num_frames_in_flight,
+                   unsigned rtv_format);
     void shutdown();
 
     bool is_open() const { return open_; }
@@ -62,6 +74,8 @@ public:
     // Called every frame before any GL rendering. Always cheap; doesn't draw
     // anything yet.
     void begin_frame();
+    // D3D12 variant of begin_frame (ImGui_ImplDX12_NewFrame).
+    void begin_frame_dx12();
 
     // Builds the widgets (only if open). Reads + writes pipeline.params() and
     // the currently selected profile / signal ids — caller uses the changed
@@ -108,6 +122,10 @@ public:
 
     // Renders the ImGui draw data on top of whatever the pipeline produced.
     void end_frame_to_screen();
+    // D3D12 variant: records ImGui's draw data into the given command list
+    // (which must have the backbuffer RTV bound). Sets the menu's own SRV
+    // heap before drawing.
+    void end_frame_to_screen_dx12(ID3D12GraphicsCommandList* cmd_list);
 
     bool has_imgui() const;
 
@@ -119,6 +137,8 @@ public:
 private:
     bool open_ = false;
     GLFWwindow* window_ = nullptr;
+    bool  dx12_mode_  = false;   // true when init_dx12 was used (vs GL init)
+    void* dx12_state_ = nullptr; // opaque Dx12State* (menu.cpp) — SRV heap + bump alloc
 
     // Cached profile lists (refreshed on first open).
     std::vector<std::string> crt_ids_;

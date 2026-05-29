@@ -29,6 +29,16 @@
   #include <backends/imgui_impl_glfw.h>
   #include <backends/imgui_impl_opengl3.h>
 #endif
+// Phase 4a.3: ImGui D3D12 renderer backend (Windows + DX12 build only).
+#if defined(TUBELIGHT_HAVE_D3D12)
+  #include <d3d12.h>
+  #include <wrl/client.h>
+  #if __has_include(<imgui_impl_dx12.h>)
+    #include <imgui_impl_dx12.h>
+  #else
+    #include <backends/imgui_impl_dx12.h>
+  #endif
+#endif
 #endif
 
 namespace tubelight::overlay {
@@ -304,6 +314,36 @@ bool Menu::has_imgui() const {
 #endif
 }
 
+#if defined(TUBELIGHT_HAS_IMGUI) && defined(TUBELIGHT_HAVE_D3D12)
+// DX12 menu state: a small shader-visible SRV heap + bump allocator for
+// ImGui's font/texture descriptors (1.92 allocates via callbacks).
+namespace {
+struct MenuDx12State {
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srv_heap;
+    UINT desc_size = 0;
+    UINT capacity  = 0;
+    UINT next      = 0;
+};
+void menu_dx12_srv_alloc(ImGui_ImplDX12_InitInfo* info,
+                         D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu,
+                         D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu) {
+    auto* st = static_cast<MenuDx12State*>(info->UserData);
+    const UINT i = (st->next < st->capacity) ? st->next++ : 0;
+    auto cpu = st->srv_heap->GetCPUDescriptorHandleForHeapStart();
+    auto gpu = st->srv_heap->GetGPUDescriptorHandleForHeapStart();
+    cpu.ptr += static_cast<SIZE_T>(i) * st->desc_size;
+    gpu.ptr += static_cast<UINT64>(i) * st->desc_size;
+    *out_cpu = cpu;
+    *out_gpu = gpu;
+}
+void menu_dx12_srv_free(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE,
+                        D3D12_GPU_DESCRIPTOR_HANDLE) {
+    // Bump allocator — the menu allocates only a handful of descriptors
+    // (font atlas, maybe re-created on DPI change); capacity 64 covers it.
+}
+} // namespace
+#endif
+
 bool Menu::init(GLFWwindow* window) {
 #ifdef TUBELIGHT_HAS_IMGUI
     window_ = window;
@@ -332,8 +372,75 @@ bool Menu::init(GLFWwindow* window) {
 #endif
 }
 
+bool Menu::init_dx12(GLFWwindow* window, ID3D12Device* device,
+                     ID3D12CommandQueue* queue, int num_frames_in_flight,
+                     unsigned rtv_format) {
+#if defined(TUBELIGHT_HAS_IMGUI) && defined(TUBELIGHT_HAVE_D3D12)
+    window_    = window;
+    dx12_mode_ = true;
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    ImGui::StyleColorsDark();
+    apply_tubelight_theme(ImGui::GetStyle());
+    io.FontGlobalScale = 1.18f;
+
+    // GLFW platform backend in API-agnostic mode (the window is GLFW_NO_API
+    // for D3D12 — InitForOpenGL would assert).
+    if (!ImGui_ImplGlfw_InitForOther(window, true)) {
+        std::fprintf(stderr, "[menu] ImGui_ImplGlfw_InitForOther failed\n");
+        return false;
+    }
+    auto* st = new MenuDx12State();
+    st->capacity = 64;
+    D3D12_DESCRIPTOR_HEAP_DESC hd{};
+    hd.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    hd.NumDescriptors = st->capacity;
+    hd.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (FAILED(device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&st->srv_heap)))) {
+        std::fprintf(stderr, "[menu] dx12 SRV heap create failed\n");
+        delete st;
+        return false;
+    }
+    st->desc_size = device->GetDescriptorHandleIncrementSize(
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    dx12_state_ = st;
+
+    ImGui_ImplDX12_InitInfo ii{};
+    ii.Device               = device;
+    ii.CommandQueue         = queue;
+    ii.NumFramesInFlight    = num_frames_in_flight;
+    ii.RTVFormat            = static_cast<DXGI_FORMAT>(rtv_format);
+    ii.SrvDescriptorHeap    = st->srv_heap.Get();
+    ii.SrvDescriptorAllocFn = menu_dx12_srv_alloc;
+    ii.SrvDescriptorFreeFn  = menu_dx12_srv_free;
+    ii.UserData             = st;
+    if (!ImGui_ImplDX12_Init(&ii)) {
+        std::fprintf(stderr, "[menu] ImGui_ImplDX12_Init failed\n");
+        return false;
+    }
+    std::fprintf(stderr, "[menu] ImGui D3D12 backend ready\n");
+    return true;
+#else
+    (void)window; (void)device; (void)queue; (void)num_frames_in_flight;
+    (void)rtv_format;
+    return false;
+#endif
+}
+
 void Menu::shutdown() {
 #ifdef TUBELIGHT_HAS_IMGUI
+#if defined(TUBELIGHT_HAVE_D3D12)
+    if (dx12_mode_) {
+        ImGui_ImplDX12_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+        delete static_cast<MenuDx12State*>(dx12_state_);
+        dx12_state_ = nullptr;
+        return;
+    }
+#endif
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
@@ -343,6 +450,14 @@ void Menu::shutdown() {
 void Menu::begin_frame() {
 #ifdef TUBELIGHT_HAS_IMGUI
     ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+#endif
+}
+
+void Menu::begin_frame_dx12() {
+#if defined(TUBELIGHT_HAS_IMGUI) && defined(TUBELIGHT_HAVE_D3D12)
+    ImGui_ImplDX12_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 #endif
@@ -932,6 +1047,20 @@ void Menu::end_frame_to_screen() {
 #ifdef TUBELIGHT_HAS_IMGUI
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#endif
+}
+
+void Menu::end_frame_to_screen_dx12(ID3D12GraphicsCommandList* cmd_list) {
+#if defined(TUBELIGHT_HAS_IMGUI) && defined(TUBELIGHT_HAVE_D3D12)
+    ImGui::Render();
+    auto* st = static_cast<MenuDx12State*>(dx12_state_);
+    if (st && cmd_list) {
+        ID3D12DescriptorHeap* heaps[] = { st->srv_heap.Get() };
+        cmd_list->SetDescriptorHeaps(1, heaps);
+        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd_list);
+    }
+#else
+    (void)cmd_list;
 #endif
 }
 

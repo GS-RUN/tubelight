@@ -117,6 +117,17 @@ public:
     TextureHandle wrap_d3d11_texture(ID3D11Texture2D* tex,
                                       int width, int height);
 
+    // ----- Phase 4a.3 accessors for the ImGui D3D12 backend -----------
+    // The in-app menu's ImGui_ImplDX12 needs the device + queue (texture
+    // uploads) at init and the current frame's command list at draw time
+    // (between render_to_screen and end_frame, with the backbuffer RTV
+    // still bound). Non-owning.
+    ID3D12Device*              device()        const { return device_.Get(); }
+    ID3D12CommandQueue*        command_queue() const { return cmd_queue_.Get(); }
+    ID3D12GraphicsCommandList* command_list()  const { return cmd_list_.Get(); }
+    static constexpr DXGI_FORMAT backbuffer_format() { return kBackBufferFormat; }
+    static constexpr UINT        frames_in_flight()  { return kBackBufferCount; }
+
 private:
     static constexpr UINT kBackBufferCount = 2;
     static constexpr DXGI_FORMAT kBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
