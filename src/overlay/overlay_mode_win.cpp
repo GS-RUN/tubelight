@@ -1079,7 +1079,12 @@ int run_dx12(const Options& opts) {
     // Feedback prevention: exclude our own window from WGC monitor capture.
     // WGC honours WDA_EXCLUDEFROMCAPTURE (Win10 2004+). Essential for
     // fullscreen/monitor capture; harmless for per-window capture.
-    SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+    // TUBELIGHT_OVERLAY_CAPTURABLE=1 keeps the overlay visible to capture
+    // (streamers; also lets the composited output be screenshot-verified) —
+    // at the cost of a capture feedback loop in monitor modes.
+    SetWindowDisplayAffinity(hwnd,
+        std::getenv("TUBELIGHT_OVERLAY_CAPTURABLE") ? WDA_NONE
+                                                    : WDA_EXCLUDEFROMCAPTURE);
 
     // Borderless overlay should not steal focus or show in the taskbar.
     // NOTE: we deliberately do NOT add WS_EX_LAYERED/WS_EX_TRANSPARENT —
@@ -1090,18 +1095,19 @@ int run_dx12(const Options& opts) {
     if (!chrome) {
         LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         ex |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
-        // Phase 4a.2: cross-process click-through. WS_EX_LAYERED |
-        // WS_EX_TRANSPARENT routes mouse events to the window underneath
-        // (the only Win32 mechanism that crosses processes — NCHITTEST
-        // HTTRANSPARENT is same-thread only). With the DComp composition
-        // swap chain (4a.1) the swap chain is no longer the window's
-        // flip-model target, so WS_EX_LAYERED is now compatible (it was
-        // not with CreateSwapChainForHwnd). Mirrors the proven GL path:
-        // LWA_ALPHA at 255 keeps the window fully opaque; the DComp visual
-        // supplies the pixels.
-        ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
+        // Phase 4a.2: cross-process click-through. WS_EX_TRANSPARENT alone
+        // routes mouse events to the window underneath. Crucially we do NOT
+        // add WS_EX_LAYERED here: a layered window has its own DWM surface
+        // that SUPPRESSES the DirectComposition visual (verified — the
+        // overlay rendered fully transparent with WS_EX_LAYERED). DComp +
+        // WS_EX_LAYERED are mutually exclusive composition paths; the ADR
+        // anticipated this ("click-through NOT via WS_EX_LAYERED"). With the
+        // composition swap chain providing pixels via the DComp visual,
+        // WS_EX_TRANSPARENT gives input pass-through without a layered
+        // surface to fight. (TUBELIGHT_NO_CLICKTHROUGH skips it for tests.)
+        const bool no_ct = std::getenv("TUBELIGHT_NO_CLICKTHROUGH") != nullptr;
+        if (!no_ct) ex |= WS_EX_TRANSPARENT;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-        SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
     }
 
     int fb_w = 0, fb_h = 0;
