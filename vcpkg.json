@@ -18,6 +18,11 @@
       "features": ["glfw-binding", "opengl3-binding"]
     },
     {
+      "name": "imgui",
+      "features": ["dx12-binding"],
+      "platform": "windows"
+    },
+    {
       "name": "minhook",
       "platform": "windows"
     },
