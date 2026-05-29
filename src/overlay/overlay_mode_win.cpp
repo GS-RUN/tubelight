@@ -1045,6 +1045,15 @@ struct Dx12WndState {
     int  resize_h = 0;
 };
 
+// Probe state for the WM_NCHITTEST click-through experiment (debrief hyp #1).
+// Only consulted when the TUBELIGHT_CT_NCHITTEST probe is active (the window
+// is then created WITHOUT WS_EX_TRANSPARENT so the OS actually delivers
+// WM_NCHITTEST to us). True = report HTTRANSPARENT (try to let clicks fall
+// through); cleared while the menu is open so the menu stays clickable.
+// NOTE: HTTRANSPARENT is documented as same-thread-only — this is a
+// diagnostic to confirm/deny cross-process pass-through, not a likely fix.
+std::atomic<bool> g_dx12_nchittest_transparent{false};
+
 LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 #if defined(TUBELIGHT_HAS_IMGUI)
     // Let ImGui consume mouse/keyboard first (only matters when the menu is
@@ -1053,6 +1062,20 @@ LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 #endif
     auto* st = reinterpret_cast<Dx12WndState*>(GetWindowLongPtrW(h, GWLP_USERDATA));
     switch (msg) {
+    case WM_NCHITTEST:
+        // Click-through probe (hyp #1). Active only under TUBELIGHT_CT_NCHITTEST,
+        // where the window has no WS_EX_TRANSPARENT so this message arrives.
+        if (g_dx12_nchittest_transparent.load()) {
+            static std::atomic<int> log_once{0};
+            if (log_once.exchange(1) == 0)
+                std::fprintf(stderr,
+                    "[overlay] dx12: WM_NCHITTEST -> HTTRANSPARENT (probe)\n");
+            return HTTRANSPARENT;
+        }
+        break;
+    case WM_MOUSEACTIVATE:
+        if (g_dx12_nchittest_transparent.load()) return MA_NOACTIVATEANDEAT;
+        break;
     case WM_SIZE:
         if (st && wp != SIZE_MINIMIZED) {
             st->resize_w = LOWORD(lp);
@@ -1127,6 +1150,17 @@ int run_dx12(const Options& opts) {
 
     const bool chrome = mode_windowed;  // only plain windowed gets a title bar
     const bool no_ct  = (std::getenv("TUBELIGHT_NO_CLICKTHROUGH") != nullptr);
+    // Click-through diagnostic probes (see DIAGNOSIS_CLICKTHROUGH_DX12_*.md).
+    // ct_nchittest: drop WS_EX_TRANSPARENT and instead return HTTRANSPARENT
+    //   from the wndproc (hyp #1 — expected to NOT cross processes; confirm).
+    // ct_emptyrgn: SetWindowRgn() to an empty region (hyp #3 — likely blanks
+    //   the DComp visual; confirm). Both are off by default → no behaviour
+    //   change in normal runs.
+    const bool ct_nchittest = (!chrome && !no_ct &&
+                               std::getenv("TUBELIGHT_CT_NCHITTEST") != nullptr);
+    const bool ct_emptyrgn  = (!chrome &&
+                               std::getenv("TUBELIGHT_CT_EMPTYRGN") != nullptr);
+    g_dx12_nchittest_transparent.store(ct_nchittest);
 
     static const wchar_t* kClassName = L"TubelightDX12Overlay";
     HINSTANCE hinst = GetModuleHandleW(nullptr);
@@ -1147,10 +1181,14 @@ int run_dx12(const Options& opts) {
     // Plain windowed: a normal resizable framed window (flip-model HWND
     // swap chain, no click-through).
     const DWORD style = chrome ? WS_OVERLAPPEDWINDOW : WS_POPUP;
+    // Under the NCHITTEST probe we must NOT set WS_EX_TRANSPARENT — the OS
+    // skips WM_NCHITTEST for transparent windows, so the probe could never
+    // fire. The wndproc returns HTTRANSPARENT instead.
+    const DWORD ct_flag = (no_ct || ct_nchittest) ? 0u : WS_EX_TRANSPARENT;
     const DWORD exstyle = chrome
         ? WS_EX_APPWINDOW
         : (WS_EX_NOREDIRECTIONBITMAP | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
-           WS_EX_TOPMOST | (no_ct ? 0u : WS_EX_TRANSPARENT));
+           WS_EX_TOPMOST | ct_flag);
 
     // For a popup the requested size IS the client size; for a framed window
     // expand to include the non-client area so the client ends up W×H.
@@ -1170,6 +1208,34 @@ int run_dx12(const Options& opts) {
     SetWindowDisplayAffinity(hwnd,
         std::getenv("TUBELIGHT_OVERLAY_CAPTURABLE") ? WDA_NONE
                                                     : WDA_EXCLUDEFROMCAPTURE);
+
+    // Hyp #2 — log the EXSTYLE actually in effect, so we can confirm the
+    // intended click-through flags survived creation (and any later toggle).
+    {
+        const LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        std::fprintf(stderr,
+            "[overlay] dx12: EXSTYLE=0x%08lx { %s%s%s%s%s} click-through=%s\n",
+            static_cast<unsigned long>(ex),
+            (ex & WS_EX_NOREDIRECTIONBITMAP) ? "NOREDIRECTIONBITMAP " : "",
+            (ex & WS_EX_TRANSPARENT)         ? "TRANSPARENT "         : "",
+            (ex & WS_EX_LAYERED)             ? "LAYERED "             : "",
+            (ex & WS_EX_NOACTIVATE)          ? "NOACTIVATE "          : "",
+            (ex & WS_EX_TOPMOST)             ? "TOPMOST "             : "",
+            chrome ? "off(windowed)"
+                   : ct_nchittest ? "probe:NCHITTEST"
+                   : no_ct ? "off(NO_CLICKTHROUGH)"
+                           : "WS_EX_TRANSPARENT");
+    }
+
+    // Hyp #3 — empty window region probe. Expected to also clip the DComp
+    // visual to nothing (the HWND composition target is clipped to the window
+    // region), confirming the display/click-through tension. Off by default.
+    if (ct_emptyrgn) {
+        SetWindowRgn(hwnd, CreateRectRgn(0, 0, 0, 0), TRUE);
+        std::fprintf(stderr,
+            "[overlay] dx12: empty SetWindowRgn applied (probe) — if the CRT "
+            "disappears this path is a dead end\n");
+    }
 
     int fb_w = 0, fb_h = 0;
     { RECT rc{}; GetClientRect(hwnd, &rc); fb_w = rc.right - rc.left; fb_h = rc.bottom - rc.top; }
@@ -1401,15 +1467,25 @@ int run_dx12(const Options& opts) {
             menu.toggle();
             LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             if (menu.is_open()) {
+                // Under the NCHITTEST probe there is no WS_EX_TRANSPARENT to
+                // clear — disable the HTTRANSPARENT hook instead so the menu
+                // is clickable. NOACTIVATE is always cleared so we can focus.
+                if (ct_nchittest) g_dx12_nchittest_transparent.store(false);
                 ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 SetForegroundWindow(hwnd);
                 SetActiveWindow(hwnd);
             } else if (!chrome) {
-                ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+                ex |= (ct_nchittest ? WS_EX_NOACTIVATE
+                                    : (WS_EX_TRANSPARENT | WS_EX_NOACTIVATE));
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                if (ct_nchittest) g_dx12_nchittest_transparent.store(true);
             }
-            std::printf("[overlay] dx12: menu %s\n", menu.is_open() ? "OPEN" : "closed");
+            ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            std::printf("[overlay] dx12: menu %s (EXSTYLE=0x%08lx, TRANSPARENT=%d)\n",
+                        menu.is_open() ? "OPEN" : "closed",
+                        static_cast<unsigned long>(ex),
+                        (ex & WS_EX_TRANSPARENT) ? 1 : 0);
         }
 
         // Target-window tracking: follow the target as it moves so the

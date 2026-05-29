@@ -36,7 +36,7 @@ if(WIN32)
     # + IDirect3DDevice interop). runtimeobject.lib for IInspectable.
     target_link_libraries(tubelight_core PUBLIC
         d3d11 dxgi ole32 shell32 uuid xaudio2 Magnification
-        windowsapp runtimeobject
+        windowsapp runtimeobject gdi32
     )
 endif()
 
