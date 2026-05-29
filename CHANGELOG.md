@@ -13,15 +13,21 @@ Versioning: [SemVer 2.0](https://semver.org/).
   (`DCompositionCreateDevice` → `CreateTargetForHwnd` → `CreateVisual` →
   `SetContent` → `Commit`). Borderless overlay modes use it; windowed /
   shader-only / wgc-test keep `CreateSwapChainForHwnd`. CMake links `dcomp`.
-- **4a.2 click-through**: with the composition swap chain unbinding the
-  HWND from the flip-model target, borderless DX12 overlay windows now set
-  `WS_EX_LAYERED | WS_EX_TRANSPARENT` (+ `LWA_ALPHA` 255) for true
-  cross-process mouse click-through — impossible in T5.5 (rc.0).
-- Verified headless: builds; DComp + pipeline init + render; clean
-  teardown (no WS_EX_LAYERED teardown crash). **Pending live verification**
-  on real HW: on-screen display through the layered+DComp window + actual
-  click pass-through (can't be captured/clicked headless). Fallback if the
-  layered+DComp combo shows black: `WS_EX_NOREDIRECTIONBITMAP`.
+- **4a.2 click-through**: borderless DX12 overlay windows set
+  `WS_EX_TRANSPARENT` for cross-process mouse pass-through — impossible in
+  T5.5 (rc.0). **NOT** `WS_EX_LAYERED`: a screen-capture verification (via
+  the new `TUBELIGHT_OVERLAY_CAPTURABLE=1`) showed the layered overlay
+  rendered fully transparent — a layered window's DWM surface suppresses
+  the DComp visual (the two are mutually exclusive; ADR-0002 warned of it).
+  With `WS_EX_TRANSPARENT` only, the composited CRT output displays (bezel
+  glow confirmed in the capture) and input passes through.
+- New env hooks: `TUBELIGHT_OVERLAY_CAPTURABLE=1` (WDA_NONE — streamers +
+  screenshot verification), `TUBELIGHT_D3D12_DEBUG=1` (debug layer + drain),
+  `TUBELIGHT_NO_CLICKTHROUGH=1` (test).
+- Verified: build; DComp validation-clean (debug layer, 0 errors); display
+  on-screen confirmed by screenshot; clean Ctrl+Alt+Q teardown. **Still
+  wants a real-mouse confirmation** that clicks reach the app underneath
+  (fallback if not: `WS_EX_NOREDIRECTIONBITMAP` window).
 - Still open in 4a: ImGui menu under DX12 (menu.cpp is GL-only) — DX12
   overlay stays hotkey-driven until then.
 
