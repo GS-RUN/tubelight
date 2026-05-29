@@ -61,6 +61,11 @@ struct WgcCapture::Impl {
     ID3D11Device*                                d3d_device   = nullptr;
 
     std::mutex                                   latest_mu;
+    // The frame whose surface `latest_tex` points at. We keep it alive and
+    // explicitly Close() the *previous* one when a new frame arrives, so the
+    // framework recycles its pool buffer. Without that Close the pool runs out
+    // of buffers after BufferCount frames and stops delivering → frozen capture.
+    winrt_capture::Direct3D11CaptureFrame        held_frame   { nullptr };
     ComPtr<ID3D11Texture2D>                      latest_tex;
     int                                          latest_w     = 0;
     int                                          latest_h     = 0;
@@ -72,25 +77,31 @@ struct WgcCapture::Impl {
         const winrt_capture::Direct3D11CaptureFramePool& sender,
         const winrt::Windows::Foundation::IInspectable&)
     {
-        // Drain ALL queued frames; we only keep the latest one.
-        winrt_capture::Direct3D11CaptureFrame frame { nullptr };
-        ComPtr<ID3D11Texture2D> dx_tex;
-        int w = 0, h = 0;
-        while ((frame = sender.TryGetNextFrame())) {
-            auto access = frame.Surface().as<
-                Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
-            access->GetInterface(IID_PPV_ARGS(&dx_tex));
-            const auto sz = frame.ContentSize();
-            w = sz.Width;
-            h = sz.Height;
+        // Drain to the newest queued frame; Close the older ones so their
+        // buffers recycle straight away.
+        winrt_capture::Direct3D11CaptureFrame newest { nullptr };
+        for (;;) {
+            auto f = sender.TryGetNextFrame();
+            if (!f) break;
+            if (newest) newest.Close();
+            newest = f;
         }
-        if (dx_tex) {
-            std::lock_guard<std::mutex> lk(latest_mu);
-            latest_tex = dx_tex;
-            latest_w   = w;
-            latest_h   = h;
-            frames.fetch_add(1, std::memory_order_relaxed);
-        }
+        if (!newest) return;
+        ComPtr<ID3D11Texture2D> tex;
+        auto access = newest.Surface().as<
+            Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
+        access->GetInterface(IID_PPV_ARGS(&tex));
+        const auto sz = newest.ContentSize();
+        std::lock_guard<std::mutex> lk(latest_mu);
+        // Release the buffer we were holding so the pool can reuse it. The
+        // overlay is mid-flight on the previous texture at worst → a CRT
+        // overlay tolerates the rare 1-frame tear; freezing is the bug we fix.
+        if (held_frame) held_frame.Close();
+        held_frame = newest;
+        latest_tex = tex;
+        latest_w   = sz.Width;
+        latest_h   = sz.Height;
+        frames.fetch_add(1, std::memory_order_relaxed);
     }
 };
 
@@ -172,15 +183,24 @@ bool WgcCapture::start() {
         const auto size = impl_->item.Size();
         // 2 buffers — frames arrive at the source rate; we always
         // overwrite the latest so backpressure isn't critical.
-        impl_->pool = winrt_capture::Direct3D11CaptureFramePool::Create(
+        //
+        // CreateFreeThreaded (NOT Create): FrameArrived must be raised on a
+        // system thread-pool thread, independent of any DispatcherQueue. The
+        // plain Create() delivers FrameArrived via the *creating thread's*
+        // DispatcherQueue — which the overlay's main thread does not have (it
+        // pumps a classic Win32 message loop, not a WinRT dispatcher), so only
+        // the very first frame ever arrived and the capture appeared frozen.
+        // Our on_frame_arrived is already thread-safe (mutex-guarded latest_*).
+        impl_->pool = winrt_capture::Direct3D11CaptureFramePool::CreateFreeThreaded(
             impl_->winrt_device,
             winrt_dx::DirectXPixelFormat::B8G8R8A8UIntNormalized,
             2,
             size);
         impl_->session = impl_->pool.CreateCaptureSession(impl_->item);
 
-        // FrameArrived runs on a background thread pool — we drain
-        // queued frames + stash the latest under a mutex.
+        // FrameArrived drives continuous production (a CreateFreeThreaded pool
+        // delivers on a system thread-pool thread). The handler drains + keeps
+        // the latest texture and recycles the previous buffer (see Impl).
         impl_->frame_token = impl_->pool.FrameArrived(
             [impl = impl_.get()](auto&& sender, auto&& args) {
                 if (impl) impl->on_frame_arrived(sender, args);
@@ -202,6 +222,12 @@ void WgcCapture::stop() {
         if (impl_->pool) {
             impl_->pool.FrameArrived(impl_->frame_token);
         }
+        {
+            std::lock_guard<std::mutex> lk(impl_->latest_mu);
+            impl_->latest_tex.Reset();
+            impl_->latest_w = impl_->latest_h = 0;
+            if (impl_->held_frame) { impl_->held_frame.Close(); impl_->held_frame = nullptr; }
+        }
         if (impl_->session) {
             impl_->session.Close();
             impl_->session = nullptr;
@@ -211,11 +237,6 @@ void WgcCapture::stop() {
             impl_->pool = nullptr;
         }
         impl_->item = nullptr;
-        {
-            std::lock_guard<std::mutex> lk(impl_->latest_mu);
-            impl_->latest_tex.Reset();
-            impl_->latest_w = impl_->latest_h = 0;
-        }
         impl_->running.store(false);
     } catch (...) {
         // best-effort shutdown.

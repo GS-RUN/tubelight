@@ -1459,6 +1459,7 @@ int run_dx12(const Options& opts) {
     };
     tubelight::TextureHandle last_h{0};
     unsigned long long frames_rendered = 0;
+    unsigned long long wgc_new_frames = 0;
     int target_lost_frames = 0;
 
     // ----- Path B: layered present resources ------------------------------
@@ -1642,9 +1643,14 @@ int run_dx12(const Options& opts) {
             int tw = 0, th = 0;
             auto tex11 = wgc.latest_frame(tw, th);
             if (tex11) {
+                ++wgc_new_frames;
                 auto h = d12->wrap_d3d11_texture(tex11.Get(), tw, th);
                 if (h.is_valid()) last_h = h;
             }
+            if (g_ct_log && (frames_rendered % 45) == 0)
+                ct_log("  WGC: frame_count=%llu new_textures_seen=%llu tex11_now=%d %dx%d",
+                       (unsigned long long)wgc.frame_count(), wgc_new_frames,
+                       tex11 ? 1 : 0, tw, th);
             if (bench && tex11) {
                 cap_ms.push_back(std::chrono::duration<double, std::milli>(
                     std::chrono::high_resolution_clock::now() - cap_t0).count());

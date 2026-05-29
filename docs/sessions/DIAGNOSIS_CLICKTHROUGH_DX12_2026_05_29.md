@@ -203,6 +203,32 @@ El mecanismo es idéntico al path GL probado, así que debería cruzar.
 
 ---
 
+## 9. El síntoma "no funciona" del usuario = imagen CONGELADA (no el click)
+
+Tras todo lo anterior, el usuario confirmó que **el clic SÍ atraviesa** (su log
+mostró el foreground cambiando KegaClass↔Explorador al clicar a través del
+overlay) **pero la imagen del CRT está congelada** → parecía que el clic no
+hacía nada.
+
+**Causa**: el path DX12 captura con **WGC**, y WGC **deja de entregar
+`FrameArrived` tras 1-2 frames** en este montaje (D3D11On12 + overlay). Medido
+con instrumentación (`TUBELIGHT_CT_LOG=1` → `WGC: frame_count=...`):
+`frame_count` se clava en 1-2 y no crece, tanto en fullscreen como en modo
+ventana (descartada oclusión y "nada cambia"). Intentos: `Create`→
+`CreateFreeThreaded` (1→2), cerrar el frame anterior para reciclar buffers
+(sigue 2), sondeo en hilo principal (1). El pool simplemente deja de producir
+— problema de fondo del path WGC+11On12 que requiere sesión propia (probable:
+copiar el frame a textura propia con `ID3D11Multithread` + double-buffer, o
+volver a DXGI Duplication como el path GL).
+
+**Resolución para el usuario AHORA**: usar el **renderer GL** (`--overlay-
+fullscreen`, sin `--renderer dx12`). GL captura con **DXGI Desktop Duplication
++ Magnification API** → **imagen viva** (verificado: 2035 puntos de muestra
+cambian entre dos capturas) **y click-through** (WS_EX_LAYERED|TRANSPARENT,
+verificado pasa clics). El lanzador `Overlay-ClickThrough.bat` ahora usa GL.
+DX12+WGC queda como mejora pendiente (zero-copy) una vez resuelta la captura
+continua.
+
 ## 8. CORRECCIÓN — ULW swallow clicks → SLWA + BitBlt (el fix real)
 
 Primera implementación de Path B usaba `UpdateLayeredWindow` (ULW). El usuario
