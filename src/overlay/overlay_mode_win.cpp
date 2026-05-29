@@ -75,6 +75,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -1118,7 +1119,11 @@ int run_dx12(const Options& opts) {
     bp.native_window_handle = hwnd;
     bp.width  = fb_w;
     bp.height = fb_h;
-    bp.enable_debug = false;
+    // dx12-engineer rule #1: validation on in debug. Off by default (CPU
+    // cost); set TUBELIGHT_D3D12_DEBUG=1 to enable the D3D12 debug layer +
+    // per-frame ID3D12InfoQueue drain — surfaces otherwise-silent
+    // swap-chain / composition / barrier validation errors.
+    bp.enable_debug = (std::getenv("TUBELIGHT_D3D12_DEBUG") != nullptr);
     // Phase 4a: borderless overlay modes use a DirectComposition swap chain
     // so they can be WS_EX_LAYERED|TRANSPARENT (click-through). Plain
     // windowed keeps the direct HWND swap chain.

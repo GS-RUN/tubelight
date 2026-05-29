@@ -132,6 +132,22 @@ bool D3D12Backend::init(const BackendInitParams& params) {
         // layer pushes validation messages here; without this we never
         // see them.
         device_->QueryInterface(IID_PPV_ARGS(&info_queue_));
+        if (info_queue_) {
+            // Documented ack (dx12-engineer): id 1424 is a benign DXGI
+            // internal Present-fence message ("waiting for a fence value of
+            // zero will always be satisfied") emitted on the first
+            // kBackBufferCount frames of any flip-model swap chain (both the
+            // ForHwnd and the Phase 4a composition path). It's a no-op wait
+            // inside DXGI's Present, not Tubelight code. Filter it so real
+            // validation errors stand out in the drain.
+            D3D12_MESSAGE_ID deny_ids[] = {
+                static_cast<D3D12_MESSAGE_ID>(1424),
+            };
+            D3D12_INFO_QUEUE_FILTER filter{};
+            filter.DenyList.NumIDs  = _countof(deny_ids);
+            filter.DenyList.pIDList = deny_ids;
+            info_queue_->AddStorageFilterEntries(&filter);
+        }
     }
 
     D3D12_COMMAND_QUEUE_DESC qd{};
