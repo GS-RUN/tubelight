@@ -47,6 +47,10 @@
 #include <d3d11_4.h>
 #include <d3d11on12.h>
 
+// DirectComposition (Phase 4a) — composition swap chain for the
+// click-through overlay. Only used when BackendInitParams::composition.
+#include <dcomp.h>
+
 namespace tubelight {
 
 class D3D12Backend final : public IRenderBackend {
@@ -156,6 +160,14 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Device>            device_;
     Microsoft::WRL::ComPtr<IDXGIFactory6>           dxgi_factory_;
     Microsoft::WRL::ComPtr<IDXGISwapChain4>         swap_chain_;
+
+    // DirectComposition visual tree (Phase 4a). Non-null only when the
+    // backend was init'd with composition=true; holds the swap chain as the
+    // content of a single full-window visual.
+    bool composition_ = false;
+    Microsoft::WRL::ComPtr<IDCompositionDevice>     dcomp_device_;
+    Microsoft::WRL::ComPtr<IDCompositionTarget>     dcomp_target_;
+    Microsoft::WRL::ComPtr<IDCompositionVisual>     dcomp_visual_;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue>      cmd_queue_;
     // One command allocator per frame in flight (DX-22). begin_frame
     // resets cmd_alloc_[current_back_buffer_] only after the fence proves

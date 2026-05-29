@@ -86,6 +86,7 @@ bool D3D12Backend::init(const BackendInitParams& params) {
     hwnd_   = static_cast<HWND>(params.native_window_handle);
     width_  = params.width;
     height_ = params.height;
+    composition_ = params.composition;
 
     UINT factory_flags = 0;
     if (params.enable_debug) {
@@ -210,23 +211,54 @@ bool D3D12Backend::init(const BackendInitParams& params) {
     scd.SampleDesc.Count = 1;
     scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     scd.BufferCount = kBackBufferCount;
-    scd.Scaling     = DXGI_SCALING_NONE;
+    // Composition swap chains require STRETCH scaling; the HWND path keeps
+    // NONE (1:1, no resampling).
+    scd.Scaling     = composition_ ? DXGI_SCALING_STRETCH : DXGI_SCALING_NONE;
     scd.SwapEffect  = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     scd.AlphaMode   = DXGI_ALPHA_MODE_IGNORE;
     scd.Flags       = 0;
 
     ComPtr<IDXGISwapChain1> sc1;
-    if (FAILED(dxgi_factory_->CreateSwapChainForHwnd(cmd_queue_.Get(), hwnd_, &scd,
-                                                      nullptr, nullptr, &sc1))) {
-        std::fprintf(stderr, "[tubelight][d3d12] CreateSwapChainForHwnd failed\n");
-        return false;
-    }
-    // Block ALT+ENTER fullscreen toggle handled by DXGI — Tubelight owns
-    // its own fullscreen state machine in overlay/.
-    dxgi_factory_->MakeWindowAssociation(hwnd_, DXGI_MWA_NO_ALT_ENTER);
-    if (FAILED(sc1.As(&swap_chain_))) {
-        std::fprintf(stderr, "[tubelight][d3d12] swap chain QueryInterface to IDXGISwapChain4 failed\n");
-        return false;
+    if (composition_) {
+        // Phase 4a: a swap chain NOT bound to the HWND, composited onto the
+        // window through a DirectComposition visual tree. This is what lets
+        // a flip-model swap chain coexist with WS_EX_LAYERED|TRANSPARENT for
+        // cross-process click-through (which CreateSwapChainForHwnd forbids).
+        if (FAILED(dxgi_factory_->CreateSwapChainForComposition(
+                cmd_queue_.Get(), &scd, nullptr, &sc1))) {
+            std::fprintf(stderr, "[tubelight][d3d12] CreateSwapChainForComposition failed\n");
+            return false;
+        }
+        if (FAILED(sc1.As(&swap_chain_))) {
+            std::fprintf(stderr, "[tubelight][d3d12] composition swap chain QI failed\n");
+            return false;
+        }
+        if (FAILED(DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&dcomp_device_))) ||
+            FAILED(dcomp_device_->CreateTargetForHwnd(hwnd_, TRUE, &dcomp_target_)) ||
+            FAILED(dcomp_device_->CreateVisual(&dcomp_visual_))) {
+            std::fprintf(stderr, "[tubelight][d3d12] DirectComposition setup failed\n");
+            return false;
+        }
+        dcomp_visual_->SetContent(swap_chain_.Get());
+        dcomp_target_->SetRoot(dcomp_visual_.Get());
+        if (FAILED(dcomp_device_->Commit())) {
+            std::fprintf(stderr, "[tubelight][d3d12] DComp Commit failed\n");
+            return false;
+        }
+        std::fprintf(stderr, "[tubelight][d3d12] DirectComposition visual tree ready\n");
+    } else {
+        if (FAILED(dxgi_factory_->CreateSwapChainForHwnd(cmd_queue_.Get(), hwnd_, &scd,
+                                                          nullptr, nullptr, &sc1))) {
+            std::fprintf(stderr, "[tubelight][d3d12] CreateSwapChainForHwnd failed\n");
+            return false;
+        }
+        // Block ALT+ENTER fullscreen toggle handled by DXGI — Tubelight owns
+        // its own fullscreen state machine in overlay/.
+        dxgi_factory_->MakeWindowAssociation(hwnd_, DXGI_MWA_NO_ALT_ENTER);
+        if (FAILED(sc1.As(&swap_chain_))) {
+            std::fprintf(stderr, "[tubelight][d3d12] swap chain QueryInterface to IDXGISwapChain4 failed\n");
+            return false;
+        }
     }
 
     if (!create_swap_chain_resources(width_, height_)) {
@@ -538,6 +570,11 @@ void D3D12Backend::shutdown() {
     srv_heap_.Reset();
     srv_cpu_heap_.Reset();
     destroy_swap_chain_resources();
+    // DirectComposition teardown (Phase 4a) — release before the swap chain
+    // it references.
+    dcomp_visual_.Reset();
+    dcomp_target_.Reset();
+    dcomp_device_.Reset();
     swap_chain_.Reset();
     cmd_list_.Reset();
     for (UINT i = 0; i < kBackBufferCount; ++i) cmd_alloc_[i].Reset();

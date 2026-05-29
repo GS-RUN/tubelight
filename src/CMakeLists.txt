@@ -41,7 +41,9 @@ if(WIN32)
 endif()
 
 if(TUBELIGHT_BUILD_DX12)
-    target_link_libraries(tubelight_core PUBLIC d3d12)
+    # dcomp: DirectComposition for the Phase 4a composition swap chain
+    # (flip-model + cross-process click-through overlay).
+    target_link_libraries(tubelight_core PUBLIC d3d12 dcomp)
     target_compile_definitions(tubelight_core PUBLIC TUBELIGHT_HAVE_D3D12)
 endif()
 

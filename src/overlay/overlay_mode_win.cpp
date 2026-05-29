@@ -1108,6 +1108,10 @@ int run_dx12(const Options& opts) {
     bp.width  = fb_w;
     bp.height = fb_h;
     bp.enable_debug = false;
+    // Phase 4a: borderless overlay modes use a DirectComposition swap chain
+    // so they can be WS_EX_LAYERED|TRANSPARENT (click-through). Plain
+    // windowed keeps the direct HWND swap chain.
+    bp.composition = !chrome;
     if (!backend->init(bp)) {
         std::fprintf(stderr,
             "[overlay] D3D12Backend::init failed — retry without --renderer dx12 "

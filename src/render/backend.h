@@ -46,6 +46,13 @@ struct BackendInitParams {
     // Enable the API debug layer (D3D12 debug layer / GL_KHR_debug). Costs
     // a few % CPU; off in release.
     bool enable_debug = false;
+    // Phase 4a (D3D12 only): create the swap chain for DirectComposition
+    // (CreateSwapChainForComposition + a DComp visual tree) instead of
+    // binding it directly to the HWND. Required for a flip-model swap chain
+    // to coexist with WS_EX_LAYERED|WS_EX_TRANSPARENT (cross-process
+    // click-through). GL ignores it; D3D12 with composition=false keeps the
+    // CreateSwapChainForHwnd path (shader-only / wgc-test).
+    bool composition = false;
 };
 
 class IRenderBackend {
