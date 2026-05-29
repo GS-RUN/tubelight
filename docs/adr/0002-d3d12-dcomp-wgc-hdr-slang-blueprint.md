@@ -109,18 +109,22 @@ load es opcional para `--shader-only` (debug).
 
 - **Fluidez tipo ShaderGlass**: estimado 3-5× en throughput frame, 60-70%
   menos CPU overhead. Mediremos en F2 cuando haya backend.
-  > **ENMIENDA Phase 3e (2026-05-29, medido)**: el estimado "3-5× DX12"
-  > está **REFUTADO en la implementación actual**. Bench GPU-timestamp del
-  > pipeline 8-pass en RTX 2080 Ti FL 12_2 (`--shader-only --bench 300`,
-  > testcard + pvm-8220 + composite_ntsc): **GL ~0.44 ms/frame estable**
-  > (p99 ≤1.2 ms); **DX12 ~1-3 ms/frame** (avg muy variable run-a-run,
-  > p99 7-9 ms). Es decir, **GL es ~2-6× MÁS RÁPIDO** que el backend DX12
-  > actual — lo opuesto al estimado. El DX12 es joven y no perf-tuned;
-  > sospechosos del overhead/jitter: `CopyDescriptorsSimple` por-draw (8×
-  > tabla de 2 SRVs/frame) + dos PSO por pasada + posible stall del resolve
-  > de timestamps. Detalle + metodología en `docs/perf/PHASE_3E_BENCH.md`.
-  > La ventaja real de DX12 sigue siendo cualitativa (WGC per-window, HDR,
-  > VRS futuras), NO throughput bruto a día de hoy.
+  > **ENMIENDA Phase 3e (2026-05-29, medido + CORREGIDO)**: el estimado
+  > "3-5× DX12" NO se cumple — pero tampoco lo contrario. Bench GPU-timestamp
+  > del pipeline 8-pass en RTX 2080 Ti FL 12_2 (`--shader-only --bench 300`,
+  > testcard + pvm-8220 + composite_ntsc): **GL ~0.36 ms/frame, DX12 ~0.38
+  > ms/frame — PARIDAD** (~5-8%, ambos p99 estables). Una primera medición
+  > reportó "GL 2-6× más rápido"; era un **artefacto**: el bench DX12 aún
+  > hacía `Present(1,0)` (vsync) y la cola GPU throttleada contaminaba la
+  > ventana de timestamps (el *min* constante ~0.447 ms delataba el coste
+  > real). Tras saltar el Present en modo bench → paridad. Además se
+  > refactorizaron los descriptores DX12 (tabla persistente por-pass
+  > double-buffered en vez de `CopyDescriptorsSimple` por-draw; canónico
+  > DX-02, bit-exact, pero no movió el número — el pipeline no estaba
+  > descriptor-bound). Detalle + lección de metodología en
+  > `docs/perf/PHASE_3E_BENCH.md`. **Conclusión**: DX12 cuesta lo mismo que
+  > GL en el pipeline core; su valor sigue siendo cualitativo (WGC
+  > per-window, HDR, VRS), ahora sin penalización de throughput.
 - **HDR-aware pipeline**: ningún competidor lo tiene. CRT real con
   contraste 1000:1+ sobre HDR display.
 - **WGC capture per-window**: menos bandwidth, menos compositor stalls,

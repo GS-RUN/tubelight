@@ -1187,6 +1187,18 @@ PassHandle D3D12Backend::create_pass(const PassDesc& d) {
     e.pass_index          = d.pass_index;
     e.uniform_block_bytes = d.uniform_block_bytes;
 
+    // Reserve a persistent 2-SRV table per frame in flight in the
+    // shader-visible heap (double-buffered → no cross-frame overwrite).
+    for (UINT f = 0; f < kBackBufferCount; ++f) {
+        if (next_srv_gpu_slot_ + 2 > kSrvHeapMax) {
+            std::fprintf(stderr, "[tubelight][d3d12] srv_heap_ exhausted for pass %d\n",
+                         d.pass_index);
+            return {0};
+        }
+        e.gpu_table_slot[f] = next_srv_gpu_slot_;
+        next_srv_gpu_slot_ += 2;
+    }
+
     pso.RTVFormats[0] = kIntermediateFormat;
     if (FAILED(device_->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&e.pso_intermediate)))) {
         std::fprintf(stderr, "[tubelight][d3d12] CreateGraphicsPipelineState (intermediate) failed for pass %d\n",
@@ -1314,36 +1326,43 @@ void D3D12Backend::draw_fullscreen_quad() {
     auto pit = passes_.find(bound_pass_.id);
     if (pit == passes_.end()) return;
 
-    // Apply root parameters captured by set_uniform_block + bind_texture.
-    if (pit->second.last_cbv) {
-        cmd_list_->SetGraphicsRootConstantBufferView(0, pit->second.last_cbv);
-    }
-    // Allocate a fresh 2-slot table from the shader-visible scratch
-    // heap. Wraps; safe because end_frame() wait_for_gpu_idle()s before
-    // we reuse slots.
-    if (scratch_srv_next_ + 2 > kSrvHeapMax) {
-        scratch_srv_next_ = 0;
-    }
-    const UINT table_base = scratch_srv_next_;
-    scratch_srv_next_ += 2;
-    D3D12_CPU_DESCRIPTOR_HANDLE dst0 = scratch_cpu_handle(table_base);
-    D3D12_CPU_DESCRIPTOR_HANDLE dst1 = scratch_cpu_handle(table_base + 1);
+    PassEntry& pe = pit->second;
 
-    // Copy the per-slot CPU SRVs into the shader-visible scratch range.
-    if (pit->second.slot_set[0]) {
-        device_->CopyDescriptorsSimple(1, dst0, pit->second.slot_cpu[0],
-                                        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    // Apply root parameters captured by set_uniform_block + bind_texture.
+    if (pe.last_cbv) {
+        cmd_list_->SetGraphicsRootConstantBufferView(0, pe.last_cbv);
     }
-    if (pit->second.slot_set[1]) {
-        device_->CopyDescriptorsSimple(1, dst1, pit->second.slot_cpu[1],
-                                        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    } else if (pit->second.slot_set[0]) {
-        // Harmless fallback: bind slot 1 to slot 0's texture (shader
-        // gates sampling via u_has_bezel_image / u_history_valid uniforms).
-        device_->CopyDescriptorsSimple(1, dst1, pit->second.slot_cpu[0],
-                                        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    // Resolve the desired source SRV for each of the 2 table slots. Slot 1
+    // falls back to slot 0's texture when unset (the shader gates sampling
+    // via u_has_bezel_image / u_history_valid). A pass with no texture at
+    // all binds nothing (skip the table).
+    const D3D12_CPU_DESCRIPTOR_HANDLE null_handle{0};
+    D3D12_CPU_DESCRIPTOR_HANDLE want[2] = { null_handle, null_handle };
+    if (pe.slot_set[0]) want[0] = pe.slot_cpu[0];
+    if (pe.slot_set[1]) want[1] = pe.slot_cpu[1];
+    else if (pe.slot_set[0]) want[1] = pe.slot_cpu[0];
+
+    if (want[0].ptr != 0) {
+        // Use this frame-in-flight's persistent table (double-buffered, so
+        // baking it can't race the GPU still reading the other frame's).
+        const UINT f         = current_back_buffer_;
+        const UINT base_slot = pe.gpu_table_slot[f];
+
+        // Re-copy into the shader-visible table ONLY when a binding changed
+        // vs. what was last baked for this (pass, frame) — steady state is
+        // zero copies. This replaces the old per-draw CopyDescriptorsSimple.
+        for (int s = 0; s < 2; ++s) {
+            if (!pe.baked[f][s] || pe.baked_cpu[f][s].ptr != want[s].ptr) {
+                device_->CopyDescriptorsSimple(
+                    1, scratch_cpu_handle(base_slot + s), want[s],
+                    D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                pe.baked_cpu[f][s] = want[s];
+                pe.baked[f][s]     = true;
+            }
+        }
+        cmd_list_->SetGraphicsRootDescriptorTable(1, scratch_gpu_handle(base_slot));
     }
-    cmd_list_->SetGraphicsRootDescriptorTable(1, scratch_gpu_handle(table_base));
 
     // Three-vertex fullscreen triangle — VS uses SV_VertexID to generate
     // positions; no vertex buffer needed.
@@ -1379,7 +1398,17 @@ void D3D12Backend::end_frame() {
     // Present with vsync (sync interval = 1). Tearing is left disabled in
     // Phase 3b; the flag combo for tearing on flip-discard lands in 3e
     // along with the bench config.
-    swap_chain_->Present(1, 0);
+    //
+    // EXCEPTION — --bench: when frame timing is on we skip Present. A
+    // vsync'd Present throttles the GPU queue and pollutes the timestamp
+    // window (the EndQuery..EndQuery delta then captures queue-wait time,
+    // not pipeline work), which inflated the early Phase 3e DX12 numbers.
+    // Skipping it isolates the pure pipeline GPU cost. (current_back_buffer_
+    // stays put without Present → the bench runs 1-frame-in-flight, which
+    // is exactly what we want for an isolated per-frame measurement.)
+    if (!timing_enabled_) {
+        swap_chain_->Present(1, 0);
+    }
 
     // Frame pacing (DX-22 + DX-10): signal a fence value for this slot and
     // record it, but do NOT block. begin_frame waits on this value only

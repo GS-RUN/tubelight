@@ -176,15 +176,17 @@ private:
     //  - `srv_cpu_heap_`  (NOT shader-visible): where create_texture /
     //    create_render_target write CreateShaderResourceView at alloc
     //    time. CPU-readable, so we can use entries here as COPY SOURCE.
-    //  - `srv_heap_`      (shader-visible scratch ring): per-draw
-    //    descriptor tables get assembled here via CopyDescriptorsSimple
-    //    from `srv_cpu_heap_`. Bound via SetDescriptorHeaps + the table
-    //    GPU handle for SetGraphicsRootDescriptorTable.
+    //  - `srv_heap_`      (shader-visible): holds PERSISTENT per-pass
+    //    descriptor tables (2 SRVs each, double-buffered per frame in
+    //    flight). draw_fullscreen_quad re-copies from `srv_cpu_heap_`
+    //    ONLY when a pass's bound textures change (steady state: 0 copies),
+    //    then binds the pass's fixed table GPU handle. Replaces the old
+    //    per-draw CopyDescriptorsSimple into a wrapping scratch ring.
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>    srv_cpu_heap_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>    srv_heap_;
     UINT srv_descriptor_size_ = 0;
     UINT next_srv_cpu_slot_ = 0;  // alloc cursor in srv_cpu_heap_
-    UINT scratch_srv_next_  = 0;  // alloc cursor in srv_heap_ (wraps)
+    UINT next_srv_gpu_slot_ = 0;  // persistent alloc cursor in srv_heap_
 
     // Root signature shared by all pipeline passes (1 CBV b0 + 1 table
     // with 2 SRVs t0,t1; 2 static samplers s0,s1 linear-clamp).
@@ -252,11 +254,21 @@ private:
         // Last CBV gpu address bound. Captured at set_uniform_block;
         // re-bound via SetGraphicsRootConstantBufferView on next draw.
         D3D12_GPU_VIRTUAL_ADDRESS last_cbv = 0;
-        // Texture slot bindings (max 2). Store the CPU descriptor in
-        // srv_cpu_heap_ that we'll Copy into the scratch shader-visible
-        // heap at draw time.
+        // Texture slot bindings (max 2) recorded by bind_texture each
+        // frame: the source CPU descriptor in srv_cpu_heap_ for each slot.
         D3D12_CPU_DESCRIPTOR_HANDLE slot_cpu[2]{};
         bool slot_set[2]{false, false};
+        // PERSISTENT per-pass descriptor tables in the shader-visible heap,
+        // double-buffered per frame in flight to avoid overwriting a table
+        // the GPU is still reading. gpu_table_slot[f] is the base slot of a
+        // 2-SRV table; baked_cpu[f][s] caches what was last copied there so
+        // draw_fullscreen_quad re-copies only on a binding change.
+        UINT gpu_table_slot[kBackBufferCount];
+        D3D12_CPU_DESCRIPTOR_HANDLE baked_cpu[kBackBufferCount][2]{};
+        bool baked[kBackBufferCount][2]{};
+        PassEntry() {
+            for (UINT i = 0; i < kBackBufferCount; ++i) gpu_table_slot[i] = UINT_MAX;
+        }
     };
     std::unordered_map<uint32_t, TextureEntry>      textures_;
     std::unordered_map<uint32_t, RenderTargetEntry> rts_;
