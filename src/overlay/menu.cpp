@@ -227,6 +227,24 @@ private:
 };
 
 // Tooltip helper with a visually distinct presentation: slightly
+// ---- i18n (Phase 4a follow-up): ES/EN menu language -------------------
+// Autodetected from the OS UI language at init; toggled live by the EN/ES
+// switch in the menu's top-right. T(en, es) returns the active-language
+// string. (No persistence yet — autodetect each launch + per-session
+// toggle.) The legacy strings were "Spanglish" (English widget labels +
+// Spanish tooltips); T() makes both directions explicit.
+enum class MenuLang { EN, ES };
+MenuLang g_menu_lang = MenuLang::EN;
+inline const char* T(const char* en, const char* es) {
+    return g_menu_lang == MenuLang::ES ? es : en;
+}
+void detect_menu_language() {
+#ifdef _WIN32
+    if (PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_SPANISH)
+        g_menu_lang = MenuLang::ES;
+#endif
+}
+
 // lighter background than the menu (so the popup reads as "info"
 // rather than blending into the chrome), a thin accent border, and
 // generous padding. Called after each widget instead of
@@ -349,6 +367,7 @@ bool Menu::init(GLFWwindow* window) {
     window_ = window;
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    detect_menu_language();
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr; // don't write imgui.ini next to the exe
     ImGui::StyleColorsDark();
@@ -380,6 +399,7 @@ bool Menu::init_dx12(GLFWwindow* window, ID3D12Device* device,
     dx12_mode_ = true;
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    detect_menu_language();
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
@@ -516,10 +536,27 @@ void Menu::build_widgets(Pipeline& pipeline,
     auto& P = pipeline.params();
     const bool mono_locked = (P.monochrome == 1);
 
+    // Language switch, top-right corner. Two small buttons; the active one
+    // is highlighted. Autodetected at init, toggled live here.
+    {
+        const float right = ImGui::GetWindowContentRegionMax().x;
+        ImGui::SameLine(right - 64.0f);
+        const bool es = (g_menu_lang == MenuLang::ES);
+        ImGui::PushStyleColor(ImGuiCol_Button,
+                              es ? pal::amber() : ImVec4(0.18f,0.18f,0.20f,1.0f));
+        if (ImGui::SmallButton("ES")) g_menu_lang = MenuLang::ES;
+        ImGui::PopStyleColor();
+        ImGui::SameLine(0.0f, 4.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button,
+                              !es ? pal::amber() : ImVec4(0.18f,0.18f,0.20f,1.0f));
+        if (ImGui::SmallButton("EN")) g_menu_lang = MenuLang::EN;
+        ImGui::PopStyleColor();
+    }
+
     if (ImGui::BeginTabBar("##tubelight_tabs", ImGuiTabBarFlags_None)) {
 
         // ====================== PROFILE TAB ======================
-        if (TintedTab _ttab{"Profile", pal::sky(), pal::sky()}) {
+        if (TintedTab _ttab{T("Profile","Perfil"), pal::sky(), pal::sky()}) {
             // CRT combo
             int crt_idx = -1;
             for (size_t i = 0; i < crt_ids_.size(); ++i)
@@ -561,7 +598,7 @@ void Menu::build_widgets(Pipeline& pipeline,
                                   "Default: 1.0");
 
             ImGui::Separator();
-            if (ImGui::TreeNode("Save current as preset...")) {
+            if (ImGui::TreeNode(T("Save current as preset...","Guardar como preset..."))) {
                 static char id_buf[128];
                 static char name_buf[256];
                 ImGui::TextDisabled("Guarda en %%APPDATA%%\\Tubelight\\profiles\\crts\\<id>.json");
@@ -583,14 +620,14 @@ void Menu::build_widgets(Pipeline& pipeline,
         }
 
         // ====================== IMAGE TAB ======================
-        if (TintedTab _ttab{"Image", pal::amber(), pal::amber()}) {
+        if (TintedTab _ttab{T("Image","Imagen"), pal::amber(), pal::amber()}) {
             if (mono_locked) {
                 ImGui::TextDisabled("Monochrome tube: mask + per-channel persistence hidden.");
                 ImGui::TextDisabled("(single-phosphor tubes have no mask). Tint + glow below.");
             }
 
             // ---- Scanlines / beam ----
-            if (ImGui::CollapsingHeader("Scanlines / beam", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::CollapsingHeader(T("Scanlines / beam","Líneas / haz"), ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::SliderFloat("Scanline strength", &P.scanline_strength, 0.0f, 1.0f, "%.2f");
                 tl_tooltip("Cuan oscuras son las lineas entre escaneos.\n"
                                       "0=invisibles, 1=PVM agresivo. Default ~0.35.");
@@ -606,7 +643,7 @@ void Menu::build_widgets(Pipeline& pipeline,
             }
 
             // ---- Phosphor mask (colour CRT) ----
-            if (!mono_locked && ImGui::CollapsingHeader("Phosphor mask (colour CRT)")) {
+            if (!mono_locked && ImGui::CollapsingHeader(T("Phosphor mask (colour CRT)","Máscara de fósforo (CRT color)"))) {
                 ImGui::Combo("Type", &P.mask_type, kMaskTypeLabels, 7);
                 tl_tooltip("Geometria de fosforos:\n"
                                       "Shadow=triadico TV consumer, Aperture=Trinitron rayas verticales,\n"
@@ -620,7 +657,7 @@ void Menu::build_widgets(Pipeline& pipeline,
             }
 
             // ---- Phosphor colour (monochrome) ----
-            if (mono_locked && ImGui::CollapsingHeader("Phosphor colour (monochrome)",
+            if (mono_locked && ImGui::CollapsingHeader(T("Phosphor colour (monochrome)","Color de fósforo (monocromo)"),
                                                         ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::SliderFloat("R tint", &P.phosphor_color_r, 0.0f, 1.5f, "%.2f");
                 tl_tooltip("Componente rojo del fosforo monocromo.\n"
@@ -654,7 +691,7 @@ void Menu::build_widgets(Pipeline& pipeline,
             }
 
             // ---- Bloom / glow ----
-            if (!mono_locked && ImGui::CollapsingHeader("Bloom / halation")) {
+            if (!mono_locked && ImGui::CollapsingHeader(T("Bloom / halation","Bloom / halación"))) {
                 ImGui::SliderFloat("Bloom##color",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
                 tl_tooltip("Sangrado de zonas brillantes a oscuras\n"
                                       "(sobreexcitacion del haz electronico).");
@@ -662,13 +699,13 @@ void Menu::build_widgets(Pipeline& pipeline,
                 tl_tooltip("Aro rojizo alrededor de blancos\n"
                                       "(luz rebotando dentro del vidrio del tubo).");
             }
-            if (mono_locked && ImGui::CollapsingHeader("Phosphor glow")) {
+            if (mono_locked && ImGui::CollapsingHeader(T("Phosphor glow","Brillo de fósforo"))) {
                 ImGui::SliderFloat("Bloom##glow",    &P.bloom_strength,    0.0f, 1.0f, "%.2f");
                 tl_tooltip("Bloom del fosforo. Mono tubes solo bloom, no halacion.");
             }
 
             // ---- Persistence ----
-            if (!mono_locked && ImGui::CollapsingHeader("Phosphor persistence (per-channel)")) {
+            if (!mono_locked && ImGui::CollapsingHeader(T("Phosphor persistence (per-channel)","Persistencia de fósforo (por canal)"))) {
                 ImGui::SliderFloat("Strength##pers_c",  &P.persistence_strength, 0.0f, 0.95f, "%.2f");
                 tl_tooltip("Cuanto rastro deja el fosforo entre frames.\n"
                                       "0=sin rastro, 0.95=largo (osciloscopio).");
@@ -680,14 +717,14 @@ void Menu::build_widgets(Pipeline& pipeline,
                 tl_tooltip("Decaimiento relativo del azul. P22 tipico: 0.5.");
                 ImGui::TextDisabled("P22 colour CRT: R~1.0, G~0.5, B~0.5 (warm trail)");
             }
-            if (mono_locked && ImGui::CollapsingHeader("Phosphor persistence (afterglow)")) {
+            if (mono_locked && ImGui::CollapsingHeader(T("Phosphor persistence (afterglow)","Persistencia de fósforo (afterglow)"))) {
                 ImGui::SliderFloat("Strength##pers_m", &P.persistence_strength, 0.0f, 0.95f, "%.2f");
                 tl_tooltip("Persistencia del fosforo monocromo.\n"
                                       "P31/P4 cortos (~0). P3 medio (~0.3). P1 largo (~0.7).");
             }
 
             // ---- Composition ----
-            if (ImGui::CollapsingHeader("Composition")) {
+            if (ImGui::CollapsingHeader(T("Composition","Composición"))) {
                 if (!mono_locked) {
                     ImGui::SliderFloat("Barrel",        &P.barrel_strength,   0.0f, 0.20f, "%.3f");
                     tl_tooltip("Distorsion de barril (curvatura del tubo).\n"
@@ -760,7 +797,7 @@ void Menu::build_widgets(Pipeline& pipeline,
             }
 
             // ---- Pass toggles ----
-            if (ImGui::CollapsingHeader("Pass toggles (advanced)")) {
+            if (ImGui::CollapsingHeader(T("Pass toggles (advanced)","Pasadas (avanzado)"))) {
                 static const char* kPassTooltips[8] = {
                     "Modela el cable (NTSC/PAL/composite). Off=RGB perfecto.",
                     "Mide luminancia. Off rompe voltage-bloom y audio modulado.",
@@ -782,9 +819,9 @@ void Menu::build_widgets(Pipeline& pipeline,
         }
 
         // ====================== CAPTURE TAB ======================
-        if (TintedTab _ttab{"Capture", pal::teal(), pal::teal()}) {
+        if (TintedTab _ttab{T("Capture","Captura"), pal::teal(), pal::teal()}) {
             // ---- Target window ----
-            if (ImGui::CollapsingHeader("Target window")) {
+            if (ImGui::CollapsingHeader(T("Target window","Ventana objetivo"))) {
                 if (window_actions.is_tracking_target) {
                     ImGui::Text("Tracking: %s",
                                 window_actions.target_title.empty()
@@ -815,7 +852,7 @@ void Menu::build_widgets(Pipeline& pipeline,
             }
 
             // ---- Region ----
-            if (ImGui::CollapsingHeader("Region (fixed rect)")) {
+            if (ImGui::CollapsingHeader(T("Region (fixed rect)","Región (rect fijo)"))) {
                 if (window_actions.is_region_active) {
                     ImGui::TextDisabled("Pinned to a fixed monitor-relative rect.");
                     if (ImGui::Button("Detach region", ImVec2(-1, 0))) {
@@ -844,7 +881,7 @@ void Menu::build_widgets(Pipeline& pipeline,
             }
 
             // ---- Captures folder + recording ----
-            if (ImGui::CollapsingHeader("Captures (screenshots + video)",
+            if (ImGui::CollapsingHeader(T("Captures (screenshots + video)","Capturas (foto + vídeo)"),
                                           ImGuiTreeNodeFlags_DefaultOpen)) {
                 static char buf[512];
                 if (buf[0] == 0 || std::string(buf) != capture_dir) {
@@ -901,7 +938,7 @@ void Menu::build_widgets(Pipeline& pipeline,
             }
 
             // ---- Mode checkboxes ----
-            if (ImGui::CollapsingHeader("Behaviour", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::CollapsingHeader(T("Behaviour","Comportamiento"), ImGuiTreeNodeFlags_DefaultOpen)) {
                 if (ImGui::Checkbox("Show status HUD", &hud_visible)) {
                     hud_changed = true;
                 }
@@ -944,7 +981,7 @@ void Menu::build_widgets(Pipeline& pipeline,
         }
 
         // ====================== HELP TAB ======================
-        if (TintedTab _ttab{"Help", pal::lavender(), pal::lavender()}) {
+        if (TintedTab _ttab{T("Help","Ayuda"), pal::lavender(), pal::lavender()}) {
             ImGui::TextDisabled("Tubelight v0.1.6");
             ImGui::TextDisabled("https://github.com/GS-RUN/tubelight");
 
