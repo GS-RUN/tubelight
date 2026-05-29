@@ -5,6 +5,26 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ## [Unreleased]
 
+### Phase 4a (partial) — DirectComposition + DX12 cross-process click-through
+
+- **4a.1 composition swap chain**: `BackendInitParams::composition` makes
+  `D3D12Backend` create the swap chain via `CreateSwapChainForComposition`
+  and composite it onto the window through a DirectComposition visual tree
+  (`DCompositionCreateDevice` → `CreateTargetForHwnd` → `CreateVisual` →
+  `SetContent` → `Commit`). Borderless overlay modes use it; windowed /
+  shader-only / wgc-test keep `CreateSwapChainForHwnd`. CMake links `dcomp`.
+- **4a.2 click-through**: with the composition swap chain unbinding the
+  HWND from the flip-model target, borderless DX12 overlay windows now set
+  `WS_EX_LAYERED | WS_EX_TRANSPARENT` (+ `LWA_ALPHA` 255) for true
+  cross-process mouse click-through — impossible in T5.5 (rc.0).
+- Verified headless: builds; DComp + pipeline init + render; clean
+  teardown (no WS_EX_LAYERED teardown crash). **Pending live verification**
+  on real HW: on-screen display through the layered+DComp window + actual
+  click pass-through (can't be captured/clicked headless). Fallback if the
+  layered+DComp combo shows black: `WS_EX_NOREDIRECTIONBITMAP`.
+- Still open in 4a: ImGui menu under DX12 (menu.cpp is GL-only) — DX12
+  overlay stays hotkey-driven until then.
+
 ### Phase 3e — end-to-end capture→GPU bench (the ShaderGlass gap, found)
 
 - **`--bench <frames>` now also works with `--overlay*`**: times the
