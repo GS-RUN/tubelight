@@ -88,6 +88,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1045,7 +1046,62 @@ struct Dx12WndState {
     int  resize_h = 0;
 };
 
+// ---- Click-through diagnostics log -------------------------------------
+// The root exe hides its console on double-click, so we log to a file next
+// to the executable (tubelight_clickthrough.log) instead of stderr. Records
+// the ex-style + every mouse-related window message so we can see exactly
+// where the click-through breaks: if our window RECEIVES the mouse, then
+// WS_EX_TRANSPARENT is not excluding us; if it does NOT, clicks are passing
+// and the problem is elsewhere.
+FILE* g_ct_log = nullptr;
+// True while click-through should be active (borderless, menu closed). Lets
+// the wndproc return HTTRANSPARENT only when appropriate (menu stays clickable).
+std::atomic<bool> g_dx12_ct_active{false};
+
+void ct_log_open() {
+    if (g_ct_log) return;
+    wchar_t path[MAX_PATH]{};
+    DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
+    std::wstring p(path, n);
+    size_t slash = p.find_last_of(L"\\/");
+    std::wstring logp =
+        (slash == std::wstring::npos ? std::wstring() : p.substr(0, slash + 1)) +
+        L"tubelight_clickthrough.log";
+    g_ct_log = _wfopen(logp.c_str(), L"w");
+    if (g_ct_log)
+        std::fprintf(g_ct_log, "[ct] log open — build %s %s\n", __DATE__, __TIME__);
+}
+void ct_log(const char* fmt, ...) {
+    if (!g_ct_log) return;
+    va_list ap; va_start(ap, fmt);
+    std::vfprintf(g_ct_log, fmt, ap);
+    va_end(ap);
+    std::fputc('\n', g_ct_log);
+    std::fflush(g_ct_log);
+}
+
 LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    // Diagnostics: log the mouse-related messages we receive. Receiving any of
+    // these on a borderless overlay means WS_EX_TRANSPARENT is NOT excluding
+    // us from hit-testing (clicks are landing on the overlay, not passing
+    // through). Frequent messages (WM_MOUSEMOVE/WM_SETCURSOR) are throttled.
+    switch (msg) {
+    case WM_NCHITTEST: {
+        const int sx = (int)(short)LOWORD(lp), sy = (int)(short)HIWORD(lp);
+        if (g_dx12_ct_active.load()) {
+            ct_log("WM_NCHITTEST (%d,%d) [ct active] -> HTTRANSPARENT", sx, sy);
+            return HTTRANSPARENT;  // also try same-thread fallthrough
+        }
+        ct_log("WM_NCHITTEST (%d,%d) [menu open] -> default", sx, sy);
+        break;
+    }
+    case WM_MOUSEACTIVATE: ct_log("WM_MOUSEACTIVATE");                       break;
+    case WM_LBUTTONDOWN:   ct_log("WM_LBUTTONDOWN  *** click on overlay ***"); break;
+    case WM_RBUTTONDOWN:   ct_log("WM_RBUTTONDOWN  *** click on overlay ***"); break;
+    case WM_NCLBUTTONDOWN: ct_log("WM_NCLBUTTONDOWN *** nc-click on overlay ***"); break;
+    case WM_ACTIVATE:      ct_log("WM_ACTIVATE wp=%llu", (unsigned long long)wp); break;
+    default: break;
+    }
 #if defined(TUBELIGHT_HAS_IMGUI)
     // Let ImGui consume mouse/keyboard first (only matters when the menu is
     // open + click-through is off, so the overlay receives input).
@@ -1071,6 +1127,7 @@ LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int run_dx12(const Options& opts) {
+    ct_log_open();
     if (!tubelight::WgcCapture::is_supported()) {
         std::fprintf(stderr,
             "[overlay] WGC unsupported (requires Windows 10 1903+); "
@@ -1200,6 +1257,18 @@ int run_dx12(const Options& opts) {
     // we paint the captured CRT frame onto the window's DC each frame.
     if (layered) {
         SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+        g_dx12_ct_active.store(!no_ct);
+    }
+    {
+        const LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ct_log("run_dx12: hwnd=%p layered=%d no_ct=%d exstyle=0x%08lx "
+               "{%s%s%s%s} ct_active=%d",
+               (void*)hwnd, (int)layered, (int)no_ct, (unsigned long)ex,
+               (ex & WS_EX_TRANSPARENT) ? "TRANSPARENT " : "",
+               (ex & WS_EX_LAYERED)     ? "LAYERED "     : "",
+               (ex & WS_EX_NOACTIVATE)  ? "NOACTIVATE "  : "",
+               (ex & WS_EX_TOPMOST)     ? "TOPMOST "     : "",
+               (int)g_dx12_ct_active.load());
     }
 
     int fb_w = 0, fb_h = 0;
@@ -1477,6 +1546,25 @@ int run_dx12(const Options& opts) {
             pipeline.resize(wnd_state.resize_w, wnd_state.resize_h);
         }
 
+        // Diagnostics: every ~1.5 s log what Windows thinks is under the
+        // cursor. If WindowFromPoint returns OUR hwnd while the cursor is over
+        // the overlay, hit-testing is catching us (click-through broken). If
+        // it returns the app below, pass-through is working at the OS level.
+        if (layered && g_ct_log && (frames_rendered % 45) == 0) {
+            POINT cur{}; GetCursorPos(&cur);
+            HWND  wfp = WindowFromPoint(cur);
+            wchar_t cls[64]{}, ttl[96]{};
+            if (wfp) { GetClassNameW(wfp, cls, 63); GetWindowTextW(wfp, ttl, 95); }
+            DWORD wpid = 0; if (wfp) GetWindowThreadProcessId(wfp, &wpid);
+            const LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            ct_log("frame=%llu cursor=(%d,%d) underCursor=%p cls='%ls' title='%ls' pid=%lu "
+                   "| ourHWND=%p fg=%p capture=%p exstyle=0x%08lx TRANSPARENT=%d ct_active=%d",
+                   frames_rendered, cur.x, cur.y, (void*)wfp, cls, ttl, wpid,
+                   (void*)hwnd, (void*)GetForegroundWindow(), (void*)GetCapture(),
+                   (unsigned long)ex, (ex & WS_EX_TRANSPARENT) ? 1 : 0,
+                   (int)g_dx12_ct_active.load());
+        }
+
         // Global-hotkey actions (focus-independent).
         if (g_hk_quit.load()) break;
         if (g_hk_freeze_toggle.exchange(false)) {
@@ -1506,6 +1594,7 @@ int run_dx12(const Options& opts) {
                 // receives the mouse and can be focused for ImGui. WS_EX_LAYERED
                 // is left untouched (toggling it at runtime is unsafe; toggling
                 // WS_EX_TRANSPARENT is fine).
+                g_dx12_ct_active.store(false);
                 ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 SetForegroundWindow(hwnd);
@@ -1513,6 +1602,7 @@ int run_dx12(const Options& opts) {
             } else if (!chrome) {
                 ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                g_dx12_ct_active.store(!no_ct);
             }
             ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             std::printf("[overlay] dx12: menu %s (EXSTYLE=0x%08lx, TRANSPARENT=%d)\n",
@@ -1654,6 +1744,7 @@ int run_dx12(const Options& opts) {
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
     DestroyWindow(hwnd);
     UnregisterClassW(kClassName, hinst);
+    if (g_ct_log) { ct_log("run_dx12: exit"); std::fclose(g_ct_log); g_ct_log = nullptr; }
     return 0;
 }
 #endif // TUBELIGHT_HAVE_D3D12
