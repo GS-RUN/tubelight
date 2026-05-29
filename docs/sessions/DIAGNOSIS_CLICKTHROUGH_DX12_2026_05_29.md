@@ -200,3 +200,22 @@ validación D3D12; la ventana layered ocupa el monitor (ULW pinta, no se ve el
 escritorio detrás). **PENDIENTE (interactivo, usuario)**: confirmar con ratón
 que los clicks atraviesan a un emulador debajo + OK visual del CRT en vivo.
 El mecanismo es idéntico al path GL probado, así que debería cruzar.
+
+---
+
+## 8. CORRECCIÓN — ULW swallow clicks → SLWA + BitBlt (el fix real)
+
+Primera implementación de Path B usaba `UpdateLayeredWindow` (ULW). El usuario
+confirmó: **display OK pero los clicks SEGUÍAN sin pasar**. Causa: en ventanas
+ULW el hit-test del ratón lo gobierna el **canal alpha del bitmap** — como el
+overlay es opaco (alpha=255, necesario para verse), captura todos los clicks, y
+`WS_EX_TRANSPARENT` no lo override. GL nunca tuvo este problema porque usa
+`SetLayeredWindowAttributes` (SLWA), donde el hit-test es por **rectángulo** y
+`WS_EX_TRANSPARENT` sí da pass-through.
+
+**Fix**: replicar GL exactamente → `SetLayeredWindowAttributes(0,255,LWA_ALPHA)`
++ pintar el frame con **GDI BitBlt al DC de la ventana** (no ULW). Verificado:
+el overlay CRT se ve sobre Notepad vía `--overlay-target` (BitBlt+SLWA pinta), y
+el hit-test es ahora idéntico al GL probado. **LECCIÓN**: para click-through en
+ventana layered, usar SLWA (no ULW) — ULW hit-testea por alpha y se traga los
+clicks de los píxeles opacos.

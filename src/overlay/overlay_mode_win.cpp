@@ -1191,7 +1191,15 @@ int run_dx12(const Options& opts) {
             (ex & WS_EX_TOPMOST)             ? "TOPMOST "             : "",
             chrome ? "off(windowed)"
                    : no_ct ? "off(NO_CLICKTHROUGH)"
-                           : "WS_EX_TRANSPARENT (layered ULW)");
+                           : "WS_EX_TRANSPARENT (layered)");
+    }
+
+    // Layered windows: drive the alpha via SetLayeredWindowAttributes (NOT
+    // UpdateLayeredWindow) so WS_EX_TRANSPARENT click-through works by window
+    // rectangle, exactly like the GL path. Uniform alpha 255 = fully opaque;
+    // we paint the captured CRT frame onto the window's DC each frame.
+    if (layered) {
+        SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
     }
 
     int fb_w = 0, fb_h = 0;
@@ -1381,24 +1389,31 @@ int run_dx12(const Options& opts) {
     unsigned long long frames_rendered = 0;
     int target_lost_frames = 0;
 
-    // ----- Path B: layered ULW present resources --------------------------
-    // A top-down 32bpp DIB section the GPU frame is blitted into each frame,
-    // then pushed to the WS_EX_LAYERED window with UpdateLayeredWindow. This
-    // is what makes a D3D12-rendered overlay both visible AND click-through.
-    HDC     ulw_screen_dc = layered ? GetDC(nullptr) : nullptr;
-    HDC     ulw_mem_dc    = nullptr;
-    HBITMAP ulw_dib       = nullptr;
-    HBITMAP ulw_old_bmp   = nullptr;
-    void*   ulw_bits      = nullptr;
-    int     ulw_w = 0, ulw_h = 0;
+    // ----- Path B: layered present resources ------------------------------
+    // The captured GPU frame is blitted into a top-down 32bpp DIB, then
+    // BitBlt'd onto the WS_EX_LAYERED window's DC each frame. The window uses
+    // SetLayeredWindowAttributes(LWA_ALPHA, 255) — NOT UpdateLayeredWindow.
+    //
+    // WHY SLWA, not ULW: this exactly mirrors the proven GL path. With
+    // UpdateLayeredWindow the OS hit-tests the window against the bitmap's
+    // ALPHA channel — opaque pixels (which we need, to be visible) capture
+    // clicks, so WS_EX_TRANSPARENT click-through does not pass through. With
+    // SetLayeredWindowAttributes the window hit-tests by its rectangle and
+    // WS_EX_TRANSPARENT does pass clicks cross-process (the GL recipe).
+    HDC     ovl_ref_dc  = layered ? GetDC(nullptr) : nullptr;  // DIB ref DC
+    HDC     ovl_mem_dc  = nullptr;
+    HBITMAP ovl_dib     = nullptr;
+    HBITMAP ovl_old_bmp = nullptr;
+    void*   ovl_bits    = nullptr;
+    int     ovl_w = 0, ovl_h = 0;
     std::vector<uint8_t> cap_buf;
 
-    auto ensure_ulw_dib = [&](int w, int h) -> bool {
+    auto ensure_dib = [&](int w, int h) -> bool {
         if (w <= 0 || h <= 0) return false;
-        if (ulw_dib && w == ulw_w && h == ulw_h) return true;
-        if (ulw_mem_dc && ulw_old_bmp) SelectObject(ulw_mem_dc, ulw_old_bmp);
-        if (ulw_dib) { DeleteObject(ulw_dib); ulw_dib = nullptr; }
-        if (!ulw_mem_dc) ulw_mem_dc = CreateCompatibleDC(ulw_screen_dc);
+        if (ovl_dib && w == ovl_w && h == ovl_h) return true;
+        if (ovl_mem_dc && ovl_old_bmp) SelectObject(ovl_mem_dc, ovl_old_bmp);
+        if (ovl_dib) { DeleteObject(ovl_dib); ovl_dib = nullptr; }
+        if (!ovl_mem_dc) ovl_mem_dc = CreateCompatibleDC(ovl_ref_dc);
         BITMAPINFO bi{};
         bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
         bi.bmiHeader.biWidth       = w;
@@ -1406,40 +1421,38 @@ int run_dx12(const Options& opts) {
         bi.bmiHeader.biPlanes      = 1;
         bi.bmiHeader.biBitCount    = 32;
         bi.bmiHeader.biCompression = BI_RGB;
-        ulw_bits = nullptr;
-        ulw_dib  = CreateDIBSection(ulw_screen_dc, &bi, DIB_RGB_COLORS,
-                                    &ulw_bits, nullptr, 0);
-        if (!ulw_dib || !ulw_bits) {
+        ovl_bits = nullptr;
+        ovl_dib  = CreateDIBSection(ovl_ref_dc, &bi, DIB_RGB_COLORS,
+                                    &ovl_bits, nullptr, 0);
+        if (!ovl_dib || !ovl_bits) {
             std::fprintf(stderr, "[overlay] dx12: CreateDIBSection failed\n");
-            ulw_dib = nullptr; return false;
+            ovl_dib = nullptr; return false;
         }
-        ulw_old_bmp = static_cast<HBITMAP>(SelectObject(ulw_mem_dc, ulw_dib));
-        ulw_w = w; ulw_h = h;
+        ovl_old_bmp = static_cast<HBITMAP>(SelectObject(ovl_mem_dc, ovl_dib));
+        ovl_w = w; ovl_h = h;
         return true;
     };
 
-    // Capture the just-rendered backbuffer and blit it onto the layered
-    // window. RGBA8 (R,G,B,A) → DIB BGRA (B,G,R,A); alpha forced opaque so
-    // the overlay shows solidly (click-through comes from WS_EX_TRANSPARENT,
-    // independent of pixel alpha — mirrors the GL LWA_ALPHA=255 recipe).
+    // Capture the just-rendered backbuffer and paint it onto the layered
+    // window's surface. RGBA8 (R,G,B,A) → DIB BGRA. SLWA applies a uniform
+    // opaque alpha, so per-pixel alpha is irrelevant here.
     auto present_layered = [&]() {
         int cw = 0, ch = 0;
         if (!d12->capture_backbuffer(cap_buf, cw, ch)) return;
-        if (!ensure_ulw_dib(cw, ch)) return;
-        auto* dst = static_cast<uint8_t*>(ulw_bits);
+        if (!ensure_dib(cw, ch)) return;
+        auto* dst = static_cast<uint8_t*>(ovl_bits);
         const size_t n = static_cast<size_t>(cw) * ch;
         for (size_t i = 0; i < n; ++i) {
             dst[i*4 + 0] = cap_buf[i*4 + 2];  // B
             dst[i*4 + 1] = cap_buf[i*4 + 1];  // G
             dst[i*4 + 2] = cap_buf[i*4 + 0];  // R
-            dst[i*4 + 3] = 255;               // A (opaque)
+            dst[i*4 + 3] = 255;               // A
         }
-        POINT pt_src{ 0, 0 };
-        SIZE  sz{ cw, ch };
-        POINT pt_dst{ win_x, win_y };
-        BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, 0 };  // global alpha 255 (opaque)
-        UpdateLayeredWindow(hwnd, ulw_screen_dc, &pt_dst, &sz,
-                            ulw_mem_dc, &pt_src, 0, &bf, ULW_ALPHA);
+        HDC wdc = GetDC(hwnd);
+        if (wdc) {
+            BitBlt(wdc, 0, 0, cw, ch, ovl_mem_dc, 0, 0, SRCCOPY);
+            ReleaseDC(hwnd, wdc);
+        }
     };
 
     const bool bench = opts.bench_frames > 0;
@@ -1632,11 +1645,11 @@ int run_dx12(const Options& opts) {
 
     wgc.stop();
 
-    // Tear down the layered ULW present resources.
-    if (ulw_mem_dc && ulw_old_bmp) SelectObject(ulw_mem_dc, ulw_old_bmp);
-    if (ulw_dib)       DeleteObject(ulw_dib);
-    if (ulw_mem_dc)    DeleteDC(ulw_mem_dc);
-    if (ulw_screen_dc) ReleaseDC(nullptr, ulw_screen_dc);
+    // Tear down the layered present resources.
+    if (ovl_mem_dc && ovl_old_bmp) SelectObject(ovl_mem_dc, ovl_old_bmp);
+    if (ovl_dib)    DeleteObject(ovl_dib);
+    if (ovl_mem_dc) DeleteDC(ovl_mem_dc);
+    if (ovl_ref_dc) ReleaseDC(nullptr, ovl_ref_dc);
 
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
     DestroyWindow(hwnd);
