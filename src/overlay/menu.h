@@ -58,11 +58,12 @@ public:
     // Returns false if ImGui is not compiled in (then is_open() is always false).
     bool init(GLFWwindow* window);
 
-    // Phase 4a.3: initialise ImGui on the D3D12 backend instead of GL
-    // (ImGui_ImplGlfw_InitForOther + ImGui_ImplDX12). The menu owns a small
+    // Phase 4a.3: initialise ImGui on the D3D12 backend (ImGui_ImplWin32 +
+    // ImGui_ImplDX12). `hwnd` is the raw Win32 overlay window (passed as
+    // void* to keep windows.h out of this header). The menu owns a small
     // shader-visible SRV heap for its font/textures. rtv_format is a
     // DXGI_FORMAT (passed as unsigned to keep d3d12.h out of this header).
-    bool init_dx12(GLFWwindow* window, ID3D12Device* device,
+    bool init_dx12(void* hwnd, ID3D12Device* device,
                    ID3D12CommandQueue* queue, int num_frames_in_flight,
                    unsigned rtv_format);
     void shutdown();

@@ -35,8 +35,10 @@
   #include <wrl/client.h>
   #if __has_include(<imgui_impl_dx12.h>)
     #include <imgui_impl_dx12.h>
+    #include <imgui_impl_win32.h>
   #else
     #include <backends/imgui_impl_dx12.h>
+    #include <backends/imgui_impl_win32.h>
   #endif
 #endif
 #endif
@@ -391,11 +393,11 @@ bool Menu::init(GLFWwindow* window) {
 #endif
 }
 
-bool Menu::init_dx12(GLFWwindow* window, ID3D12Device* device,
+bool Menu::init_dx12(void* hwnd, ID3D12Device* device,
                      ID3D12CommandQueue* queue, int num_frames_in_flight,
                      unsigned rtv_format) {
 #if defined(TUBELIGHT_HAS_IMGUI) && defined(TUBELIGHT_HAVE_D3D12)
-    window_    = window;
+    window_    = nullptr;        // DX12 path uses a raw Win32 window, not GLFW
     dx12_mode_ = true;
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -406,10 +408,12 @@ bool Menu::init_dx12(GLFWwindow* window, ID3D12Device* device,
     apply_tubelight_theme(ImGui::GetStyle());
     io.FontGlobalScale = 1.18f;
 
-    // GLFW platform backend in API-agnostic mode (the window is GLFW_NO_API
-    // for D3D12 — InitForOpenGL would assert).
-    if (!ImGui_ImplGlfw_InitForOther(window, true)) {
-        std::fprintf(stderr, "[menu] ImGui_ImplGlfw_InitForOther failed\n");
+    // Win32 platform backend (the DX12 overlay window is a raw Win32 window
+    // with WS_EX_NOREDIRECTIONBITMAP — created outside GLFW so DComp can
+    // composite it AND clicks pass through). The overlay's WndProc forwards
+    // messages to ImGui_ImplWin32_WndProcHandler.
+    if (!ImGui_ImplWin32_Init(hwnd)) {
+        std::fprintf(stderr, "[menu] ImGui_ImplWin32_Init failed\n");
         return false;
     }
     auto* st = new MenuDx12State();
@@ -454,7 +458,7 @@ void Menu::shutdown() {
 #if defined(TUBELIGHT_HAVE_D3D12)
     if (dx12_mode_) {
         ImGui_ImplDX12_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
+        ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
         delete static_cast<MenuDx12State*>(dx12_state_);
         dx12_state_ = nullptr;
@@ -478,7 +482,7 @@ void Menu::begin_frame() {
 void Menu::begin_frame_dx12() {
 #if defined(TUBELIGHT_HAS_IMGUI) && defined(TUBELIGHT_HAVE_D3D12)
     ImGui_ImplDX12_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
+    ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 #endif
 }

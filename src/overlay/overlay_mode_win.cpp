@@ -69,6 +69,20 @@
 #include <magnification.h>
 #include <wrl/client.h>
 
+// Win32 ImGui platform backend — needed (after windows.h) so run_dx12's raw
+// Win32 WndProc can forward messages to ImGui_ImplWin32_WndProcHandler.
+#if defined(TUBELIGHT_HAS_IMGUI) && defined(TUBELIGHT_HAVE_D3D12)
+  #if __has_include(<imgui_impl_win32.h>)
+    #include <imgui_impl_win32.h>
+  #else
+    #include <backends/imgui_impl_win32.h>
+  #endif
+// Canonical forward declaration (Dear ImGui examples do this) so the
+// overlay WndProc can forward messages regardless of header visibility.
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
+    HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -1019,6 +1033,43 @@ MonitorPick pick_monitor(int index) {
     return ctx.out;
 }
 
+// Per-window state for the raw-Win32 DX12 overlay WndProc. Stored via
+// SetWindowLongPtr(GWLP_USERDATA). The backend/pipeline pointers are wired
+// once they exist (after window creation) so WM_SIZE can drive a resize.
+struct Dx12WndState {
+    tubelight::IRenderBackend* backend  = nullptr;
+    tubelight::Pipeline*       pipeline = nullptr;
+    bool quit     = false;
+    bool resized  = false;
+    int  resize_w = 0;
+    int  resize_h = 0;
+};
+
+LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+#if defined(TUBELIGHT_HAS_IMGUI)
+    // Let ImGui consume mouse/keyboard first (only matters when the menu is
+    // open + click-through is off, so the overlay receives input).
+    if (ImGui_ImplWin32_WndProcHandler(h, msg, wp, lp)) return 1;
+#endif
+    auto* st = reinterpret_cast<Dx12WndState*>(GetWindowLongPtrW(h, GWLP_USERDATA));
+    switch (msg) {
+    case WM_SIZE:
+        if (st && wp != SIZE_MINIMIZED) {
+            st->resize_w = LOWORD(lp);
+            st->resize_h = HIWORD(lp);
+            st->resized  = true;
+        }
+        return 0;
+    case WM_CLOSE:
+        if (st) st->quit = true;
+        return 0;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+
 int run_dx12(const Options& opts) {
     if (!tubelight::WgcCapture::is_supported()) {
         std::fprintf(stderr,
@@ -1026,11 +1077,12 @@ int run_dx12(const Options& opts) {
             "--renderer dx12 overlay unavailable.\n");
         return 1;
     }
-    glfwSetErrorCallback(glfw_error_cb);
-    if (!glfwInit()) {
-        std::fprintf(stderr, "[overlay] glfwInit failed\n");
-        return 1;
-    }
+    // NOTE: this path uses a RAW WIN32 window (not GLFW). GLFW can't create a
+    // window with WS_EX_NOREDIRECTIONBITMAP, which the DirectComposition
+    // overlay needs for both correct compositing AND cross-process
+    // click-through (WS_EX_TRANSPARENT alone on a redirection-backed window
+    // doesn't pass clicks; WS_EX_LAYERED would but it suppresses the DComp
+    // visual). ImGui uses its Win32 platform backend here.
 
     const bool mode_target     = (opts.mode == OverlayMode::TargetWindow);
     const bool mode_fullscreen = (opts.mode == OverlayMode::Fullscreen);
@@ -1047,7 +1099,6 @@ int run_dx12(const Options& opts) {
             std::fprintf(stderr,
                 "[overlay] target window not found (title='%s' pid=%d)\n",
                 opts.target_window.c_str(), opts.target_pid);
-            glfwTerminate();
             return 1;
         }
         get_target_screen_rect(target_hwnd, tgt_x, tgt_y, tgt_w, tgt_h);
@@ -1075,64 +1126,60 @@ int run_dx12(const Options& opts) {
     }
 
     const bool chrome = mode_windowed;  // only plain windowed gets a title bar
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);   // D3D12 owns the swap chain
-    glfwWindowHint(GLFW_VISIBLE,    GLFW_FALSE);
-    glfwWindowHint(GLFW_DECORATED,  chrome ? GLFW_TRUE  : GLFW_FALSE);
-    glfwWindowHint(GLFW_FLOATING,   GLFW_TRUE);
-    glfwWindowHint(GLFW_RESIZABLE,  chrome ? GLFW_TRUE  : GLFW_FALSE);
+    const bool no_ct  = (std::getenv("TUBELIGHT_NO_CLICKTHROUGH") != nullptr);
 
-    GLFWwindow* window = glfwCreateWindow(W, H, "Tubelight (DX12)", nullptr, nullptr);
-    if (!window) {
-        std::fprintf(stderr, "[overlay] glfwCreateWindow failed\n");
-        glfwTerminate();
+    static const wchar_t* kClassName = L"TubelightDX12Overlay";
+    HINSTANCE hinst = GetModuleHandleW(nullptr);
+    {
+        WNDCLASSEXW wc{};
+        wc.cbSize        = sizeof(wc);
+        wc.lpfnWndProc   = dx12_wndproc;
+        wc.hInstance     = hinst;
+        wc.hCursor       = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
+        wc.lpszClassName = kClassName;
+        RegisterClassExW(&wc);  // benign if already registered (returns 0 + ERROR_CLASS_ALREADY_EXISTS)
+    }
+
+    // Borderless overlay: WS_POPUP + WS_EX_NOREDIRECTIONBITMAP (so the
+    // DirectComposition visual owns ALL pixels — no redirection surface to
+    // fight) + WS_EX_TRANSPARENT (cross-process click-through, which DOES
+    // work on a NOREDIRECTIONBITMAP window) + NOACTIVATE/TOOLWINDOW/TOPMOST.
+    // Plain windowed: a normal resizable framed window (flip-model HWND
+    // swap chain, no click-through).
+    const DWORD style = chrome ? WS_OVERLAPPEDWINDOW : WS_POPUP;
+    const DWORD exstyle = chrome
+        ? WS_EX_APPWINDOW
+        : (WS_EX_NOREDIRECTIONBITMAP | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
+           WS_EX_TOPMOST | (no_ct ? 0u : WS_EX_TRANSPARENT));
+
+    // For a popup the requested size IS the client size; for a framed window
+    // expand to include the non-client area so the client ends up W×H.
+    RECT wr{ win_x, win_y, win_x + W, win_y + H };
+    if (chrome) AdjustWindowRectEx(&wr, style, FALSE, exstyle);
+
+    HWND hwnd = CreateWindowExW(exstyle, kClassName, L"Tubelight (DX12)", style,
+                                wr.left, wr.top, wr.right - wr.left, wr.bottom - wr.top,
+                                nullptr, nullptr, hinst, nullptr);
+    if (!hwnd) {
+        std::fprintf(stderr, "[overlay] CreateWindowEx failed: GLE=%lu\n", GetLastError());
         return 1;
     }
-    glfwSetWindowPos(window, win_x, win_y);
-    HWND hwnd = glfwGetWin32Window(window);
 
     // Feedback prevention: exclude our own window from WGC monitor capture.
-    // WGC honours WDA_EXCLUDEFROMCAPTURE (Win10 2004+). Essential for
-    // fullscreen/monitor capture; harmless for per-window capture.
-    // TUBELIGHT_OVERLAY_CAPTURABLE=1 keeps the overlay visible to capture
-    // (streamers; also lets the composited output be screenshot-verified) —
-    // at the cost of a capture feedback loop in monitor modes.
+    // TUBELIGHT_OVERLAY_CAPTURABLE=1 keeps it visible to recorders.
     SetWindowDisplayAffinity(hwnd,
         std::getenv("TUBELIGHT_OVERLAY_CAPTURABLE") ? WDA_NONE
                                                     : WDA_EXCLUDEFROMCAPTURE);
 
-    // Borderless overlay should not steal focus or show in the taskbar.
-    // NOTE: we deliberately do NOT add WS_EX_LAYERED/WS_EX_TRANSPARENT —
-    // layered windows are incompatible with the DXGI flip-model swap chain,
-    // so true cross-process mouse click-through needs DirectComposition
-    // (Phase 4a). NOACTIVATE keeps focus on whatever is underneath; the
-    // global keyboard hook below drives the hotkeys regardless of focus.
-    if (!chrome) {
-        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        ex |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
-        // Phase 4a.2: cross-process click-through. WS_EX_TRANSPARENT alone
-        // routes mouse events to the window underneath. Crucially we do NOT
-        // add WS_EX_LAYERED here: a layered window has its own DWM surface
-        // that SUPPRESSES the DirectComposition visual (verified — the
-        // overlay rendered fully transparent with WS_EX_LAYERED). DComp +
-        // WS_EX_LAYERED are mutually exclusive composition paths; the ADR
-        // anticipated this ("click-through NOT via WS_EX_LAYERED"). With the
-        // composition swap chain providing pixels via the DComp visual,
-        // WS_EX_TRANSPARENT gives input pass-through without a layered
-        // surface to fight. (TUBELIGHT_NO_CLICKTHROUGH skips it for tests.)
-        const bool no_ct = std::getenv("TUBELIGHT_NO_CLICKTHROUGH") != nullptr;
-        if (!no_ct) ex |= WS_EX_TRANSPARENT;
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-    }
-
     int fb_w = 0, fb_h = 0;
-    glfwGetFramebufferSize(window, &fb_w, &fb_h);
+    { RECT rc{}; GetClientRect(hwnd, &rc); fb_w = rc.right - rc.left; fb_h = rc.bottom - rc.top; }
     if (fb_w <= 0 || fb_h <= 0) { fb_w = W; fb_h = H; }
 
     // D3D12 backend bound to the overlay HWND.
     auto backend = tubelight::create_backend(tubelight::BackendKind::D3D12);
     if (!backend) {
         std::fprintf(stderr, "[overlay] D3D12 backend not compiled in\n");
-        glfwDestroyWindow(window); glfwTerminate();
+        DestroyWindow(hwnd);
         return 1;
     }
     tubelight::BackendInitParams bp;
@@ -1152,7 +1199,7 @@ int run_dx12(const Options& opts) {
         std::fprintf(stderr,
             "[overlay] D3D12Backend::init failed — retry without --renderer dx12 "
             "to use the GL overlay.\n");
-        glfwDestroyWindow(window); glfwTerminate();
+        DestroyWindow(hwnd);
         return 1;
     }
     auto* d12 = static_cast<tubelight::D3D12Backend*>(backend.get());
@@ -1161,7 +1208,7 @@ int run_dx12(const Options& opts) {
     ID3D11Device* d3d11 = d12->d3d11_on12_device();
     if (!d3d11) {
         std::fprintf(stderr, "[overlay] D3D11On12 device creation failed\n");
-        glfwDestroyWindow(window); glfwTerminate();
+        DestroyWindow(hwnd);
         return 1;
     }
 
@@ -1171,7 +1218,7 @@ int run_dx12(const Options& opts) {
         : wgc.init_for_monitor(mon.hmon, d3d11);
     if (!wgc_init || !wgc.start()) {
         std::fprintf(stderr, "[overlay] WGC capture init/start failed\n");
-        glfwDestroyWindow(window); glfwTerminate();
+        DestroyWindow(hwnd);
         return 1;
     }
     std::fprintf(stderr, "[overlay] dx12: WGC capturing %s\n",
@@ -1184,7 +1231,7 @@ int run_dx12(const Options& opts) {
     pipeline.set_backend(std::move(backend));
     if (!pipeline.create(fb_w, fb_h)) {
         std::fprintf(stderr, "[overlay] pipeline.create failed (dx12)\n");
-        wgc.stop(); glfwDestroyWindow(window); glfwTerminate();
+        wgc.stop(); DestroyWindow(hwnd);
         return 1;
     }
     if (!opts.profile_id.empty()) {
@@ -1212,25 +1259,22 @@ int run_dx12(const Options& opts) {
         }
     }
 
-    // Input: ESC quits, 1..8 toggle passes, 0 all-on, F freeze. Reuses the
-    // GL path's key_cb via AppState; resize_state carries the backend ptr.
+    // Hotkeys (ESC/1..8/0/F) come through the global keyboard hook below.
+    // AppState carries pipeline + freeze for the loop. Window state (resize
+    // /quit) lives in wnd_state, wired into the WndProc via GWLP_USERDATA.
     AppState state;
     state.pipeline     = &pipeline;
     state.resize_state = backend_raw;
-    glfwSetWindowUserPointer(window, &state);
-    glfwSetKeyCallback(window, key_cb);
-    glfwSetFramebufferSizeCallback(window, [](GLFWwindow* w, int ww, int hh) {
-        auto* s = static_cast<AppState*>(glfwGetWindowUserPointer(w));
-        if (!s) return;
-        if (s->resize_state)
-            static_cast<tubelight::IRenderBackend*>(s->resize_state)->resize(ww, hh);
-        if (s->pipeline) s->pipeline->resize(ww, hh);
-    });
+    Dx12WndState wnd_state;
+    wnd_state.backend  = backend_raw;
+    wnd_state.pipeline = &pipeline;
+    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&wnd_state));
 
-    // Phase 4a.3: in-app ImGui menu on the D3D12 backend. Init AFTER our
-    // key_cb so ImGui_ImplGlfw chains it. Ctrl+Alt+M toggles (global hook).
+    // Phase 4a.3: in-app ImGui menu on the D3D12 backend (Win32 platform
+    // backend — the WndProc forwards messages to ImGui). Ctrl+Alt+M toggles.
     Menu menu;
-    const bool has_menu = menu.init_dx12(window, d12->device(), d12->command_queue(),
+    const bool has_menu = menu.init_dx12(reinterpret_cast<void*>(hwnd),
+                                         d12->device(), d12->command_queue(),
                                          static_cast<int>(d12->frames_in_flight()),
                                          d12->backbuffer_format());
     g_hk_toggle_menu = false;
@@ -1265,7 +1309,7 @@ int run_dx12(const Options& opts) {
         }
     }
 
-    glfwShowWindow(window);
+    ShowWindow(hwnd, chrome ? SW_SHOW : SW_SHOWNOACTIVATE);
     SetWindowPos(hwnd, HWND_TOPMOST, win_x, win_y,
                  chrome ? 0 : W, chrome ? 0 : H,
                  (chrome ? (SWP_NOMOVE | SWP_NOSIZE) : 0) | SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -1302,7 +1346,11 @@ int run_dx12(const Options& opts) {
         "[overlay] dx12 hotkeys: ESC / Ctrl+Alt+Q quit | Ctrl+Alt+M menu | "
         "(Ctrl+Alt+)1..8 toggle pass | (Ctrl+Alt+)0 all on | (Ctrl+Alt+)F freeze\n");
 
-    double t0 = glfwGetTime();
+    const auto t_start = std::chrono::steady_clock::now();
+    auto now_seconds = [&t_start]() {
+        return std::chrono::duration<double>(
+                   std::chrono::steady_clock::now() - t_start).count();
+    };
     tubelight::TextureHandle last_h{0};
     unsigned long long frames_rendered = 0;
     int target_lost_frames = 0;
@@ -1313,8 +1361,20 @@ int run_dx12(const Options& opts) {
         std::fprintf(stderr, "[capbench] dx12: capturing %d frames...\n",
                      opts.bench_frames);
     }
-    while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
+    while (!wnd_state.quit) {
+        // Pump the raw-Win32 message queue (replaces glfwPollEvents).
+        MSG wmsg;
+        while (PeekMessageW(&wmsg, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&wmsg);
+            DispatchMessageW(&wmsg);
+            if (wmsg.message == WM_QUIT) wnd_state.quit = true;
+        }
+        // Apply a pending resize from WM_SIZE.
+        if (wnd_state.resized) {
+            wnd_state.resized = false;
+            backend_raw->resize(wnd_state.resize_w, wnd_state.resize_h);
+            pipeline.resize(wnd_state.resize_w, wnd_state.resize_h);
+        }
 
         // Global-hotkey actions (focus-independent).
         if (g_hk_quit.load()) break;
@@ -1395,7 +1455,7 @@ int run_dx12(const Options& opts) {
         }
 
         if (m_aud) crt_audio.set_frame_luminance(0.6f);  // steady whine (no CPU frame to sample)
-        pipeline.set_time(static_cast<float>(glfwGetTime() - t0));
+        pipeline.set_time(static_cast<float>(now_seconds()));
         backend_raw->begin_frame();
         pipeline.render_to_screen(last_h);
         // Phase 4a.3: draw the ImGui menu on top of the CRT output, into the
@@ -1445,7 +1505,7 @@ int run_dx12(const Options& opts) {
                 SetWindowDisplayAffinity(hwnd, m_rec ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
                 std::printf("[overlay] dx12: recordable %s\n", m_rec ? "ON" : "OFF");
             }
-            if (want_quit) glfwSetWindowShouldClose(window, GLFW_TRUE);
+            if (want_quit) wnd_state.quit = true;
             menu.end_frame_to_screen_dx12(d12->command_list());
         }
         backend_raw->end_frame();
@@ -1457,7 +1517,7 @@ int run_dx12(const Options& opts) {
         ++frames_rendered;
         if (bench && static_cast<int>(cap_ms.size()) >= opts.bench_frames) {
             capture_bench_report("dx12", cap_ms);
-            glfwSetWindowShouldClose(window, GLFW_TRUE);
+            wnd_state.quit = true;
         }
     }
 
@@ -1472,8 +1532,9 @@ int run_dx12(const Options& opts) {
     if (hotkey_thread.joinable()) hotkey_thread.join();
 
     wgc.stop();
-    glfwDestroyWindow(window);
-    glfwTerminate();
+    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+    DestroyWindow(hwnd);
+    UnregisterClassW(kClassName, hinst);
     return 0;
 }
 #endif // TUBELIGHT_HAVE_D3D12
