@@ -102,3 +102,26 @@ endif()
 # copy next to the exe (shaders/dxil/*.dxil). No-op when DX12 backend
 # is disabled.
 tubelight_compile_shaders(tubelight)
+
+# Dev convenience: the user runs tubelight.exe from the repo ROOT, but the
+# build outputs to ${CMAKE_BINARY_DIR}/Release. Auto-copy the freshly-built
+# exe there after every build so the root run-location never goes stale
+# (it once silently lagged at v0.1.6). Windows-only; the root exe + DXIL
+# are gitignored. The vcpkg runtime DLLs (epoxy-0/glfw3) change only on a
+# dependency bump, so they're not re-copied here — they already sit in the
+# root and a bump is a one-off manual refresh.
+if(WIN32)
+    add_custom_command(TARGET tubelight POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "$<TARGET_FILE:tubelight>" "${CMAKE_SOURCE_DIR}/"
+        COMMENT "[deploy] sync tubelight.exe to repo root"
+        VERBATIM)
+    if(TUBELIGHT_BUILD_DX12)
+        add_custom_command(TARGET tubelight POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "$<TARGET_FILE_DIR:tubelight>/shaders/dxil"
+                    "${CMAKE_SOURCE_DIR}/shaders/dxil"
+            COMMENT "[deploy] sync DXIL bytecodes to repo root shaders/dxil"
+            VERBATIM)
+    endif()
+endif()

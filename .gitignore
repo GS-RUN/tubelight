@@ -47,6 +47,8 @@ Desktop.ini
 # Compiled shaders cache
 *.spv
 shaders/cache/
+# DXIL bytecode auto-synced to the repo root run-location (build artifact)
+shaders/dxil/
 
 # User manual: Node deps + lockfile (regenerable via npm i in docs/manual/)
 docs/manual/node_modules/
