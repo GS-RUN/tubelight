@@ -57,7 +57,14 @@ std::string browse_for_folder(const std::string& title) {
             dlg->SetTitle(wt.c_str());
         }
 
-        hr = dlg->Show(nullptr);
+        // Own the dialog to the overlay window so it appears ABOVE it —
+        // the overlay is WS_EX_TOPMOST, and an unowned (Show(nullptr))
+        // dialog renders behind a topmost window (and behind the console).
+        // An owned dialog is always above its owner in z-order. When the
+        // menu is open the overlay is the active/foreground window.
+        HWND owner = GetActiveWindow();
+        if (!owner) owner = GetForegroundWindow();
+        hr = dlg->Show(owner);
         if (SUCCEEDED(hr)) {
             IShellItem* item = nullptr;
             if (SUCCEEDED(dlg->GetResult(&item)) && item) {

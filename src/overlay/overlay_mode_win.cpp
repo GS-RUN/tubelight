@@ -120,6 +120,20 @@ inline void apply_capture_affinity(HWND hwnd) {
     SetWindowDisplayAffinity(hwnd, WDA_NONE);
 }
 
+// Hide the console window for a clean overlay experience — but ONLY when
+// we're the sole process attached to it (GetConsoleProcessList == 1), i.e.
+// it was spawned just for us (double-click). If we were launched from a
+// shared terminal (count > 1) we leave it alone so we don't yank away the
+// user's terminal. Override with TUBELIGHT_KEEP_CONSOLE=1.
+inline void maybe_hide_console() {
+    if (std::getenv("TUBELIGHT_KEEP_CONSOLE")) return;
+    DWORD pids[2] = {};
+    const DWORD n = GetConsoleProcessList(pids, 2);
+    if (n == 1) {
+        if (HWND con = GetConsoleWindow()) ShowWindow(con, SW_HIDE);
+    }
+}
+
 // Track which interesting keys are currently held so we only fire on the
 // initial WM_KEYDOWN, never on the (potentially-many) auto-repeats that
 // would otherwise toggle the same hotkey several times per press.
@@ -1471,6 +1485,9 @@ int run_dx12(const Options& opts) {
 // ---------------------------------------------------------------------------
 
 int run(const Options& opts) {
+    // Clean overlay UX: hide the console if it's ours alone (double-click);
+    // leave a shared terminal intact. Applies to both GL and DX12 paths.
+    maybe_hide_console();
     // T5.5: --renderer dx12 takes the WGC + D3D11On12 + D3D12 path. The GL
     // body below is left entirely untouched (zero regression risk).
 #if defined(TUBELIGHT_HAVE_D3D12)
