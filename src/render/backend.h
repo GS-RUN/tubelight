@@ -95,6 +95,21 @@ public:
     // on the queue, transitions backbuffer to PRESENT, calls Present().
     virtual void end_frame() = 0;
 
+    // Block until the GPU has finished all submitted work. GL: glFinish().
+    // D3D12: wait_for_gpu_idle(). Used by the --bench harness to bound a
+    // measurement window; not on the normal per-frame path.
+    virtual void finish() {}
+
+    // GPU-measured duration (milliseconds) of the most recently completed
+    // begin_frame..end_frame, via API timestamp queries. Present/vsync
+    // independent. Returns < 0 if unsupported or not yet measured. Only
+    // meaningful when frame timing was enabled (see set_frame_timing).
+    virtual double last_frame_gpu_ms() const { return -1.0; }
+
+    // Enable/disable per-frame GPU timestamp queries (off by default — the
+    // queries + readback add a small cost only wanted during --bench).
+    virtual void set_frame_timing(bool /*enabled*/) {}
+
     // True iff this backend can drive the full 8-pass Pipeline. GL: yes.
     // D3D12 in Phase 3b: NO (HLSL pass ports + abstract resources land in
     // Phase 3c). Callers should check this before passing the backend to

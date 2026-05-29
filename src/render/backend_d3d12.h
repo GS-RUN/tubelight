@@ -68,6 +68,9 @@ public:
     void clear_color(float r, float g, float b, float a) override;
     void draw_fullscreen_quad() override;
     void end_frame() override;
+    void finish() override;
+    double last_frame_gpu_ms() const override { return last_gpu_ms_; }
+    void set_frame_timing(bool enabled) override;
 
     // Phase 3c F3c-4: D3D12 backend now drives the 8-pass Pipeline.
     bool supports_pipeline() const override { return true; }
@@ -201,6 +204,15 @@ private:
     // before recycling that slot's allocator + ring slots.
     UINT64 frame_fence_value_[kBackBufferCount] = {};
     HANDLE fence_event_ = nullptr;
+
+    // --bench: 2 GPU timestamps (frame start/end) resolved to a READBACK
+    // buffer. Present/vsync independent. Off unless set_frame_timing(true).
+    Microsoft::WRL::ComPtr<ID3D12QueryHeap> ts_query_heap_;
+    Microsoft::WRL::ComPtr<ID3D12Resource>  ts_readback_;
+    UINT64 ts_frequency_   = 0;       // queue ticks per second
+    bool   timing_enabled_ = false;
+    bool   ts_wrote_       = false;   // a query pair was written this frame
+    double last_gpu_ms_    = -1.0;
 
     HWND hwnd_ = nullptr;
     int  width_  = 0;

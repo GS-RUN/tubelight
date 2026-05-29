@@ -56,6 +56,10 @@ public:
         return backend_ ? backend_->name() : "(none)";
     }
 
+    // Raw access to the active backend (for the --bench harness: frame
+    // timing + finish). Null until create()/set_backend(). Non-owning.
+    IRenderBackend* backend() const { return backend_.get(); }
+
     bool create(int output_width, int output_height);
     void resize(int width, int height);
 

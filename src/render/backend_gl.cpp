@@ -29,8 +29,34 @@ bool GLBackend::init(const BackendInitParams& /*params*/) {
 
 void GLBackend::shutdown() {
     if (!ready_) return;
+    if (timer_query_) { glDeleteQueries(1, &timer_query_); timer_query_ = 0; }
     quad_.destroy();
     ready_ = false;
+}
+
+void GLBackend::begin_frame() {
+    if (!timing_enabled_) return;
+    if (!timer_query_) glGenQueries(1, &timer_query_);
+    // GL_TIME_ELAPSED measures GPU time between glBeginQuery/glEndQuery —
+    // wraps render_to_screen's 8 passes. Present/vsync independent.
+    glBeginQuery(GL_TIME_ELAPSED, timer_query_);
+    timer_active_ = true;
+}
+
+void GLBackend::end_frame() {
+    if (timer_active_) {
+        glEndQuery(GL_TIME_ELAPSED);
+        timer_active_ = false;
+    }
+}
+
+void GLBackend::finish() {
+    glFinish();
+    if (timing_enabled_ && timer_query_) {
+        GLuint64 ns = 0;
+        glGetQueryObjectui64v(timer_query_, GL_QUERY_RESULT, &ns);
+        last_gpu_ms_ = static_cast<double>(ns) / 1.0e6;
+    }
 }
 
 void GLBackend::bind_default_framebuffer() {

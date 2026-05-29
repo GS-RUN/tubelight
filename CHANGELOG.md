@@ -5,6 +5,23 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ## [Unreleased]
 
+### Phase 3e — GL vs DX12 throughput bench (`--bench`)
+
+- **`--bench <frames>`** on `--shader-only` times the 8-pass pipeline on
+  the active backend via **GPU timestamp queries** (`GL_TIME_ELAPSED` /
+  D3D12 `QUERY_HEAP_TYPE_TIMESTAMP` + resolve), present/vsync independent.
+  New `IRenderBackend::finish()` / `last_frame_gpu_ms()` /
+  `set_frame_timing()` (no-op default; only active under `--bench`).
+- **Finding (RTX 2080 Ti)**: GL ~0.44 ms/frame stable; DX12 ~1-3 ms/frame
+  and jittery (p99 7-9 ms) — i.e. **GL is ~2-6× faster** than the current
+  un-tuned DX12 backend, the *opposite* of the ADR's aspirational "3-5×".
+  Prime suspect: per-draw `CopyDescriptorsSimple`. Full report +
+  methodology in [docs/perf/PHASE_3E_BENCH.md](docs/perf/PHASE_3E_BENCH.md);
+  ADR-0002 §Consecuencias amended with the measured reality. DX12 stays
+  the path for capture/HDR features, **not** raw throughput (yet).
+- Correctness gate: deterministic `--shader-only` golden bit-exact after
+  the instrumentation (PSNR ∞).
+
 ### Phase 3e groundwork — DX12 N-frame-in-flight sync
 
 - **`D3D12Backend` frame pacing** ([src/render/backend_d3d12.cpp](src/render/backend_d3d12.cpp)):

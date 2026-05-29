@@ -34,10 +34,62 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
+#include <vector>
 #include <string>
 #include <string_view>
 
 namespace {
+
+// --bench: summarise per-frame GPU times (ms). Sorts in place.
+void bench_report(const char* label, std::vector<double>& ms) {
+    // stderr (unbuffered) — the GL path's stdout can be swallowed in some
+    // headless/redirected environments; bench numbers must always show.
+    if (ms.empty()) {
+        std::fprintf(stderr, "[bench] %-4s: no GPU-timed samples (timestamp "
+                     "queries unsupported on this backend?)\n", label);
+        return;
+    }
+    std::sort(ms.begin(), ms.end());
+    const size_t n = ms.size();
+    double sum = 0.0;
+    for (double v : ms) sum += v;
+    const double avg = sum / static_cast<double>(n);
+    const double p50 = ms[n / 2];
+    const double p99 = ms[std::min(n - 1, static_cast<size_t>(n * 0.99))];
+    const double fps = avg > 0.0 ? 1000.0 / avg : 0.0;
+    std::fprintf(stderr, "[bench] %-4s | %zu frames | GPU/frame: avg %.3f ms "
+                 "(%.1f fps) | p50 %.3f | p99 %.3f | min %.3f | max %.3f ms\n",
+                 label, n, avg, fps, p50, p99, ms.front(), ms.back());
+    std::fflush(stderr);
+}
+
+// Drive the backend through warmup + `frames` timed iterations, recording
+// GPU time per frame (present/vsync independent — timestamp queries bracket
+// only the command-list work). `render_one` issues the 8-pass pipeline.
+template <class RenderFn>
+int run_pipeline_bench(tubelight::IRenderBackend* be,
+                       tubelight::Pipeline& pipeline,
+                       RenderFn&& render_one,
+                       int frames, const char* label) {
+    if (!be) { std::fprintf(stderr, "[bench] no backend available\n"); return 1; }
+    be->set_frame_timing(true);
+    for (int i = 0; i < 30; ++i) {          // warmup: PSO/shader/driver settle
+        pipeline.set_time(0.016f * static_cast<float>(i));
+        be->begin_frame(); render_one(); be->end_frame(); be->finish();
+    }
+    std::vector<double> ms;
+    ms.reserve(static_cast<size_t>(frames));
+    for (int i = 0; i < frames; ++i) {
+        pipeline.set_time(0.016f * static_cast<float>(30 + i));
+        be->begin_frame(); render_one(); be->end_frame(); be->finish();
+        const double g = be->last_frame_gpu_ms();
+        if (g >= 0.0) ms.push_back(g);
+    }
+    be->set_frame_timing(false);
+    bench_report(label, ms);
+    return 0;
+}
 
 constexpr int kDefaultWidth  = 1280;
 constexpr int kDefaultHeight = 960;
@@ -76,6 +128,11 @@ struct Args {
     // pipeline, displays live in a window. Requires --renderer dx12
     // (the WGC→D3D11On12→D3D12 interop is the whole point).
     bool wgc_test = false;
+    // Phase 3e: --bench <frames> times the 8-pass pipeline on the active
+    // backend via GPU timestamp queries (present/vsync independent) over
+    // the given frame count, prints avg/p50/p99/fps, exits. Works with
+    // --shader-only on both --renderer gl and dx12 for a fair comparison.
+    int bench_frames = 0;
 };
 
 Args parse_args(int argc, char** argv) {
@@ -160,6 +217,17 @@ Args parse_args(int argc, char** argv) {
             } else {
                 a.unknown_flag = true;
                 a.unknown_flag_text = "--screenshot requires a path";
+            }
+        } else if (arg == "--bench") {
+            if (i + 1 < argc) {
+                a.bench_frames = std::atoi(argv[++i]);
+                if (a.bench_frames <= 0) {
+                    a.unknown_flag = true;
+                    a.unknown_flag_text = "--bench requires a positive frame count";
+                }
+            } else {
+                a.unknown_flag = true;
+                a.unknown_flag_text = "--bench requires a frame count";
             }
         } else if (arg == "--renderer") {
             if (i + 1 < argc) {
@@ -329,7 +397,8 @@ void framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
 int run_shader_only(const std::string& image_path,
                     const std::string& profile_id,
                     const std::string& signal_id,
-                    const std::string& screenshot_path) {
+                    const std::string& screenshot_path,
+                    int bench_frames = 0) {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
         std::fprintf(stderr, "[tubelight] glfwInit failed\n");
@@ -404,6 +473,17 @@ int run_shader_only(const std::string& image_path,
         }
     }
 
+    // --bench: GPU-timed throughput of the 8-pass pipeline, then exit.
+    if (bench_frames > 0) {
+        const uint32_t src = source_tex.id();
+        int rc = run_pipeline_bench(pipeline.backend(), pipeline,
+                                    [&] { pipeline.render_to_screen(src); },
+                                    bench_frames, "gl");
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return rc;
+    }
+
     std::printf("[tubelight] shader-only running on %s (%dx%d).\n",
                 image_path.c_str(), source_tex.width(), source_tex.height());
     std::printf("[tubelight] Keys: 1..8 toggle passes, 0 enable all, ESC quit.\n");
@@ -462,7 +542,8 @@ int run_shader_only(const std::string& image_path,
 int run_shader_only_dx12(const std::string& image_path,
                           const std::string& profile_id,
                           const std::string& signal_id,
-                          const std::string& screenshot_path) {
+                          const std::string& screenshot_path,
+                          int bench_frames = 0) {
 #if defined(_WIN32) && defined(TUBELIGHT_HAVE_D3D12)
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -587,6 +668,16 @@ int run_shader_only_dx12(const std::string& image_path,
             std::fprintf(stderr, "[tubelight] signal profile '%s' not loaded: %s\n",
                          signal_id.c_str(), err.c_str());
         }
+    }
+
+    // --bench: GPU-timed throughput of the 8-pass pipeline, then exit.
+    if (bench_frames > 0) {
+        int rc = run_pipeline_bench(backend_raw, pipeline,
+                                    [&] { pipeline.render_to_screen(source_h); },
+                                    bench_frames, "dx12");
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return rc;
     }
 
     struct DXResize {
@@ -897,14 +988,16 @@ int main(int argc, char** argv) {
         if (args.backend == tubelight::BackendKind::D3D12) {
             int rc = run_shader_only_dx12(args.shader_only_input,
                                             args.profile_id, args.signal_id,
-                                            args.screenshot_path);
+                                            args.screenshot_path,
+                                            args.bench_frames);
             if (rc == 0) return 0;
             std::fprintf(stderr,
                 "[tubelight] D3D12 path failed (rc=%d); falling back to OpenGL.\n", rc);
             // Fall through to GL.
         }
         return run_shader_only(args.shader_only_input, args.profile_id,
-                               args.signal_id, args.screenshot_path);
+                               args.signal_id, args.screenshot_path,
+                               args.bench_frames);
     }
     // Default action (no flags, or just --overlay / --overlay-fullscreen):
     // launch the real overlay. Double-clicking the exe should "just work".

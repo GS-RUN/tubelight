@@ -284,6 +284,57 @@ void D3D12Backend::wait_for_fence(UINT64 value) {
     }
 }
 
+void D3D12Backend::set_frame_timing(bool enabled) {
+    timing_enabled_ = enabled;
+    if (!enabled || ts_query_heap_ || !device_) return;
+    // Lazily create a 2-slot TIMESTAMP query heap + a 16-byte READBACK
+    // buffer for the resolved start/end timestamps, and cache the queue
+    // tick frequency.
+    D3D12_QUERY_HEAP_DESC qhd{};
+    qhd.Type  = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    qhd.Count = 2;
+    if (FAILED(device_->CreateQueryHeap(&qhd, IID_PPV_ARGS(&ts_query_heap_)))) {
+        std::fprintf(stderr, "[tubelight][d3d12] CreateQueryHeap(TIMESTAMP) failed\n");
+        timing_enabled_ = false;
+        return;
+    }
+    D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC rd{};
+    rd.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+    rd.Width            = sizeof(UINT64) * 2;
+    rd.Height           = 1;
+    rd.DepthOrArraySize = 1;
+    rd.MipLevels        = 1;
+    rd.Format           = DXGI_FORMAT_UNKNOWN;
+    rd.SampleDesc.Count = 1;
+    rd.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    if (FAILED(device_->CreateCommittedResource(
+            &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr, IID_PPV_ARGS(&ts_readback_)))) {
+        std::fprintf(stderr, "[tubelight][d3d12] timestamp readback CCResource failed\n");
+        ts_query_heap_.Reset();
+        timing_enabled_ = false;
+        return;
+    }
+    if (cmd_queue_) cmd_queue_->GetTimestampFrequency(&ts_frequency_);
+}
+
+void D3D12Backend::finish() {
+    wait_for_gpu_idle();
+    if (!timing_enabled_ || !ts_wrote_ || !ts_readback_ || ts_frequency_ == 0) return;
+    // GPU work is done; read the resolved start/end timestamps.
+    void* mapped = nullptr;
+    D3D12_RANGE rr{ 0, sizeof(UINT64) * 2 };
+    if (SUCCEEDED(ts_readback_->Map(0, &rr, &mapped)) && mapped) {
+        const UINT64* ts = static_cast<const UINT64*>(mapped);
+        const UINT64 delta = (ts[1] >= ts[0]) ? (ts[1] - ts[0]) : 0;
+        last_gpu_ms_ = static_cast<double>(delta) * 1000.0 /
+                       static_cast<double>(ts_frequency_);
+        D3D12_RANGE wr{ 0, 0 };
+        ts_readback_->Unmap(0, &wr);
+    }
+}
+
 void D3D12Backend::wait_for_gpu_idle() {
     if (!cmd_queue_ || !fence_) return;
     const UINT64 target = ++fence_value_;
@@ -528,6 +579,12 @@ void D3D12Backend::begin_frame() {
     wait_for_fence(frame_fence_value_[current_back_buffer_]);
     cmd_alloc_[current_back_buffer_]->Reset();
     cmd_list_->Reset(cmd_alloc_[current_back_buffer_].Get(), nullptr);
+
+    // --bench: stamp GPU time at frame start (slot 0).
+    ts_wrote_ = false;
+    if (timing_enabled_ && ts_query_heap_) {
+        cmd_list_->EndQuery(ts_query_heap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
+    }
 
     D3D12_RESOURCE_BARRIER b{};
     b.Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -1304,6 +1361,16 @@ void D3D12Backend::end_frame() {
     b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
     b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     cmd_list_->ResourceBarrier(1, &b);
+
+    // --bench: stamp GPU time at frame end (slot 1) and resolve both into
+    // the READBACK buffer; finish() reads them once the fence passes.
+    if (timing_enabled_ && ts_query_heap_ && ts_readback_) {
+        cmd_list_->EndQuery(ts_query_heap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
+        cmd_list_->ResolveQueryData(ts_query_heap_.Get(),
+                                    D3D12_QUERY_TYPE_TIMESTAMP, 0, 2,
+                                    ts_readback_.Get(), 0);
+        ts_wrote_ = true;
+    }
 
     cmd_list_->Close();
     ID3D12CommandList* lists[] = { cmd_list_.Get() };

@@ -31,12 +31,15 @@ public:
     void resize(int width, int height) override { (void)width; (void)height; }
     const char* name() const override { return "OpenGL 4.5 core (libepoxy)"; }
 
-    void begin_frame() override {}
+    void begin_frame() override;
     void bind_default_framebuffer() override;
     void set_viewport(int x, int y, int w, int h) override;
     void clear_color(float r, float g, float b, float a) override;
     void draw_fullscreen_quad() override;
-    void end_frame() override {}
+    void end_frame() override;
+    void finish() override;
+    double last_frame_gpu_ms() const override { return last_gpu_ms_; }
+    void set_frame_timing(bool enabled) override { timing_enabled_ = enabled; }
 
     // GLBackend fully drives Pipeline — that's its job today.
     bool supports_pipeline() const override { return true; }
@@ -104,6 +107,15 @@ private:
     // The pass currently bound by bind_pass(). set_uniform_block reads
     // this to dispatch the uniforms onto the right shader.
     PassHandle bound_pass_{0};
+
+    // --bench: GL_TIME_ELAPSED timer query wrapping begin_frame..end_frame.
+    // Off by default (set_frame_timing). Double-buffered would avoid the
+    // stall, but the bench reads it after finish() so a single query is
+    // fine and exact.
+    bool         timing_enabled_ = false;
+    unsigned int timer_query_    = 0;     // GL_TIME_ELAPSED query object
+    bool         timer_active_   = false; // a query is currently open
+    double       last_gpu_ms_    = -1.0;
 };
 
 } // namespace tubelight
