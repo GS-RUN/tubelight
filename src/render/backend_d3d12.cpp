@@ -1460,7 +1460,7 @@ void D3D12Backend::end_frame() {
     // stays put without Present → the bench runs 1-frame-in-flight, which
     // is exactly what we want for an isolated per-frame measurement.)
     if (!timing_enabled_) {
-        swap_chain_->Present(1, 0);
+        swap_chain_->Present(vsync_ ? 1 : 0, 0);
     }
 
     // Frame pacing (DX-22 + DX-10): signal a fence value for this slot and

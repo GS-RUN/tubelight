@@ -128,6 +128,11 @@ public:
     static constexpr DXGI_FORMAT backbuffer_format() { return kBackBufferFormat; }
     static constexpr UINT        frames_in_flight()  { return kBackBufferCount; }
 
+    // Runtime vsync toggle (menu "low latency"): on → Present(1,0), off →
+    // Present(0,0). Default on.
+    void set_vsync(bool on) { vsync_ = on; }
+    bool vsync() const { return vsync_; }
+
 private:
     static constexpr UINT kBackBufferCount = 2;
     static constexpr DXGI_FORMAT kBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -176,6 +181,7 @@ private:
     // backend was init'd with composition=true; holds the swap chain as the
     // content of a single full-window visual.
     bool composition_ = false;
+    bool vsync_ = true;   // Present sync interval: true→1, false→0
     Microsoft::WRL::ComPtr<IDCompositionDevice>     dcomp_device_;
     Microsoft::WRL::ComPtr<IDCompositionTarget>     dcomp_target_;
     Microsoft::WRL::ComPtr<IDCompositionVisual>     dcomp_visual_;

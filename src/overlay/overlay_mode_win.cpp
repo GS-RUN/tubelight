@@ -1220,14 +1220,36 @@ int run_dx12(const Options& opts) {
                                          static_cast<int>(d12->frames_in_flight()),
                                          d12->backbuffer_format());
     g_hk_toggle_menu = false;
-    // Persistent menu IO state (most are inert in the DX12 path for now;
-    // profile/signal changes are dispatched live).
+    // Menu IO state. Visual controls (profile/signal/CRT sliders) mutate
+    // pipeline.params() directly inside build_widgets, so they already work
+    // on DX12. The host-managed controls below are dispatched after
+    // build_widgets: audio + vsync + recordable are wired; video recording
+    // + HUD are deferred (need a DX12 readback / HUD path).
     std::string cur_profile = opts.profile_id;
     std::string cur_signal  = opts.signal_id;
     float menu_intensity = 1.0f;
-    bool  m_hud=false, m_aud=false, m_ct=false, m_ll=false, m_rec=true;
-    float m_vol=0.5f;
+    bool  m_hud=false, m_ct=false;
+    bool  m_aud=false;            // audio enabled
+    float m_vol=0.5f;             // audio volume
+    bool  m_ll=false;             // low-latency = vsync off
+    bool  m_rec=(std::getenv("TUBELIGHT_OVERLAY_CAPTURABLE")!=nullptr); // recordable (WDA)
     int   m_rs=0, m_rx=0, m_ry=0, m_rw=0, m_rh=0;
+
+    // CRT audio engine (flyback whine + degauss). Self-contained XAudio2.
+    // Luminance modulation uses a neutral constant here — the WGC frame is
+    // zero-copy on the GPU, so there's no cheap CPU mean like the GL path's
+    // sub_buffer; the steady whine is the audible signature regardless.
+    tubelight::audio::CrtAudio crt_audio;
+    {
+        std::string aerr;
+        if (!crt_audio.init(aerr)) {
+            std::fprintf(stderr, "[overlay] dx12: CRT audio init failed: %s\n",
+                         aerr.c_str());
+        } else {
+            crt_audio.set_volume(m_vol);
+            crt_audio.set_enabled(m_aud);
+        }
+    }
 
     glfwShowWindow(window);
     SetWindowPos(hwnd, HWND_TOPMOST, win_x, win_y,
@@ -1358,6 +1380,7 @@ int run_dx12(const Options& opts) {
             continue;
         }
 
+        if (m_aud) crt_audio.set_frame_luminance(0.6f);  // steady whine (no CPU frame to sample)
         pipeline.set_time(static_cast<float>(glfwGetTime() - t0));
         backend_raw->begin_frame();
         pipeline.render_to_screen(last_h);
@@ -1394,6 +1417,19 @@ int run_dx12(const Options& opts) {
                 std::string err;
                 auto s = tubelight::load_signal_profile_by_id(cur_signal, err);
                 if (s) pipeline.apply_signal_profile(*s);
+            }
+            // Host-managed controls dispatched live (4a.3 wiring).
+            if (aud_c) {
+                crt_audio.set_enabled(m_aud);
+                crt_audio.set_volume(m_vol);
+            }
+            if (ll_c) {
+                d12->set_vsync(!m_ll);   // low-latency = vsync off
+                std::printf("[overlay] dx12: vsync %s\n", m_ll ? "OFF (low-latency)" : "ON");
+            }
+            if (recordable_c) {
+                SetWindowDisplayAffinity(hwnd, m_rec ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
+                std::printf("[overlay] dx12: recordable %s\n", m_rec ? "ON" : "OFF");
             }
             if (want_quit) glfwSetWindowShouldClose(window, GLFW_TRUE);
             menu.end_frame_to_screen_dx12(d12->command_list());
