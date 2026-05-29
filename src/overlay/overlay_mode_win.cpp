@@ -1089,7 +1089,18 @@ int run_dx12(const Options& opts) {
     if (!chrome) {
         LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         ex |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+        // Phase 4a.2: cross-process click-through. WS_EX_LAYERED |
+        // WS_EX_TRANSPARENT routes mouse events to the window underneath
+        // (the only Win32 mechanism that crosses processes — NCHITTEST
+        // HTTRANSPARENT is same-thread only). With the DComp composition
+        // swap chain (4a.1) the swap chain is no longer the window's
+        // flip-model target, so WS_EX_LAYERED is now compatible (it was
+        // not with CreateSwapChainForHwnd). Mirrors the proven GL path:
+        // LWA_ALPHA at 255 keeps the window fully opaque; the DComp visual
+        // supplies the pixels.
+        ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
     }
 
     int fb_w = 0, fb_h = 0;
