@@ -53,6 +53,16 @@ struct BackendInitParams {
     // click-through). GL ignores it; D3D12 with composition=false keeps the
     // CreateSwapChainForHwnd path (shader-only / wgc-test).
     bool composition = false;
+    // Phase 4a (D3D12 only): "layered ULW" present mode. Renders to a
+    // composition swap chain (no HWND association — CreateSwapChainForHwnd
+    // forbids WS_EX_LAYERED windows) but does NOT build a DirectComposition
+    // display tree. The overlay instead reads each finished frame back with
+    // capture_backbuffer() and blits it onto a WS_EX_LAYERED|TRANSPARENT
+    // window via UpdateLayeredWindow — the only Win32 path that gives
+    // cross-process click-through AND shows D3D-rendered content (it mirrors
+    // the proven GL recipe). Mutually exclusive with `composition`. GL
+    // ignores it.
+    bool layered = false;
 };
 
 class IRenderBackend {

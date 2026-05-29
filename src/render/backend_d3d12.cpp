@@ -87,6 +87,7 @@ bool D3D12Backend::init(const BackendInitParams& params) {
     width_  = params.width;
     height_ = params.height;
     composition_ = params.composition;
+    layered_     = params.layered;
 
     UINT factory_flags = 0;
     if (params.enable_debug) {
@@ -229,13 +230,17 @@ bool D3D12Backend::init(const BackendInitParams& params) {
     scd.BufferCount = kBackBufferCount;
     // Composition swap chains require STRETCH scaling; the HWND path keeps
     // NONE (1:1, no resampling).
-    scd.Scaling     = composition_ ? DXGI_SCALING_STRETCH : DXGI_SCALING_NONE;
+    // Both composition (DComp display) and layered (ULW present) render into
+    // a composition swap chain — the only flavour that is NOT bound to the
+    // HWND, which CreateSwapChainForHwnd forbids on WS_EX_LAYERED windows.
+    const bool comp_swapchain = composition_ || layered_;
+    scd.Scaling     = comp_swapchain ? DXGI_SCALING_STRETCH : DXGI_SCALING_NONE;
     scd.SwapEffect  = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     scd.AlphaMode   = DXGI_ALPHA_MODE_IGNORE;
     scd.Flags       = 0;
 
     ComPtr<IDXGISwapChain1> sc1;
-    if (composition_) {
+    if (comp_swapchain) {
         // Phase 4a: a swap chain NOT bound to the HWND, composited onto the
         // window through a DirectComposition visual tree. This is what lets
         // a flip-model swap chain coexist with WS_EX_LAYERED|TRANSPARENT for
@@ -249,19 +254,27 @@ bool D3D12Backend::init(const BackendInitParams& params) {
             std::fprintf(stderr, "[tubelight][d3d12] composition swap chain QI failed\n");
             return false;
         }
-        if (FAILED(DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&dcomp_device_))) ||
-            FAILED(dcomp_device_->CreateTargetForHwnd(hwnd_, TRUE, &dcomp_target_)) ||
-            FAILED(dcomp_device_->CreateVisual(&dcomp_visual_))) {
-            std::fprintf(stderr, "[tubelight][d3d12] DirectComposition setup failed\n");
-            return false;
+        if (composition_) {
+            // Display via DirectComposition. The `layered_` path skips this:
+            // it never shows the swap chain — the overlay reads frames back
+            // and blits them onto a WS_EX_LAYERED window via UpdateLayeredWindow.
+            if (FAILED(DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&dcomp_device_))) ||
+                FAILED(dcomp_device_->CreateTargetForHwnd(hwnd_, TRUE, &dcomp_target_)) ||
+                FAILED(dcomp_device_->CreateVisual(&dcomp_visual_))) {
+                std::fprintf(stderr, "[tubelight][d3d12] DirectComposition setup failed\n");
+                return false;
+            }
+            dcomp_visual_->SetContent(swap_chain_.Get());
+            dcomp_target_->SetRoot(dcomp_visual_.Get());
+            if (FAILED(dcomp_device_->Commit())) {
+                std::fprintf(stderr, "[tubelight][d3d12] DComp Commit failed\n");
+                return false;
+            }
+            std::fprintf(stderr, "[tubelight][d3d12] DirectComposition visual tree ready\n");
+        } else {
+            std::fprintf(stderr, "[tubelight][d3d12] layered ULW present mode "
+                                 "(composition swap chain, no DComp display)\n");
         }
-        dcomp_visual_->SetContent(swap_chain_.Get());
-        dcomp_target_->SetRoot(dcomp_visual_.Get());
-        if (FAILED(dcomp_device_->Commit())) {
-            std::fprintf(stderr, "[tubelight][d3d12] DComp Commit failed\n");
-            return false;
-        }
-        std::fprintf(stderr, "[tubelight][d3d12] DirectComposition visual tree ready\n");
     } else {
         if (FAILED(dxgi_factory_->CreateSwapChainForHwnd(cmd_queue_.Get(), hwnd_, &scd,
                                                           nullptr, nullptr, &sc1))) {

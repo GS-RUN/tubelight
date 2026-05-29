@@ -181,6 +181,10 @@ private:
     // backend was init'd with composition=true; holds the swap chain as the
     // content of a single full-window visual.
     bool composition_ = false;
+    // Layered ULW present mode (BackendInitParams::layered): composition swap
+    // chain for rendering, but NO DComp display tree — the overlay presents
+    // the captured frame via UpdateLayeredWindow. See backend.h.
+    bool layered_ = false;
     bool vsync_ = true;   // Present sync interval: true→1, false→0
     Microsoft::WRL::ComPtr<IDCompositionDevice>     dcomp_device_;
     Microsoft::WRL::ComPtr<IDCompositionTarget>     dcomp_target_;

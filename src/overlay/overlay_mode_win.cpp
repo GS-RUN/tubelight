@@ -1045,15 +1045,6 @@ struct Dx12WndState {
     int  resize_h = 0;
 };
 
-// Probe state for the WM_NCHITTEST click-through experiment (debrief hyp #1).
-// Only consulted when the TUBELIGHT_CT_NCHITTEST probe is active (the window
-// is then created WITHOUT WS_EX_TRANSPARENT so the OS actually delivers
-// WM_NCHITTEST to us). True = report HTTRANSPARENT (try to let clicks fall
-// through); cleared while the menu is open so the menu stays clickable.
-// NOTE: HTTRANSPARENT is documented as same-thread-only — this is a
-// diagnostic to confirm/deny cross-process pass-through, not a likely fix.
-std::atomic<bool> g_dx12_nchittest_transparent{false};
-
 LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 #if defined(TUBELIGHT_HAS_IMGUI)
     // Let ImGui consume mouse/keyboard first (only matters when the menu is
@@ -1062,20 +1053,6 @@ LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 #endif
     auto* st = reinterpret_cast<Dx12WndState*>(GetWindowLongPtrW(h, GWLP_USERDATA));
     switch (msg) {
-    case WM_NCHITTEST:
-        // Click-through probe (hyp #1). Active only under TUBELIGHT_CT_NCHITTEST,
-        // where the window has no WS_EX_TRANSPARENT so this message arrives.
-        if (g_dx12_nchittest_transparent.load()) {
-            static std::atomic<int> log_once{0};
-            if (log_once.exchange(1) == 0)
-                std::fprintf(stderr,
-                    "[overlay] dx12: WM_NCHITTEST -> HTTRANSPARENT (probe)\n");
-            return HTTRANSPARENT;
-        }
-        break;
-    case WM_MOUSEACTIVATE:
-        if (g_dx12_nchittest_transparent.load()) return MA_NOACTIVATEANDEAT;
-        break;
     case WM_SIZE:
         if (st && wp != SIZE_MINIMIZED) {
             st->resize_w = LOWORD(lp);
@@ -1150,17 +1127,12 @@ int run_dx12(const Options& opts) {
 
     const bool chrome = mode_windowed;  // only plain windowed gets a title bar
     const bool no_ct  = (std::getenv("TUBELIGHT_NO_CLICKTHROUGH") != nullptr);
-    // Click-through diagnostic probes (see DIAGNOSIS_CLICKTHROUGH_DX12_*.md).
-    // ct_nchittest: drop WS_EX_TRANSPARENT and instead return HTTRANSPARENT
-    //   from the wndproc (hyp #1 — expected to NOT cross processes; confirm).
-    // ct_emptyrgn: SetWindowRgn() to an empty region (hyp #3 — likely blanks
-    //   the DComp visual; confirm). Both are off by default → no behaviour
-    //   change in normal runs.
-    const bool ct_nchittest = (!chrome && !no_ct &&
-                               std::getenv("TUBELIGHT_CT_NCHITTEST") != nullptr);
-    const bool ct_emptyrgn  = (!chrome &&
-                               std::getenv("TUBELIGHT_CT_EMPTYRGN") != nullptr);
-    g_dx12_nchittest_transparent.store(ct_nchittest);
+    // Borderless overlay modes present via the layered ULW path (Path B —
+    // see DIAGNOSIS_CLICKTHROUGH_DX12_*.md): a WS_EX_LAYERED|TRANSPARENT
+    // window whose pixels come from UpdateLayeredWindow with the captured
+    // frame. This is the only Win32 combination that yields cross-process
+    // click-through AND shows D3D content (mirrors the proven GL recipe).
+    const bool layered = !chrome;
 
     static const wchar_t* kClassName = L"TubelightDX12Overlay";
     HINSTANCE hinst = GetModuleHandleW(nullptr);
@@ -1174,20 +1146,17 @@ int run_dx12(const Options& opts) {
         RegisterClassExW(&wc);  // benign if already registered (returns 0 + ERROR_CLASS_ALREADY_EXISTS)
     }
 
-    // Borderless overlay: WS_POPUP + WS_EX_NOREDIRECTIONBITMAP (so the
-    // DirectComposition visual owns ALL pixels — no redirection surface to
-    // fight) + WS_EX_TRANSPARENT (cross-process click-through, which DOES
-    // work on a NOREDIRECTIONBITMAP window) + NOACTIVATE/TOOLWINDOW/TOPMOST.
-    // Plain windowed: a normal resizable framed window (flip-model HWND
-    // swap chain, no click-through).
+    // Borderless overlay: WS_POPUP + WS_EX_LAYERED (so the window has a DWM
+    // redirection surface that UpdateLayeredWindow blits the captured frame
+    // into) + WS_EX_TRANSPARENT (cross-process click-through — only honoured
+    // on a layered window) + NOACTIVATE/TOOLWINDOW/TOPMOST. Plain windowed:
+    // a normal resizable framed window (flip-model HWND swap chain, no
+    // click-through).
     const DWORD style = chrome ? WS_OVERLAPPEDWINDOW : WS_POPUP;
-    // Under the NCHITTEST probe we must NOT set WS_EX_TRANSPARENT — the OS
-    // skips WM_NCHITTEST for transparent windows, so the probe could never
-    // fire. The wndproc returns HTTRANSPARENT instead.
-    const DWORD ct_flag = (no_ct || ct_nchittest) ? 0u : WS_EX_TRANSPARENT;
+    const DWORD ct_flag = no_ct ? 0u : WS_EX_TRANSPARENT;
     const DWORD exstyle = chrome
         ? WS_EX_APPWINDOW
-        : (WS_EX_NOREDIRECTIONBITMAP | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
+        : (WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
            WS_EX_TOPMOST | ct_flag);
 
     // For a popup the requested size IS the client size; for a framed window
@@ -1214,27 +1183,15 @@ int run_dx12(const Options& opts) {
     {
         const LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         std::fprintf(stderr,
-            "[overlay] dx12: EXSTYLE=0x%08lx { %s%s%s%s%s} click-through=%s\n",
+            "[overlay] dx12: EXSTYLE=0x%08lx { %s%s%s%s} click-through=%s\n",
             static_cast<unsigned long>(ex),
-            (ex & WS_EX_NOREDIRECTIONBITMAP) ? "NOREDIRECTIONBITMAP " : "",
             (ex & WS_EX_TRANSPARENT)         ? "TRANSPARENT "         : "",
             (ex & WS_EX_LAYERED)             ? "LAYERED "             : "",
             (ex & WS_EX_NOACTIVATE)          ? "NOACTIVATE "          : "",
             (ex & WS_EX_TOPMOST)             ? "TOPMOST "             : "",
             chrome ? "off(windowed)"
-                   : ct_nchittest ? "probe:NCHITTEST"
                    : no_ct ? "off(NO_CLICKTHROUGH)"
-                           : "WS_EX_TRANSPARENT");
-    }
-
-    // Hyp #3 — empty window region probe. Expected to also clip the DComp
-    // visual to nothing (the HWND composition target is clipped to the window
-    // region), confirming the display/click-through tension. Off by default.
-    if (ct_emptyrgn) {
-        SetWindowRgn(hwnd, CreateRectRgn(0, 0, 0, 0), TRUE);
-        std::fprintf(stderr,
-            "[overlay] dx12: empty SetWindowRgn applied (probe) — if the CRT "
-            "disappears this path is a dead end\n");
+                           : "WS_EX_TRANSPARENT (layered ULW)");
     }
 
     int fb_w = 0, fb_h = 0;
@@ -1257,10 +1214,13 @@ int run_dx12(const Options& opts) {
     // per-frame ID3D12InfoQueue drain — surfaces otherwise-silent
     // swap-chain / composition / barrier validation errors.
     bp.enable_debug = (std::getenv("TUBELIGHT_D3D12_DEBUG") != nullptr);
-    // Phase 4a: borderless overlay modes use a DirectComposition swap chain
-    // so they can be WS_EX_LAYERED|TRANSPARENT (click-through). Plain
-    // windowed keeps the direct HWND swap chain.
-    bp.composition = !chrome;
+    // Phase 4a / Path B: borderless overlay modes render to a composition
+    // swap chain (not HWND-bound) and present via UpdateLayeredWindow onto a
+    // WS_EX_LAYERED|TRANSPARENT window — the only path that gives
+    // cross-process click-through AND shows D3D content. Plain windowed keeps
+    // the direct HWND swap chain (visible framed window, no click-through).
+    bp.composition = false;
+    bp.layered     = layered;
     if (!backend->init(bp)) {
         std::fprintf(stderr,
             "[overlay] D3D12Backend::init failed — retry without --renderer dx12 "
@@ -1420,6 +1380,68 @@ int run_dx12(const Options& opts) {
     tubelight::TextureHandle last_h{0};
     unsigned long long frames_rendered = 0;
     int target_lost_frames = 0;
+
+    // ----- Path B: layered ULW present resources --------------------------
+    // A top-down 32bpp DIB section the GPU frame is blitted into each frame,
+    // then pushed to the WS_EX_LAYERED window with UpdateLayeredWindow. This
+    // is what makes a D3D12-rendered overlay both visible AND click-through.
+    HDC     ulw_screen_dc = layered ? GetDC(nullptr) : nullptr;
+    HDC     ulw_mem_dc    = nullptr;
+    HBITMAP ulw_dib       = nullptr;
+    HBITMAP ulw_old_bmp   = nullptr;
+    void*   ulw_bits      = nullptr;
+    int     ulw_w = 0, ulw_h = 0;
+    std::vector<uint8_t> cap_buf;
+
+    auto ensure_ulw_dib = [&](int w, int h) -> bool {
+        if (w <= 0 || h <= 0) return false;
+        if (ulw_dib && w == ulw_w && h == ulw_h) return true;
+        if (ulw_mem_dc && ulw_old_bmp) SelectObject(ulw_mem_dc, ulw_old_bmp);
+        if (ulw_dib) { DeleteObject(ulw_dib); ulw_dib = nullptr; }
+        if (!ulw_mem_dc) ulw_mem_dc = CreateCompatibleDC(ulw_screen_dc);
+        BITMAPINFO bi{};
+        bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+        bi.bmiHeader.biWidth       = w;
+        bi.bmiHeader.biHeight      = -h;     // negative → top-down rows
+        bi.bmiHeader.biPlanes      = 1;
+        bi.bmiHeader.biBitCount    = 32;
+        bi.bmiHeader.biCompression = BI_RGB;
+        ulw_bits = nullptr;
+        ulw_dib  = CreateDIBSection(ulw_screen_dc, &bi, DIB_RGB_COLORS,
+                                    &ulw_bits, nullptr, 0);
+        if (!ulw_dib || !ulw_bits) {
+            std::fprintf(stderr, "[overlay] dx12: CreateDIBSection failed\n");
+            ulw_dib = nullptr; return false;
+        }
+        ulw_old_bmp = static_cast<HBITMAP>(SelectObject(ulw_mem_dc, ulw_dib));
+        ulw_w = w; ulw_h = h;
+        return true;
+    };
+
+    // Capture the just-rendered backbuffer and blit it onto the layered
+    // window. RGBA8 (R,G,B,A) → DIB BGRA (B,G,R,A); alpha forced opaque so
+    // the overlay shows solidly (click-through comes from WS_EX_TRANSPARENT,
+    // independent of pixel alpha — mirrors the GL LWA_ALPHA=255 recipe).
+    auto present_layered = [&]() {
+        int cw = 0, ch = 0;
+        if (!d12->capture_backbuffer(cap_buf, cw, ch)) return;
+        if (!ensure_ulw_dib(cw, ch)) return;
+        auto* dst = static_cast<uint8_t*>(ulw_bits);
+        const size_t n = static_cast<size_t>(cw) * ch;
+        for (size_t i = 0; i < n; ++i) {
+            dst[i*4 + 0] = cap_buf[i*4 + 2];  // B
+            dst[i*4 + 1] = cap_buf[i*4 + 1];  // G
+            dst[i*4 + 2] = cap_buf[i*4 + 0];  // R
+            dst[i*4 + 3] = 255;               // A (opaque)
+        }
+        POINT pt_src{ 0, 0 };
+        SIZE  sz{ cw, ch };
+        POINT pt_dst{ win_x, win_y };
+        BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, 0 };  // global alpha 255 (opaque)
+        UpdateLayeredWindow(hwnd, ulw_screen_dc, &pt_dst, &sz,
+                            ulw_mem_dc, &pt_src, 0, &bf, ULW_ALPHA);
+    };
+
     const bool bench = opts.bench_frames > 0;
     std::vector<double> cap_ms;
     if (bench) {
@@ -1467,19 +1489,17 @@ int run_dx12(const Options& opts) {
             menu.toggle();
             LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             if (menu.is_open()) {
-                // Under the NCHITTEST probe there is no WS_EX_TRANSPARENT to
-                // clear — disable the HTTRANSPARENT hook instead so the menu
-                // is clickable. NOACTIVATE is always cleared so we can focus.
-                if (ct_nchittest) g_dx12_nchittest_transparent.store(false);
+                // Drop click-through + no-activate so the layered window
+                // receives the mouse and can be focused for ImGui. WS_EX_LAYERED
+                // is left untouched (toggling it at runtime is unsafe; toggling
+                // WS_EX_TRANSPARENT is fine).
                 ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 SetForegroundWindow(hwnd);
                 SetActiveWindow(hwnd);
             } else if (!chrome) {
-                ex |= (ct_nchittest ? WS_EX_NOACTIVATE
-                                    : (WS_EX_TRANSPARENT | WS_EX_NOACTIVATE));
+                ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-                if (ct_nchittest) g_dx12_nchittest_transparent.store(true);
             }
             ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             std::printf("[overlay] dx12: menu %s (EXSTYLE=0x%08lx, TRANSPARENT=%d)\n",
@@ -1585,6 +1605,9 @@ int run_dx12(const Options& opts) {
             menu.end_frame_to_screen_dx12(d12->command_list());
         }
         backend_raw->end_frame();
+        // Path B: push the finished frame onto the layered window. (Borderless
+        // modes only; plain windowed shows via its HWND swap chain.)
+        if (layered) present_layered();
         if (frames_rendered == 0) {
             std::fprintf(stderr,
                 "[overlay] dx12: first frame rendered (source handle %u)\n",
@@ -1608,6 +1631,13 @@ int run_dx12(const Options& opts) {
     if (hotkey_thread.joinable()) hotkey_thread.join();
 
     wgc.stop();
+
+    // Tear down the layered ULW present resources.
+    if (ulw_mem_dc && ulw_old_bmp) SelectObject(ulw_mem_dc, ulw_old_bmp);
+    if (ulw_dib)       DeleteObject(ulw_dib);
+    if (ulw_mem_dc)    DeleteDC(ulw_mem_dc);
+    if (ulw_screen_dc) ReleaseDC(nullptr, ulw_screen_dc);
+
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
     DestroyWindow(hwnd);
     UnregisterClassW(kClassName, hinst);

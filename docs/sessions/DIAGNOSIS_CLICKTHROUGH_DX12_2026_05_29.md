@@ -165,6 +165,38 @@ probes), stderr:
   de click-through **no** es un flag perdido → confirma la causa raíz §1
   (TRANSPARENT sobre ventana no-layered no cruza procesos). Display + DComp +
   WGC OK, sin crash con la instrumentación.
-- **Pendiente del usuario (interactivo, con ratón)**: correr Probe A
-  (`TUBELIGHT_CT_NCHITTEST=1`) y Probe B (`TUBELIGHT_CT_EMPTYRGN=1`) y reportar
-  la matriz display×click-through. Predicción: ambos fallan → ir a **Path B**.
+- **Probes A/B**: el usuario confirmó que NO funcionan → se descartó Path A.
+
+---
+
+## 7. Path B IMPLEMENTADO (layered ULW present)
+
+Confirmado por el usuario que los probes fallan → implementado Path B.
+
+**Backend** (`backend.h` / `backend_d3d12.{h,cpp}`): nuevo
+`BackendInitParams::layered`. Renderiza a un **composition swap chain** (no
+HWND-bound — `CreateSwapChainForHwnd` prohíbe ventanas `WS_EX_LAYERED`) pero
+**sin árbol DComp de display**. El overlay lee cada frame con
+`capture_backbuffer()`. Mutuamente excluyente con `composition`.
+
+**Overlay** (`overlay_mode_win.cpp::run_dx12`): ventana borderless ahora
+`WS_EX_LAYERED | WS_EX_TRANSPARENT | NOACTIVATE | TOOLWINDOW | TOPMOST`
+(se quitó `NOREDIRECTIONBITMAP`). Tras `end_frame()`, `present_layered()`:
+`capture_backbuffer` (RGBA8) → DIB top-down 32bpp con swap R↔B + alpha=255
+(opaco) → `UpdateLayeredWindow(... ULW_ALPHA, AlphaFormat=0, SrcConstAlpha=255)`.
+Réplica exacta del recipe GL (LAYERED+TRANSPARENT+alpha 255 opaco), con la
+captura WGC zero-copy intacta. Probes/NOREDIRECTIONBITMAP/handler NCHITTEST
+eliminados.
+
+**Trade-off**: 1 readback/frame en presentación (`capture_backbuffer` hace
+`wait_for_gpu_idle` → 1-frame-in-flight). Aceptable para overlay; optimizable
+luego (swizzle R↔B en GPU + readback persistente sin asignar por frame).
+
+**Verificado headless (RTX 2080 Ti)**: build limpio 0 err/warn;
+`EXSTYLE=0x080800a8 { TRANSPARENT LAYERED NOACTIVATE TOPMOST }`; "layered ULW
+present mode"; **`capture_backbuffer` mean-rgb=22.8** (frame real del
+escritorio procesado por CRT, NO negro → capture+render+DIB OK); 0 errores de
+validación D3D12; la ventana layered ocupa el monitor (ULW pinta, no se ve el
+escritorio detrás). **PENDIENTE (interactivo, usuario)**: confirmar con ratón
+que los clicks atraviesan a un emulador debajo + OK visual del CRT en vivo.
+El mecanismo es idéntico al path GL probado, así que debería cruzar.
