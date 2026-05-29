@@ -1026,5 +1026,6 @@ int main(int argc, char** argv) {
     // T5.5: forward --renderer dx12 into the overlay so it takes the
     // WGC + D3D11On12 + D3D12 path (run_dx12). Defaults to GL otherwise.
     o.backend = args.backend;
+    o.bench_frames = args.bench_frames;  // Phase 3e end-to-end capture bench
     return tubelight::overlay::run(o);
 }

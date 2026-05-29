@@ -5,6 +5,23 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ## [Unreleased]
 
+### Phase 3e — end-to-end capture→GPU bench (the ShaderGlass gap, found)
+
+- **`--bench <frames>` now also works with `--overlay*`**: times the
+  per-frame capture→GPU cost of each path. **Result (RTX 2080 Ti, 1920×1200,
+  200 frames)**: GL (DXGI `memcpy` + `glTexSubImage2D`) = **3.385 ms/frame**;
+  DX12+WGC (`D3D11On12` zero-copy unwrap) = **0.003 ms/frame** — **~1000×**.
+  At 60 Hz GL burns ~20% of the frame budget moving pixels; DX12+WGC ~0%.
+- **This is the ShaderGlass fluidity/CPU gap** ADR-0002 aimed to close, now
+  measured: it's the *capture path*, not the shader (which is at parity).
+  The T5.5 `--renderer dx12 --overlay*` path already closes it by staying
+  zero-copy on the GPU. Remaining work to make it the default = Phase 4a
+  (DComp click-through + ImGui under DX12). Full data:
+  [docs/perf/PHASE_3E_BENCH.md](docs/perf/PHASE_3E_BENCH.md), ADR amended.
+- `overlay::Options::bench_frames` plumbed; instrumentation gated by the
+  flag (normal overlay behavior unchanged; verified GL + DX12 overlay still
+  render, golden bit-exact).
+
 ### Phase 3e — GL vs DX12 bench + DX12 descriptor refactor
 
 - **`--bench <frames>`** on `--shader-only` times the 8-pass pipeline on

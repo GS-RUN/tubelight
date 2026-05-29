@@ -40,6 +40,11 @@ struct Options {
     // Render backend (T5.5). OpenGL → the legacy DXGI-Duplication path;
     // D3D12 → the WGC + D3D11On12 + D3D12 path (run_dx12). Defaults to GL.
     BackendKind backend = BackendKind::OpenGL;
+    // Phase 3e end-to-end: when > 0, run the overlay in capture-cost bench
+    // mode — time the per-frame capture→GPU step (GL: DXGI grab + memcpy +
+    // glTexSubImage2D; DX12: WGC latest_frame + zero-copy wrap), print
+    // rolling CPU ms/frame stats, exit after this many frames.
+    int bench_frames = 0;
 };
 
 // Runs the overlay until the user presses ESC. Returns CLI exit code:

@@ -919,6 +919,28 @@ void key_cb(GLFWwindow* w, int key, int /*sc*/, int action, int /*mods*/) {
     }
 }
 
+// Phase 3e end-to-end: report the per-frame CPU cost of the capture→GPU
+// step (the ShaderGlass differentiator — GL DXGI memcpy+upload vs DX12 WGC
+// zero-copy). stderr, since the GL path's stdout can be swallowed.
+void capture_bench_report(const char* label, std::vector<double>& cap_ms) {
+    if (cap_ms.empty()) {
+        std::fprintf(stderr, "[capbench] %-4s: no samples\n", label);
+        return;
+    }
+    std::sort(cap_ms.begin(), cap_ms.end());
+    const size_t n = cap_ms.size();
+    double sum = 0.0;
+    for (double v : cap_ms) sum += v;
+    const double avg = sum / static_cast<double>(n);
+    std::fprintf(stderr,
+        "[capbench] %-4s capture->GPU/frame: avg %.4f ms | p50 %.4f | "
+        "p99 %.4f | min %.4f | max %.4f ms (%zu frames)\n",
+        label, avg, cap_ms[n / 2],
+        cap_ms[std::min(n - 1, static_cast<size_t>(n * 0.99))],
+        cap_ms.front(), cap_ms.back(), n);
+    std::fflush(stderr);
+}
+
 #if defined(TUBELIGHT_HAVE_D3D12)
 // ---------------------------------------------------------------------------
 // T5.5 — D3D12 + WGC overlay path.
@@ -1206,6 +1228,13 @@ int run_dx12(const Options& opts) {
     tubelight::TextureHandle last_h{0};
     unsigned long long frames_rendered = 0;
     int target_lost_frames = 0;
+    const bool bench = opts.bench_frames > 0;
+    std::vector<double> cap_ms;
+    if (bench) {
+        cap_ms.reserve(static_cast<size_t>(opts.bench_frames));
+        std::fprintf(stderr, "[capbench] dx12: capturing %d frames...\n",
+                     opts.bench_frames);
+    }
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -1250,11 +1279,17 @@ int run_dx12(const Options& opts) {
         }
 
         if (!state.freeze) {
+            // capture→GPU step: WGC latest_frame + zero-copy D3D11On12 wrap.
+            const auto cap_t0 = std::chrono::high_resolution_clock::now();
             int tw = 0, th = 0;
             auto tex11 = wgc.latest_frame(tw, th);
             if (tex11) {
                 auto h = d12->wrap_d3d11_texture(tex11.Get(), tw, th);
                 if (h.is_valid()) last_h = h;
+            }
+            if (bench && tex11) {
+                cap_ms.push_back(std::chrono::duration<double, std::milli>(
+                    std::chrono::high_resolution_clock::now() - cap_t0).count());
             }
         }
         if (!last_h.is_valid()) {
@@ -1273,6 +1308,10 @@ int run_dx12(const Options& opts) {
                 last_h.id);
         }
         ++frames_rendered;
+        if (bench && static_cast<int>(cap_ms.size()) >= opts.bench_frames) {
+            capture_bench_report("dx12", cap_ms);
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+        }
     }
 
     std::printf("[overlay] dx12: %llu frames rendered, %llu captured\n",
@@ -2046,6 +2085,16 @@ int run(const Options& opts) {
     unsigned long long frames_total = 0, frames_new = 0;
     bool kicked_repaint = false;
     auto loop_started = std::chrono::steady_clock::now();
+    // Phase 3e end-to-end: capture→GPU cost bench (DXGI grab + memcpy +
+    // glTexSubImage2D upload). In bench mode the upload is forced every
+    // frame (the realistic overlay-over-changing-content case).
+    const bool bench = opts.bench_frames > 0;
+    std::vector<double> cap_ms;
+    if (bench) {
+        cap_ms.reserve(static_cast<size_t>(opts.bench_frames));
+        std::fprintf(stderr, "[capbench] gl: capturing %d frames...\n",
+                     opts.bench_frames);
+    }
 
     // ---------------------------------------------------------------------
     // Subclass the window so the overlay keeps rendering DURING a user
@@ -2185,14 +2234,21 @@ int run(const Options& opts) {
             }
         }
 
-        if (new_frame) {
+        if (new_frame || (bench && have_initial)) {
             int wx, wy, ww, wh;
             read_window_rect_on_monitor(wx, wy, ww, wh);
+            // Time only the upload work (memcpy into sub_buffer + glTexSubImage2D)
+            // — the real capture→GPU cost, comparable to DX12's zero-copy wrap.
+            const auto up_t0 = std::chrono::high_resolution_clock::now();
             upload_subregion_to_source(capture, source, wx, wy, ww, wh,
                                         win_w, win_h, sub_buffer,
                                         fullscreen_active);
+            if (bench) {
+                cap_ms.push_back(std::chrono::duration<double, std::milli>(
+                    std::chrono::high_resolution_clock::now() - up_t0).count());
+            }
             have_initial = true;
-            ++frames_new;
+            if (new_frame) ++frames_new;
 
             // Cheap luminance sample shared between audio flyback
             // modulation and the pipeline's voltage-bloom uniform.
@@ -2221,6 +2277,10 @@ int run(const Options& opts) {
                     }
                 }
             }
+        }
+        if (bench && static_cast<int>(cap_ms.size()) >= opts.bench_frames) {
+            capture_bench_report("gl", cap_ms);
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
         ++frames_total;
 

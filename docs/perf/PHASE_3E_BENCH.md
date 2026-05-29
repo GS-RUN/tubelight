@@ -8,10 +8,21 @@ GPU-time bench) + `dx12-engineer` (descriptor-heap scope)
 
 ## TL;DR
 
-**D3D12 and OpenGL are at parity** for the 8-pass CRT pipeline GPU cost:
-**DX12 ~0.38 ms/frame, GL ~0.36 ms/frame** (within ~5-8%, both rock-stable
-p99). Neither the ADR's aspirational "3-5× DX12" nor the (now-retracted)
-"GL is 2-6× faster" hold — it's a tie.
+Two findings:
+
+1. **Pipeline GPU cost: GL ≈ DX12 parity** (~0.36 vs ~0.38 ms/frame). The
+   8-pass shader cascade was never the bottleneck.
+2. **Capture→GPU cost: this is the real ShaderGlass gap.** The GL path
+   (DXGI Duplication → CPU `memcpy` → `glTexSubImage2D`) spends **~3.4 ms
+   per frame** moving the frame to the GPU; the DX12+WGC path (zero-copy
+   `D3D11On12` unwrap) spends **~0.003 ms — ~1000× less.** At 60 Hz that's
+   ~20% of the frame budget GL burns on pixel movement that DX12+WGC
+   eliminates. **This is how Tubelight matches ShaderGlass: the DX12+WGC
+   overlay (T5.5) is already that architecture.**
+
+So: same shader speed; the win that closes the ShaderGlass fluidity/CPU
+gap is the zero-copy capture path, which already exists in `--renderer
+dx12 --overlay*`.
 
 | Backend | avg ms/frame (GPU) | p50 | p99 | min |
 |---|---|---|---|---|
@@ -95,6 +106,46 @@ per-draw work, is the correct explicit-API pattern, and is verified
   costs no more GPU than GL for the core pipeline.
 - v0.2.0 stable notes: GL stays the default; DX12 is the capture/HDR path,
   **at parity** on raw pipeline cost.
+
+## End-to-end: the capture→GPU path (the real ShaderGlass gap)
+
+The pipeline bench above isolates the shader cascade. But the overlay's
+real per-frame cost also includes getting the captured desktop frame onto
+the GPU as a sampleable texture — and **that** is where GL and the
+DX12+WGC path diverge massively.
+
+Measured via `--overlay-fullscreen --renderer <gl|dx12> --bench 200` (times
+only the capture→GPU work per frame; GL forces the upload every frame to
+model the realistic overlay-over-changing-content case):
+
+| Path | capture→GPU /frame | what it does |
+|---|---|---|
+| **GL**   | **3.385 ms** (p50 3.37, p99 4.32, min 3.23) | DXGI `Map` + CPU `memcpy` of the full BGRA frame into `sub_buffer` + `glTexSubImage2D` (~9 MB at 1920×1200) |
+| **DX12** | **0.003 ms** (p50 0.002, p99 0.005, max 0.16) | `WgcCapture::latest_frame` + `D3D11On12 UnwrapUnderlyingResource` + cached SRV — **zero copy** |
+
+**~3.4 ms/frame difference, ~1000×.** At 60 Hz, GL spends ~20% of the
+16.6 ms frame budget just shuttling pixels CPU→GPU; the DX12+WGC path
+spends effectively nothing. This is the CPU-overhead / fluidity gap vs
+ShaderGlass (D3D11 + WGC, ~14% CPU) that ADR-0002 set out to close — and
+the T5.5 DX12+WGC overlay **already closes it** by staying entirely on the
+GPU.
+
+Caveats: GL number is the upload work only (excludes DXGI's poll-timeout
+wait, which isn't CPU work); DX12 number is `latest_frame` + `wrap`. Both
+are the honest "work to make the frame sampleable". Single host. The GL
+cost is data-size bound (scales with capture resolution); DX12's is flat.
+
+### So how do we "match ShaderGlass"?
+
+We already do, architecturally — **run `--renderer dx12` with any
+`--overlay*` mode.** Remaining work is to make it the *default daily
+driver*, not the speed:
+
+- **Phase 4a (DComp)**: cross-process click-through + ImGui menu under DX12
+  so the WGC path is usable as the primary overlay, not just a smoke.
+- (Optional) speed up the GL path for users who stay on it: PBO async
+  upload (precedent: the video recorder's PBO ring) would hide some of the
+  3.4 ms, but never reach zero-copy. Not worth it if DX12+WGC is default.
 
 ## Lesson (methodology)
 

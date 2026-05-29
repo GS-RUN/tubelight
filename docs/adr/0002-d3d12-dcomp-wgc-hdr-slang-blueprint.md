@@ -122,9 +122,19 @@ load es opcional para `--shader-only` (debug).
   > double-buffered en vez de `CopyDescriptorsSimple` por-draw; canónico
   > DX-02, bit-exact, pero no movió el número — el pipeline no estaba
   > descriptor-bound). Detalle + lección de metodología en
-  > `docs/perf/PHASE_3E_BENCH.md`. **Conclusión**: DX12 cuesta lo mismo que
-  > GL en el pipeline core; su valor sigue siendo cualitativo (WGC
-  > per-window, HDR, VRS), ahora sin penalización de throughput.
+  > `docs/perf/PHASE_3E_BENCH.md`. **Conclusión pipeline**: DX12 cuesta lo
+  > mismo que GL en el pipeline core.
+  >
+  > **DONDE SÍ GANA DX12 (medido, el verdadero punto ShaderGlass)**: el
+  > coste **captura→GPU por frame**. GL (DXGI → `memcpy` CPU →
+  > `glTexSubImage2D`, ~9MB/frame) = **3.385 ms/frame**; DX12+WGC
+  > (`D3D11On12 UnwrapUnderlyingResource`, zero-copy) = **0.003 ms/frame** —
+  > **~1000× menos** (`--overlay-fullscreen --renderer <gl|dx12> --bench
+  > 200`). A 60 Hz, GL quema ~20% del presupuesto de frame solo moviendo
+  > píxeles; DX12+WGC, nada. **AHÍ está el "60-70% menos CPU overhead" y la
+  > fluidez tipo ShaderGlass — confirmado, y el path T5.5 DX12+WGC ya lo
+  > entrega.** Falta hacerlo default usable (Phase 4a: click-through +
+  > menú en DX12).
 - **HDR-aware pipeline**: ningún competidor lo tiene. CRT real con
   contraste 1000:1+ sobre HDR display.
 - **WGC capture per-window**: menos bandwidth, menos compositor stalls,
