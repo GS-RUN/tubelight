@@ -5,6 +5,24 @@ Versioning: [SemVer 2.0](https://semver.org/).
 
 ## [Unreleased]
 
+### Phase 3e groundwork — DX12 N-frame-in-flight sync
+
+- **`D3D12Backend` frame pacing** ([src/render/backend_d3d12.cpp](src/render/backend_d3d12.cpp)):
+  replaced the Phase 3b skeleton sync (one command allocator, one fence,
+  **wait-for-GPU-idle on every Present** — ~1 ms CPU stall per frame) with
+  proper N-frame-in-flight pacing. One command allocator per back buffer
+  (DX-22) + a per-slot fence value; `begin_frame` waits on that slot's
+  fence before recycling its allocator (DX-10) — so the CPU only stalls
+  when it laps the GPU by `kBackBufferCount` frames, otherwise CPU and GPU
+  run pipelined. The CB ring (64 slots) and scratch SRV ring (256) have
+  ample margin at 2 frames in flight (8 CB / 16 SRV per frame → wrap
+  periods of 8 / 16 frames ≫ 2). Load-time paths (upload, create_pass,
+  capture, resize, shutdown) keep the full `wait_for_gpu_idle()`.
+- **Correctness gate**: deterministic `--shader-only` DX12 golden is
+  **bit-exact** before vs after (PSNR ∞, Δmax 0). WGC + all overlay modes
+  render; injected Ctrl+Alt+Q exits cleanly. Unblocks an honest Phase 3e
+  GL-vs-DX12 throughput bench (which also needs a vsync-off present path).
+
 ## [0.2.0-rc.0] — 2026-05-29
 
 ### Phase 3d COMPLETE — WGC + D3D12 overlay live (T5.5)

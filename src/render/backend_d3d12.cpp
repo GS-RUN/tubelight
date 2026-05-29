@@ -177,13 +177,16 @@ bool D3D12Backend::init(const BackendInitParams& params) {
     if (!create_root_signature()) return false;
     if (!create_cb_ring())        return false;
 
-    if (FAILED(device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                IID_PPV_ARGS(&cmd_alloc_)))) {
-        std::fprintf(stderr, "[tubelight][d3d12] CreateCommandAllocator failed\n");
-        return false;
+    // One allocator per frame in flight (DX-22).
+    for (UINT i = 0; i < kBackBufferCount; ++i) {
+        if (FAILED(device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                    IID_PPV_ARGS(&cmd_alloc_[i])))) {
+            std::fprintf(stderr, "[tubelight][d3d12] CreateCommandAllocator[%u] failed\n", i);
+            return false;
+        }
     }
     if (FAILED(device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                           cmd_alloc_.Get(), nullptr,
+                                           cmd_alloc_[0].Get(), nullptr,
                                            IID_PPV_ARGS(&cmd_list_)))) {
         std::fprintf(stderr, "[tubelight][d3d12] CreateCommandList failed\n");
         return false;
@@ -271,6 +274,14 @@ void D3D12Backend::drain_info_queue() {
         }
     }
     info_queue_->ClearStoredMessages();
+}
+
+void D3D12Backend::wait_for_fence(UINT64 value) {
+    if (!fence_ || value == 0) return;
+    if (fence_->GetCompletedValue() < value) {
+        fence_->SetEventOnCompletion(value, fence_event_);
+        WaitForSingleObject(fence_event_, INFINITE);
+    }
 }
 
 void D3D12Backend::wait_for_gpu_idle() {
@@ -478,7 +489,7 @@ void D3D12Backend::shutdown() {
     destroy_swap_chain_resources();
     swap_chain_.Reset();
     cmd_list_.Reset();
-    cmd_alloc_.Reset();
+    for (UINT i = 0; i < kBackBufferCount; ++i) cmd_alloc_[i].Reset();
     rtv_heap_.Reset();
     fence_.Reset();
     cmd_queue_.Reset();
@@ -510,8 +521,13 @@ void D3D12Backend::resize(int width, int height) {
 void D3D12Backend::begin_frame() {
     if (!ready_ || in_frame_) return;
     current_back_buffer_ = swap_chain_->GetCurrentBackBufferIndex();
-    cmd_alloc_->Reset();
-    cmd_list_->Reset(cmd_alloc_.Get(), nullptr);
+    // DX-10: do not reset this slot's allocator until the GPU has finished
+    // the frame that last used it. With kBackBufferCount slots the CPU only
+    // stalls here when it has lapped the GPU by that many frames — otherwise
+    // this returns immediately and CPU/GPU run pipelined.
+    wait_for_fence(frame_fence_value_[current_back_buffer_]);
+    cmd_alloc_[current_back_buffer_]->Reset();
+    cmd_list_->Reset(cmd_alloc_[current_back_buffer_].Get(), nullptr);
 
     D3D12_RESOURCE_BARRIER b{};
     b.Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -1298,9 +1314,15 @@ void D3D12Backend::end_frame() {
     // along with the bench config.
     swap_chain_->Present(1, 0);
 
-    // Block until the GPU is idle. Trades ~1ms throughput for simplicity;
-    // Phase 3c pipelines this with per-frame allocators+fence values.
-    wait_for_gpu_idle();
+    // Frame pacing (DX-22 + DX-10): signal a fence value for this slot and
+    // record it, but do NOT block. begin_frame waits on this value only
+    // when it next recycles this slot (kBackBufferCount frames later), so
+    // the CPU stays up to kBackBufferCount-1 frames ahead of the GPU
+    // instead of stalling on every Present.
+    const UINT64 signaled = ++fence_value_;
+    cmd_queue_->Signal(fence_.Get(), signaled);
+    frame_fence_value_[current_back_buffer_] = signaled;
+
     in_frame_         = false;
     default_fb_bound_ = false;
 

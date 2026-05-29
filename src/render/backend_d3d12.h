@@ -14,10 +14,12 @@
 //  2. Exposes the `--renderer dx12` CLI flag so users / CI can smoke-test
 //     D3D12 device creation on their hardware (R12 mitigation).
 //
-// Synchronisation in Phase 3b is intentionally simple: one command
-// allocator, one command list, one fence — wait for GPU idle on every
-// Present. ~1 ms penalty vs. a proper triple-buffered pipeline; acceptable
-// for a skeleton that only clears the screen. Pipelining lands in 3c.
+// Synchronisation: N-frame-in-flight pacing (post-3d). One command
+// allocator per back buffer + a per-slot fence value; begin_frame only
+// stalls when the CPU laps the GPU by kBackBufferCount frames, instead of
+// the Phase 3b skeleton's wait-for-idle on every Present. Load-time paths
+// (upload / create_pass / capture / resize / shutdown) still do a full
+// wait_for_gpu_idle() — they are not on the per-frame hot path.
 
 #pragma once
 
@@ -122,6 +124,10 @@ private:
     static constexpr UINT kSrvHeapMax   = 256;
 
     void wait_for_gpu_idle();
+    // Block until the shared fence has reached `value` (no new signal).
+    // Used by begin_frame to wait only when the CPU laps the GPU by
+    // kBackBufferCount frames (DX-10 + DX-22 frame pacing).
+    void wait_for_fence(UINT64 value);
     bool create_swap_chain_resources(int width, int height);
     void destroy_swap_chain_resources();
     bool create_root_signature();
@@ -148,7 +154,11 @@ private:
     Microsoft::WRL::ComPtr<IDXGIFactory6>           dxgi_factory_;
     Microsoft::WRL::ComPtr<IDXGISwapChain4>         swap_chain_;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue>      cmd_queue_;
-    Microsoft::WRL::ComPtr<ID3D12CommandAllocator>  cmd_alloc_;
+    // One command allocator per frame in flight (DX-22). begin_frame
+    // resets cmd_alloc_[current_back_buffer_] only after the fence proves
+    // that frame's prior GPU work is done (DX-10). The single command
+    // list is reset onto the slot's allocator each frame.
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator>  cmd_alloc_[kBackBufferCount];
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> cmd_list_;
 
     // RTV descriptor heap + cached backbuffer resources + per-RT RTVs
@@ -186,6 +196,10 @@ private:
     // GPU/CPU sync.
     Microsoft::WRL::ComPtr<ID3D12Fence>             fence_;
     UINT64 fence_value_ = 0;
+    // Fence value signaled at the end of the frame that last used each
+    // in-flight slot. begin_frame waits for frame_fence_value_[slot]
+    // before recycling that slot's allocator + ring slots.
+    UINT64 frame_fence_value_[kBackBufferCount] = {};
     HANDLE fence_event_ = nullptr;
 
     HWND hwnd_ = nullptr;
