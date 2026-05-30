@@ -2813,6 +2813,16 @@ int run(const Options& opts) {
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
                                intensity_multiplier, want_quit_from_menu,
                                ui_capture_dir, cap_changed, wa, sio);
+            // Click-away: a left click outside the menu closes it (matches the
+            // DX12 path). ImGui has the current hover/click state here, right
+            // after build_widgets. GL recomputes g_clickthrough_effective from
+            // !menu.is_open() every frame, so closing here restores
+            // click-through on the next frame automatically.
+            if (menu.is_open() &&
+                ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                !ImGui::GetIO().WantCaptureMouse) {
+                menu.set_open(false);
+            }
             bool any_setting_changed = false;
             if (hud_changed)            { settings.hud_visible       = hud_visible;       any_setting_changed = true; }
             if (audio_changed) {
