@@ -1653,6 +1653,15 @@ int run_dx12(const Options& opts) {
         }
     };
 
+    // NVIDIA + Win11: a GWL_EXSTYLE swap silently drops the window's display
+    // affinity (see L286), so WGC starts capturing our OWN overlay → recursive
+    // feedback ghost (the violent "vibration" when toggling Ctrl/menu). Re-assert
+    // WDA_EXCLUDEFROMCAPTURE after every exstyle change. Respects the recordable
+    // toggle (m_rec → WDA_NONE so the overlay IS captured on purpose).
+    auto reassert_wda = [&]() {
+        SetWindowDisplayAffinity(hwnd, m_rec ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
+    };
+
     const bool bench = opts.bench_frames > 0;
     std::vector<double> cap_ms;
     if (bench) {
@@ -1736,11 +1745,13 @@ int run_dx12(const Options& opts) {
                 g_dx12_ct_active.store(false);
                 ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                reassert_wda();
                 SetForegroundWindow(hwnd);
                 SetActiveWindow(hwnd);
             } else if (layered) {
                 ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                reassert_wda();
                 g_dx12_ct_active.store(!no_ct);
             }
             ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -1760,6 +1771,7 @@ int run_dx12(const Options& opts) {
                 LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                 ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                reassert_wda();
                 g_dx12_ct_active.store(!no_ct);
             }
             std::printf("[overlay] dx12: menu auto-closed (click-away) — click-through restored\n");
@@ -1778,10 +1790,12 @@ int run_dx12(const Options& opts) {
             if (ctrl_down && transparent) {
                 ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                reassert_wda();
                 g_dx12_ct_active.store(false);
             } else if (!ctrl_down && !transparent) {
                 ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                reassert_wda();
                 g_dx12_ct_active.store(true);
             }
         }
