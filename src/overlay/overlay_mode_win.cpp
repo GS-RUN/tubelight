@@ -1206,6 +1206,77 @@ LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(h, msg, wp, lp);
 }
 
+// ---- Windowed mode: native chrome FrameWindow ---------------------------
+// A click-through CRT window (WS_EX_TRANSPARENT) is click-through over its
+// WHOLE surface — it can't host a draggable title bar (the flag is
+// all-or-nothing, and WM_NCHITTEST→HTTRANSPARENT is same-thread-only). So
+// windowed mode is TWO windows: this FrameWindow owns the OS chrome (title /
+// minimize / maximize / close / resize / drag) and is EXCLUDED FROM CAPTURE so
+// the CRT sees the region BEHIND the whole app; the layered click-through CRT
+// window (run_dx12's hwnd) is glued over the FrameWindow's client rect, which
+// it follows on move/resize/min/max.
+struct FrameWndState {
+    HWND          crt       = nullptr;   // the CRT window to keep glued
+    Dx12WndState* crt_state = nullptr;   // CRT window's loop state (resize/quit)
+    bool          quit      = false;     // user hit the close button
+    bool          minimized = false;     // CRT hidden while frame minimized
+};
+
+// Reposition + resize the CRT window to sit exactly over the FrameWindow's
+// client rect (screen coords). Safe to call from the wndproc (fires during the
+// modal drag/resize loop too, so the CRT tracks the frame even while the main
+// render loop is blocked). The SetWindowPos size change makes Windows post
+// WM_SIZE to the CRT window, which dx12_wndproc turns into a backend/pipeline
+// resize on the main loop.
+inline void glue_crt_to_frame(HWND frame, HWND crt) {
+    if (!frame || !crt || IsIconic(frame)) return;
+    RECT rc{}; GetClientRect(frame, &rc);
+    POINT tl{ 0, 0 }; ClientToScreen(frame, &tl);
+    const int w = rc.right - rc.left, h = rc.bottom - rc.top;
+    if (w <= 0 || h <= 0) return;
+    SetWindowPos(crt, HWND_TOPMOST, tl.x, tl.y, w, h,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+
+LRESULT CALLBACK frame_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    auto* fs = reinterpret_cast<FrameWndState*>(GetWindowLongPtrW(h, GWLP_USERDATA));
+    switch (msg) {
+    case WM_WINDOWPOSCHANGED:
+        // Fires on move AND resize, including during the modal drag/resize
+        // loop → keeps the CRT glued live. Let DefWindowProc run too (it
+        // derives WM_MOVE/WM_SIZE from this).
+        if (fs && !fs->minimized) glue_crt_to_frame(h, fs->crt);
+        break;
+    case WM_SYSCOMMAND: {
+        const WPARAM cmd = wp & 0xFFF0;
+        if (cmd == SC_MINIMIZE) {
+            if (fs) { fs->minimized = true; if (fs->crt) ShowWindow(fs->crt, SW_HIDE); }
+        } else if (cmd == SC_RESTORE || cmd == SC_MAXIMIZE) {
+            if (fs) {
+                fs->minimized = false;
+                if (fs->crt) ShowWindow(fs->crt, SW_SHOWNOACTIVATE);
+            }
+            // fall through to DefWindowProc to actually restore/maximize, then
+            // the resulting WM_WINDOWPOSCHANGED re-glues the CRT.
+        }
+        break;
+    }
+    case WM_GETMINMAXINFO: {
+        auto* mmi = reinterpret_cast<MINMAXINFO*>(lp);
+        mmi->ptMinTrackSize.x = 200;
+        mmi->ptMinTrackSize.y = 150;
+        return 0;
+    }
+    case WM_CLOSE:
+        if (fs) fs->quit = true;
+        return 0;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+
 int run_dx12(const Options& opts) {
     ct_log_open();
     if (!tubelight::WgcCapture::is_supported()) {
@@ -1262,14 +1333,18 @@ int run_dx12(const Options& opts) {
         win_y = mon.y + (mon.h - H) / 2;
     }
 
-    const bool chrome = mode_windowed;  // only plain windowed gets a title bar
+    // Windowed mode gets a separate native FrameWindow for the OS chrome (see
+    // FrameWndState above). The CRT window itself is ALWAYS a borderless
+    // layered click-through popup now, in every mode — windowed differs only by
+    // having a chrome window glued behind it.
+    const bool has_frame = mode_windowed;
     const bool no_ct  = (std::getenv("TUBELIGHT_NO_CLICKTHROUGH") != nullptr);
-    // Borderless overlay modes present via the layered ULW path (Path B —
-    // see DIAGNOSIS_CLICKTHROUGH_DX12_*.md): a WS_EX_LAYERED|TRANSPARENT
-    // window whose pixels come from UpdateLayeredWindow with the captured
-    // frame. This is the only Win32 combination that yields cross-process
-    // click-through AND shows D3D content (mirrors the proven GL recipe).
-    const bool layered = !chrome;
+    // All overlay modes present via the layered path (Path B — see
+    // DIAGNOSIS_CLICKTHROUGH_DX12_*.md): a WS_EX_LAYERED|TRANSPARENT window
+    // painted each frame by BitBlt of the captured frame. This is the only
+    // Win32 combination that yields cross-process click-through AND shows D3D
+    // content (mirrors the proven GL recipe).
+    const bool layered = !no_ct;
 
     static const wchar_t* kClassName = L"TubelightDX12Overlay";
     HINSTANCE hinst = GetModuleHandleW(nullptr);
@@ -1289,20 +1364,14 @@ int run_dx12(const Options& opts) {
     // on a layered window) + NOACTIVATE/TOOLWINDOW/TOPMOST. Plain windowed:
     // a normal resizable framed window (flip-model HWND swap chain, no
     // click-through).
-    const DWORD style = chrome ? WS_OVERLAPPEDWINDOW : WS_POPUP;
+    const DWORD style = WS_POPUP;
     const DWORD ct_flag = no_ct ? 0u : WS_EX_TRANSPARENT;
-    const DWORD exstyle = chrome
-        ? WS_EX_APPWINDOW
-        : (WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
-           WS_EX_TOPMOST | ct_flag);
+    const DWORD exstyle = WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
+                          WS_EX_TOPMOST | ct_flag;
 
-    // For a popup the requested size IS the client size; for a framed window
-    // expand to include the non-client area so the client ends up W×H.
-    RECT wr{ win_x, win_y, win_x + W, win_y + H };
-    if (chrome) AdjustWindowRectEx(&wr, style, FALSE, exstyle);
-
+    // Popup: the requested size IS the client size.
     HWND hwnd = CreateWindowExW(exstyle, kClassName, L"Tubelight (DX12)", style,
-                                wr.left, wr.top, wr.right - wr.left, wr.bottom - wr.top,
+                                win_x, win_y, W, H,
                                 nullptr, nullptr, hinst, nullptr);
     if (!hwnd) {
         std::fprintf(stderr, "[overlay] CreateWindowEx failed: GLE=%lu\n", GetLastError());
@@ -1326,9 +1395,8 @@ int run_dx12(const Options& opts) {
             (ex & WS_EX_LAYERED)             ? "LAYERED "             : "",
             (ex & WS_EX_NOACTIVATE)          ? "NOACTIVATE "          : "",
             (ex & WS_EX_TOPMOST)             ? "TOPMOST "             : "",
-            chrome ? "off(windowed)"
-                   : no_ct ? "off(NO_CLICKTHROUGH)"
-                           : "WS_EX_TRANSPARENT (layered)");
+            no_ct ? "off(NO_CLICKTHROUGH)"
+                  : "WS_EX_TRANSPARENT (layered)");
     }
 
     // Layered windows: drive the alpha via SetLayeredWindowAttributes (NOT
@@ -1480,6 +1548,46 @@ int run_dx12(const Options& opts) {
     wnd_state.pipeline = &pipeline;
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&wnd_state));
 
+    // Windowed mode: create the native chrome FrameWindow (title / min / max /
+    // close / resize / drag) behind the CRT window. The frame is excluded from
+    // capture so the CRT shows the region BEHIND the whole app; the CRT window
+    // (TOPMOST) covers only the frame's client rect, leaving the title bar
+    // visible + clickable. The frame's wndproc glues the CRT to its client.
+    static const wchar_t* kFrameClass = L"TubelightDX12Frame";
+    HWND frame_hwnd = nullptr;
+    FrameWndState frame_state;
+    if (has_frame) {
+        WNDCLASSEXW fc{};
+        fc.cbSize        = sizeof(fc);
+        fc.lpfnWndProc   = frame_wndproc;
+        fc.hInstance     = hinst;
+        fc.hCursor       = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
+        fc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+        fc.lpszClassName = kFrameClass;
+        RegisterClassExW(&fc);
+
+        // Position the frame so its CLIENT rect lands at (win_x, win_y, W, H) —
+        // i.e. where the CRT popup already is.
+        RECT fr{ win_x, win_y, win_x + W, win_y + H };
+        AdjustWindowRectEx(&fr, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_APPWINDOW);
+        frame_hwnd = CreateWindowExW(
+            WS_EX_APPWINDOW, kFrameClass, L"Tubelight", WS_OVERLAPPEDWINDOW,
+            fr.left, fr.top, fr.right - fr.left, fr.bottom - fr.top,
+            nullptr, nullptr, hinst, nullptr);
+        if (!frame_hwnd) {
+            std::fprintf(stderr, "[overlay] dx12: FrameWindow create failed GLE=%lu\n",
+                         GetLastError());
+        } else {
+            SetWindowDisplayAffinity(frame_hwnd,
+                std::getenv("TUBELIGHT_OVERLAY_CAPTURABLE") ? WDA_NONE
+                                                            : WDA_EXCLUDEFROMCAPTURE);
+            frame_state.crt       = hwnd;
+            frame_state.crt_state = &wnd_state;
+            SetWindowLongPtrW(frame_hwnd, GWLP_USERDATA,
+                              reinterpret_cast<LONG_PTR>(&frame_state));
+        }
+    }
+
     // Phase 4a.3: in-app ImGui menu on the D3D12 backend (Win32 platform
     // backend — the WndProc forwards messages to ImGui). Ctrl+Alt+M toggles.
     Menu menu;
@@ -1521,10 +1629,14 @@ int run_dx12(const Options& opts) {
         }
     }
 
-    ShowWindow(hwnd, chrome ? SW_SHOW : SW_SHOWNOACTIVATE);
-    SetWindowPos(hwnd, HWND_TOPMOST, win_x, win_y,
-                 chrome ? 0 : W, chrome ? 0 : H,
-                 (chrome ? (SWP_NOMOVE | SWP_NOSIZE) : 0) | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    SetWindowPos(hwnd, HWND_TOPMOST, win_x, win_y, W, H,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    // Show the chrome frame (windowed mode) and snap the CRT onto its client.
+    if (has_frame && frame_hwnd) {
+        ShowWindow(frame_hwnd, SW_SHOW);
+        glue_crt_to_frame(frame_hwnd, hwnd);
+    }
 
     // Global low-level keyboard hook so Ctrl+Alt+<key> works regardless of
     // focus — essential because the borderless overlay is WS_EX_NOACTIVATE
@@ -1649,12 +1761,19 @@ int run_dx12(const Options& opts) {
             DispatchMessageW(&wmsg);
             if (wmsg.message == WM_QUIT) wnd_state.quit = true;
         }
+        // Frame chrome (windowed mode): the user hit the close button.
+        if (has_frame && frame_state.quit) { wnd_state.quit = true; break; }
         // Apply a pending resize from WM_SIZE.
         if (wnd_state.resized) {
             wnd_state.resized = false;
-            backend_raw->resize(wnd_state.resize_w, wnd_state.resize_h);
-            pipeline.resize(wnd_state.resize_w, wnd_state.resize_h);
+            fb_w = wnd_state.resize_w;
+            fb_h = wnd_state.resize_h;
+            backend_raw->resize(fb_w, fb_h);
+            pipeline.resize(fb_w, fb_h);
         }
+        // While the chrome frame is minimized, the CRT window is hidden — idle
+        // instead of rendering into a hidden surface.
+        if (has_frame && frame_state.minimized) { Sleep(15); continue; }
 
         // Diagnostics: every ~1.5 s log what Windows thinks is under the
         // cursor. If WindowFromPoint returns OUR hwnd while the cursor is over
@@ -1716,7 +1835,7 @@ int run_dx12(const Options& opts) {
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 SetForegroundWindow(hwnd);
                 SetActiveWindow(hwnd);
-            } else if (!chrome) {
+            } else if (layered) {
                 ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 g_dx12_ct_active.store(!no_ct);
@@ -1734,7 +1853,7 @@ int run_dx12(const Options& opts) {
         // can no longer click anything below — the reported bug.
         if (has_menu && menu.is_open() && g_dx12_menu_clickaway.exchange(false)) {
             menu.toggle();  // close
-            if (!chrome) {
+            if (layered) {
                 LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                 ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
@@ -1746,7 +1865,7 @@ int run_dx12(const Options& opts) {
         // Safety net: a borderless overlay with the menu CLOSED must always be
         // click-through. Re-assert WS_EX_TRANSPARENT every frame in case any
         // path (menu, focus loss, resize) left it off.
-        if (!chrome && has_menu && !menu.is_open() && !no_ct) {
+        if (layered && has_menu && !menu.is_open() && !no_ct) {
             LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             if (!(ex & WS_EX_TRANSPARENT)) {
                 ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
@@ -1907,6 +2026,11 @@ int run_dx12(const Options& opts) {
     if (ovl_mem_dc) DeleteDC(ovl_mem_dc);
     if (ovl_ref_dc) ReleaseDC(nullptr, ovl_ref_dc);
 
+    if (frame_hwnd) {
+        SetWindowLongPtrW(frame_hwnd, GWLP_USERDATA, 0);
+        DestroyWindow(frame_hwnd);
+        UnregisterClassW(kFrameClass, hinst);
+    }
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
     DestroyWindow(hwnd);
     UnregisterClassW(kClassName, hinst);
