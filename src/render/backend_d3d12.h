@@ -203,7 +203,13 @@ private:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>    rtv_heap_;
     Microsoft::WRL::ComPtr<ID3D12Resource>          back_buffers_[kBackBufferCount];
     UINT rtv_descriptor_size_ = 0;
-    UINT next_rtv_slot_ = kBackBufferCount;  // first free RTV slot for create_render_target
+    UINT next_rtv_slot_ = kBackBufferCount;  // bump alloc; free list reused first
+    // Free lists so destroy_render_target / destroy_texture return their RTV +
+    // CPU-SRV slots for reuse. Without these, every Pipeline::resize (which
+    // recreates all pass RTs) leaked ~N RTV slots → "RTV heap exhausted" after
+    // a handful of resizes (e.g. a Ctrl-drag resize).
+    std::vector<UINT> free_rtv_slots_;
+    std::vector<UINT> free_srv_cpu_slots_;
 
     // Two SRV/CBV/UAV heaps:
     //  - `srv_cpu_heap_`  (NOT shader-visible): where create_texture /

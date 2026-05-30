@@ -409,6 +409,11 @@ void D3D12Backend::wait_for_gpu_idle() {
 // ----- helpers -----------------------------------------------------------
 
 UINT D3D12Backend::alloc_rtv_slot() {
+    if (!free_rtv_slots_.empty()) {
+        UINT s = free_rtv_slots_.back();
+        free_rtv_slots_.pop_back();
+        return s;
+    }
     if (next_rtv_slot_ >= kBackBufferCount + kRtvHeapExtra) {
         std::fprintf(stderr, "[tubelight][d3d12] RTV heap exhausted\n");
         return UINT_MAX;
@@ -416,6 +421,11 @@ UINT D3D12Backend::alloc_rtv_slot() {
     return next_rtv_slot_++;
 }
 UINT D3D12Backend::alloc_srv_cpu_slot() {
+    if (!free_srv_cpu_slots_.empty()) {
+        UINT s = free_srv_cpu_slots_.back();
+        free_srv_cpu_slots_.pop_back();
+        return s;
+    }
     if (next_srv_cpu_slot_ >= kSrvHeapMax) {
         std::fprintf(stderr, "[tubelight][d3d12] SRV CPU heap exhausted\n");
         return UINT_MAX;
@@ -594,6 +604,8 @@ void D3D12Backend::shutdown() {
     passes_.clear();
     textures_.clear();
     rts_.clear();
+    free_rtv_slots_.clear();
+    free_srv_cpu_slots_.clear();
     destroy_cb_ring();
     root_sig_.Reset();
     srv_heap_.Reset();
@@ -822,10 +834,14 @@ TextureHandle D3D12Backend::create_texture(const TextureDesc& d) {
 }
 
 void D3D12Backend::destroy_texture(TextureHandle h) {
-    // Note: SRV slots are leaked into the heap (no free-list). Acceptable
-    // for the lifetime of one Pipeline; if dynamic create/destroy churn
-    // becomes a problem, add a free-list (TODO_PERF).
-    textures_.erase(h.id);
+    auto it = textures_.find(h.id);
+    if (it == textures_.end()) return;
+    // Return the CPU-SRV slot for reuse — BUT NOT for a borrowed alias of an
+    // RT (rt_as_texture): that slot belongs to the RT and is freed when the RT
+    // is destroyed; freeing it here too would double-free it into the list.
+    if (!it->second.borrowed_from_rt && it->second.srv_cpu_slot != UINT_MAX)
+        free_srv_cpu_slots_.push_back(it->second.srv_cpu_slot);
+    textures_.erase(it);
 }
 
 bool D3D12Backend::upload_texture_rgba8(TextureHandle h, const void* data,
@@ -982,7 +998,13 @@ RenderTargetHandle D3D12Backend::create_render_target(int w, int h, PixelFormat 
 }
 
 void D3D12Backend::destroy_render_target(RenderTargetHandle h) {
-    rts_.erase(h.id);
+    auto it = rts_.find(h.id);
+    if (it == rts_.end()) return;
+    // An RT owns both its RTV slot and its CPU-SRV slot — return them so the
+    // next create_render_target reuses them (prevents the resize heap leak).
+    if (it->second.rtv_slot     != UINT_MAX) free_rtv_slots_.push_back(it->second.rtv_slot);
+    if (it->second.srv_cpu_slot != UINT_MAX) free_srv_cpu_slots_.push_back(it->second.srv_cpu_slot);
+    rts_.erase(it);
 }
 
 bool D3D12Backend::capture_backbuffer(std::vector<uint8_t>& out_rgba,

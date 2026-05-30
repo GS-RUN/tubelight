@@ -1104,6 +1104,7 @@ struct Dx12WndState {
     bool resized  = false;
     int  resize_w = 0;
     int  resize_h = 0;
+    bool in_modal = false;   // inside a Ctrl-drag move/resize loop
 };
 
 // ---- Click-through diagnostics log -------------------------------------
@@ -1222,11 +1223,14 @@ LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     // inside DefWindowProc that blocks our main render loop, so without this the
     // captured frame freezes (and stretches) until the mouse is released — the
     // reported "se queda grabado el frame". A ~16ms WM_TIMER ticks one render
-    // per frame for the duration of the modal loop (mirrors the GL subclass).
+    // per frame for the duration of the modal loop (mirrors the GL subclass);
+    // WM_SIZE above also repaints immediately so a resize has no flicker gap.
     case WM_ENTERSIZEMOVE:
+        if (st) st->in_modal = true;
         SetTimer(h, kModalRenderTimerId, USER_TIMER_MINIMUM, nullptr);
         break;
     case WM_EXITSIZEMOVE:
+        if (st) st->in_modal = false;
         KillTimer(h, kModalRenderTimerId);
         break;
     case WM_TIMER:
@@ -1667,7 +1671,20 @@ int run_dx12(const Options& opts) {
         }
         HDC wdc = GetDC(hwnd);
         if (wdc) {
-            BitBlt(wdc, 0, 0, cw, ch, ovl_mem_dc, 0, 0, SRCCOPY);
+            // Blit to the window's CURRENT client rect. They match 1:1 in steady
+            // state (fast BitBlt). During a deferred modal resize the swap chain
+            // is still the old size while the window has grown — StretchBlt then
+            // scales the frame to fill the window each tick (smooth preview, no
+            // per-tick swap-chain churn). HALFTONE = smooth scaling.
+            RECT rc{}; GetClientRect(hwnd, &rc);
+            const int dw = rc.right - rc.left, dh = rc.bottom - rc.top;
+            if (dw == cw && dh == ch) {
+                BitBlt(wdc, 0, 0, cw, ch, ovl_mem_dc, 0, 0, SRCCOPY);
+            } else if (dw > 0 && dh > 0) {
+                SetStretchBltMode(wdc, HALFTONE);
+                SetBrushOrgEx(wdc, 0, 0, nullptr);
+                StretchBlt(wdc, 0, 0, dw, dh, ovl_mem_dc, 0, 0, cw, ch, SRCCOPY);
+            }
             ReleaseDC(hwnd, wdc);
         }
     };
@@ -1689,7 +1706,13 @@ int run_dx12(const Options& opts) {
     // window with the crop, grabs the newest WGC frame, renders + presents.
     FrameRenderState frame_state;
     frame_state.render_one = [&]() {
-        if (wnd_state.resized) {
+        // During a modal resize, DON'T recreate the swap chain per tick — that
+        // churns DXGI ResizeBuffers dozens of times/sec and can TDR the device.
+        // Defer the real resize to drag-end (the main loop applies
+        // wnd_state.resized once WM_EXITSIZEMOVE unblocks it); meanwhile keep
+        // rendering at the current size and let present_layered StretchBlt the
+        // frame onto the live (growing) window rect — a smooth stretched preview.
+        if (!wnd_state.in_modal && wnd_state.resized) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
             fb_h = wnd_state.resize_h;
@@ -1731,7 +1754,9 @@ int run_dx12(const Options& opts) {
         }
         // Apply a pending resize from WM_SIZE (Ctrl-drag resize in windowed
         // mode). fb_w/fb_h track the new size so the region crop follows it.
-        if (wnd_state.resized) {
+        // Deferred while a modal resize is in progress (in_modal) — applied once
+        // on drag-end so the swap chain is recreated a single time, not per tick.
+        if (wnd_state.resized && !wnd_state.in_modal) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
             fb_h = wnd_state.resize_h;
