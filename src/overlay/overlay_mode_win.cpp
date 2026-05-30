@@ -1114,12 +1114,18 @@ LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     // open + click-through is off, so the overlay receives input).
     if (ImGui_ImplWin32_WndProcHandler(h, msg, wp, lp)) return 1;
 #endif
-    // A button-down that ImGui did NOT consume while the menu is open means the
-    // user clicked OUTSIDE the menu → ask the loop to close it and restore
-    // click-through. (g_dx12_ct_active is false exactly while the menu is open.)
+    // A button-down OUTSIDE the open ImGui menu → ask the loop to close it and
+    // restore click-through. "Outside" = ImGui doesn't want the mouse
+    // (WantCaptureMouse false). NOTE: ImGui_ImplWin32_WndProcHandler returns 0
+    // even for clicks ON widgets (it only records the event), so we must test
+    // WantCaptureMouse, not the handler's return value — otherwise EVERY click
+    // (including on menu options) would close the menu.
     if ((msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_NCLBUTTONDOWN)
         && !g_dx12_ct_active.load()) {
-        g_dx12_menu_clickaway.store(true);
+#if defined(TUBELIGHT_HAS_IMGUI)
+        if (ImGui::GetCurrentContext() != nullptr && !ImGui::GetIO().WantCaptureMouse)
+#endif
+            g_dx12_menu_clickaway.store(true);
     }
     auto* st = reinterpret_cast<Dx12WndState*>(GetWindowLongPtrW(h, GWLP_USERDATA));
     switch (msg) {
