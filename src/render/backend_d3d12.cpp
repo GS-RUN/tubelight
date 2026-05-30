@@ -1586,7 +1586,7 @@ void D3D12Backend::end_frame() {
     // Skipping it isolates the pure pipeline GPU cost. (current_back_buffer_
     // stays put without Present → the bench runs 1-frame-in-flight, which
     // is exactly what we want for an isolated per-frame measurement.)
-    if (!timing_enabled_) {
+    if (!timing_enabled_ && present_enabled_) {
         HRESULT pr = swap_chain_->Present(vsync_ ? 1 : 0, 0);
         if (pr == DXGI_ERROR_DEVICE_REMOVED || pr == DXGI_ERROR_DEVICE_RESET)
             log_device_removed("Present");

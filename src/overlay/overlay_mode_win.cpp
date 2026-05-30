@@ -1161,12 +1161,16 @@ LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_NCHITTEST: {
         const int sx = (int)(short)LOWORD(lp), sy = (int)(short)HIWORD(lp);
-        // Windowed move/resize: while Ctrl is held, map the borderless window
-        // to caption (interior → drag to move) and border (edges → drag to
-        // resize) zones so DefWindowProc runs the native move/size loop. The
-        // main loop has already dropped WS_EX_TRANSPARENT (so we even receive
-        // this hit-test) whenever Ctrl is down.
-        if (g_dx12_ctrl_move.load() && (GetAsyncKeyState(VK_CONTROL) & 0x8000)) {
+        // Windowed INVERTED scheme (g_dx12_ctrl_move): default (no Ctrl) the
+        // window is draggable/resizable — map interior → HTCAPTION (drag) and
+        // the 10px edges → HT*BORDER (resize) so DefWindowProc runs the native
+        // move/size loop. While Ctrl is HELD (g_dx12_ct_active) it's click-through
+        // → HTTRANSPARENT. (No key needed to move; Ctrl = pass clicks through.)
+        if (g_dx12_ctrl_move.load()) {
+            if (g_dx12_ct_active.load()) {
+                ct_log("WM_NCHITTEST (%d,%d) [win ct] -> HTTRANSPARENT", sx, sy);
+                return HTTRANSPARENT;
+            }
             RECT r{}; GetWindowRect(h, &r);
             const int M = 10;  // resize-border thickness in px
             const int col = (sx < r.left + M) ? 0 : (sx >= r.right  - M) ? 2 : 1;
@@ -1316,19 +1320,24 @@ int run_dx12(const Options& opts) {
         win_y = mon.y + (mon.h - H) / 2;
     }
 
-    // The overlay is ALWAYS a single borderless layered click-through popup,
-    // in every mode. Windowed mode adds nothing structurally — it's the same
-    // window, just sized to a region instead of the whole monitor, plus the
-    // Ctrl-to-move/resize affordance (g_dx12_ctrl_move below): hold Ctrl and
-    // the window becomes draggable/resizable, release it and it's click-through.
-    g_dx12_ctrl_move.store(mode_windowed);
     const bool no_ct  = (std::getenv("TUBELIGHT_NO_CLICKTHROUGH") != nullptr);
-    // All overlay modes present via the layered path (Path B — see
-    // DIAGNOSIS_CLICKTHROUGH_DX12_*.md): a WS_EX_LAYERED|TRANSPARENT window
-    // painted each frame by BitBlt of the captured frame. This is the only
-    // Win32 combination that yields cross-process click-through AND shows D3D
-    // content (mirrors the proven GL recipe).
-    const bool layered = !no_ct;
+
+    // WINDOWED uses the INVERTED scheme (user request): by DEFAULT the window is
+    // a NORMAL non-layered window with a DIRECT flip-model swap chain — DWM
+    // composes it, so resize/drag are SMOOTH (no layered-BitBlt vibration). You
+    // drag/resize it with the mouse (NCHITTEST→HTCAPTION/borders), no key. While
+    // Ctrl is HELD it switches to WS_EX_LAYERED|TRANSPARENT + BitBlt present =
+    // click-through (the only DX12 combo that passes clicks cross-process). You
+    // resize in the default (smooth) mode, so the layered path's resize vibration
+    // never shows. NON-windowed modes (fullscreen/target/region) keep the
+    // layered-always path (they don't resize, and need click-through by default).
+    const bool win_mode = mode_windowed && !no_ct;
+    g_dx12_ctrl_move.store(win_mode);   // tells the wndproc to use the inverted NCHITTEST
+    // Current layered/click-through state (MUTABLE — toggled at runtime in
+    // win_mode by Ctrl). NOT a swap-chain recreate: the swap chain is created
+    // once (direct for win_mode, composition for the others); win_mode just
+    // flips WS_EX_LAYERED + present-mode (direct Present vs capture+BitBlt).
+    bool ct_layered = win_mode ? false : !no_ct;
 
     static const wchar_t* kClassName = L"TubelightDX12Overlay";
     HINSTANCE hinst = GetModuleHandleW(nullptr);
@@ -1350,8 +1359,14 @@ int run_dx12(const Options& opts) {
     // click-through).
     const DWORD style = WS_POPUP;
     const DWORD ct_flag = no_ct ? 0u : WS_EX_TRANSPARENT;
-    const DWORD exstyle = WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
-                          WS_EX_TOPMOST | ct_flag;
+    // win_mode starts NON-layered (direct swap chain, interactive, draggable);
+    // it gains WS_EX_LAYERED|TRANSPARENT at runtime only while Ctrl is held.
+    // CreateSwapChainForHwnd (used when bp.layered=false) FORBIDS a layered
+    // window at creation, so win_mode MUST be created non-layered.
+    const DWORD exstyle = win_mode
+        ? (WS_EX_TOOLWINDOW | WS_EX_TOPMOST)
+        : (WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
+           WS_EX_TOPMOST | ct_flag);
 
     // Popup: the requested size IS the client size.
     HWND hwnd = CreateWindowExW(exstyle, kClassName, L"Tubelight (DX12)", style,
@@ -1387,15 +1402,17 @@ int run_dx12(const Options& opts) {
     // UpdateLayeredWindow) so WS_EX_TRANSPARENT click-through works by window
     // rectangle, exactly like the GL path. Uniform alpha 255 = fully opaque;
     // we paint the captured CRT frame onto the window's DC each frame.
-    if (layered) {
+    if (ct_layered) {
         SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
         g_dx12_ct_active.store(!no_ct);
+    } else {
+        g_dx12_ct_active.store(false);   // win_mode starts interactive (not click-through)
     }
     {
         const LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         ct_log("run_dx12: hwnd=%p layered=%d no_ct=%d exstyle=0x%08lx "
                "{%s%s%s%s} ct_active=%d",
-               (void*)hwnd, (int)layered, (int)no_ct, (unsigned long)ex,
+               (void*)hwnd, (int)ct_layered, (int)no_ct, (unsigned long)ex,
                (ex & WS_EX_TRANSPARENT) ? "TRANSPARENT " : "",
                (ex & WS_EX_LAYERED)     ? "LAYERED "     : "",
                (ex & WS_EX_NOACTIVATE)  ? "NOACTIVATE "  : "",
@@ -1429,7 +1446,12 @@ int run_dx12(const Options& opts) {
     // cross-process click-through AND shows D3D content. Plain windowed keeps
     // the direct HWND swap chain (visible framed window, no click-through).
     bp.composition = false;
-    bp.layered     = layered;
+    // win_mode → direct HWND swap chain (visible Present, smooth resize); it
+    // BitBlts only while Ctrl-held (skipping Present then). Other modes →
+    // composition swap chain + BitBlt always. The swap chain is NOT recreated
+    // on the runtime Ctrl toggle — win_mode keeps its direct swap chain and just
+    // flips whether end_frame Presents (set_present_enabled) vs we BitBlt.
+    bp.layered     = ct_layered;
     if (!backend->init(bp)) {
         std::fprintf(stderr,
             "[overlay] D3D12Backend::init failed — retry without --renderer dx12 "
@@ -1630,7 +1652,10 @@ int run_dx12(const Options& opts) {
     // clicks, so WS_EX_TRANSPARENT click-through does not pass through. With
     // SetLayeredWindowAttributes the window hit-tests by its rectangle and
     // WS_EX_TRANSPARENT does pass clicks cross-process (the GL recipe).
-    HDC     ovl_ref_dc  = layered ? GetDC(nullptr) : nullptr;  // DIB ref DC
+    // DIB ref DC for the BitBlt present. Needed whenever the window may become
+    // layered: always for the layered-always modes, and for win_mode (which
+    // goes layered while Ctrl is held).
+    HDC     ovl_ref_dc  = (ct_layered || win_mode) ? GetDC(nullptr) : nullptr;
     HDC     ovl_mem_dc  = nullptr;
     HBITMAP ovl_dib     = nullptr;
     HBITMAP ovl_old_bmp = nullptr;
@@ -1711,6 +1736,28 @@ int run_dx12(const Options& opts) {
         SetWindowDisplayAffinity(hwnd, m_rec ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
     };
 
+    // win_mode click-through toggle (the INVERTED scheme). ON (Ctrl held) →
+    // WS_EX_LAYERED|TRANSPARENT + BitBlt present (skip the direct Present);
+    // OFF → non-layered, direct Present (smooth, interactive/draggable). No
+    // swap-chain recreate — just style + present-mode. NOT used by the
+    // layered-always modes (they manage WS_EX_TRANSPARENT separately).
+    auto set_ct = [&](bool on) {
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if (on) {
+            ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+            SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+            d12->set_present_enabled(false);   // show via BitBlt while layered
+        } else {
+            ex &= ~(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+            d12->set_present_enabled(true);     // show via direct Present (smooth)
+        }
+        reassert_wda();
+        ct_layered = on;
+        g_dx12_ct_active.store(on);
+    };
+
     // Render-during-modal: dx12_wndproc's WM_TIMER (armed between WM_ENTERSIZEMOVE
     // /WM_EXITSIZEMOVE) calls this so the overlay keeps showing the live region
     // behind it WHILE the user Ctrl-drags to move/resize — otherwise Windows'
@@ -1751,7 +1798,7 @@ int run_dx12(const Options& opts) {
         backend_raw->begin_frame();
         pipeline.render_to_screen(last_h);
         backend_raw->end_frame();
-        if (layered) present_layered();
+        if (ct_layered) present_layered();
     };
     SetPropW(hwnd, kFrameRenderProp, reinterpret_cast<HANDLE>(&frame_state));
 
@@ -1787,7 +1834,7 @@ int run_dx12(const Options& opts) {
         // cursor. If WindowFromPoint returns OUR hwnd while the cursor is over
         // the overlay, hit-testing is catching us (click-through broken). If
         // it returns the app below, pass-through is working at the OS level.
-        if (layered && g_ct_log && (frames_rendered % 45) == 0) {
+        if (ct_layered && g_ct_log && (frames_rendered % 45) == 0) {
             POINT cur{}; GetCursorPos(&cur);
             HWND  wfp = WindowFromPoint(cur);
             wchar_t cls[64]{}, ttl[96]{};
@@ -1832,25 +1879,30 @@ int run_dx12(const Options& opts) {
         // WS_EX_TRANSPARENT at runtime is safe — unlike WS_EX_LAYERED.)
         if (has_menu && g_hk_toggle_menu.exchange(false)) {
             menu.toggle();
-            LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             if (menu.is_open()) {
-                // Drop click-through + no-activate so the layered window
-                // receives the mouse and can be focused for ImGui. WS_EX_LAYERED
-                // is left untouched (toggling it at runtime is unsafe; toggling
-                // WS_EX_TRANSPARENT is fine).
-                g_dx12_ct_active.store(false);
-                ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
-                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-                reassert_wda();
+                // Make the window interactive so ImGui gets the mouse. win_mode:
+                // drop to non-layered direct present (set_ct false). Others:
+                // drop WS_EX_TRANSPARENT (window stays layered/BitBlt).
+                if (win_mode) {
+                    set_ct(false);
+                } else {
+                    LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                    ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+                    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                    reassert_wda();
+                    g_dx12_ct_active.store(false);
+                }
                 SetForegroundWindow(hwnd);
                 SetActiveWindow(hwnd);
-            } else if (layered) {
+            } else if (!win_mode) {
+                LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                 ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 reassert_wda();
                 g_dx12_ct_active.store(!no_ct);
             }
-            ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            // win_mode menu-close: the per-frame block restores ct from Ctrl.
+            const LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             std::printf("[overlay] dx12: menu %s (EXSTYLE=0x%08lx, TRANSPARENT=%d)\n",
                         menu.is_open() ? "OPEN" : "closed",
                         static_cast<unsigned long>(ex),
@@ -1858,42 +1910,37 @@ int run_dx12(const Options& opts) {
         }
 
         // Click-away: a click outside the open menu closes it and restores
-        // click-through. Without this the overlay stays opaque-to-clicks after
-        // the user touches the menu (e.g. changes the aspect ratio) and they
-        // can no longer click anything below — the reported bug.
+        // click-through.
         if (has_menu && menu.is_open() && g_dx12_menu_clickaway.exchange(false)) {
             menu.toggle();  // close
-            if (layered) {
+            if (!win_mode) {
                 LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                 ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 reassert_wda();
                 g_dx12_ct_active.store(!no_ct);
             }
-            std::printf("[overlay] dx12: menu auto-closed (click-away) — click-through restored\n");
+            // win_mode: per-frame block restores ct from Ctrl.
+            std::printf("[overlay] dx12: menu auto-closed (click-away)\n");
         }
 
-        // Per-frame click-through state (menu closed). The overlay is
-        // click-through by default; in windowed mode, while the user HOLDS
-        // Ctrl it becomes a normal interactive window so it can be dragged
-        // (interior) or resized (edges) — see the WM_NCHITTEST zones. Releasing
-        // Ctrl returns it to click-through. (no_ct forces click-through off.)
-        if (layered && !no_ct && !menu.is_open()) {
-            const bool ctrl_down = g_dx12_ctrl_move.load() &&
-                                   (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        // Per-frame click-through state (menu closed).
+        if (!menu.is_open()) {
+          if (win_mode) {
+            // INVERTED scheme: no Ctrl → interactive (direct present, draggable);
+            // Ctrl held → click-through (layered + BitBlt). Toggle on transition.
+            const bool want_ct = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            if (want_ct != ct_layered) set_ct(want_ct);
+          } else if (ct_layered && !no_ct) {
+            // Layered-always modes: re-assert WS_EX_TRANSPARENT (safety net).
             LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-            const bool transparent = (ex & WS_EX_TRANSPARENT) != 0;
-            if (ctrl_down && transparent) {
-                ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
-                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-                reassert_wda();
-                g_dx12_ct_active.store(false);
-            } else if (!ctrl_down && !transparent) {
+            if (!(ex & WS_EX_TRANSPARENT)) {
                 ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
                 reassert_wda();
                 g_dx12_ct_active.store(true);
             }
+          }
         }
 
         // Target-window tracking: follow the target as it moves so the
@@ -2024,7 +2071,7 @@ int run_dx12(const Options& opts) {
         }
         // Path B: push the finished frame onto the layered window. (Borderless
         // modes only; plain windowed shows via its HWND swap chain.)
-        if (layered) present_layered();
+        if (ct_layered) present_layered();
         if (frames_rendered == 0) {
             std::fprintf(stderr,
                 "[overlay] dx12: first frame rendered (source handle %u)\n",

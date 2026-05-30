@@ -133,6 +133,13 @@ public:
     void set_vsync(bool on) { vsync_ = on; }
     bool vsync() const { return vsync_; }
 
+    // Skip the swap-chain Present in end_frame. Used by the windowed overlay's
+    // Ctrl-click-through mode: there the window is WS_EX_LAYERED and shows via a
+    // GDI BitBlt of capture_backbuffer (NOT the flip-model Present, which would
+    // be invisible under the layered surface and can't target a layered HWND
+    // swap chain). The default direct mode keeps Present on (visible, smooth).
+    void set_present_enabled(bool on) { present_enabled_ = on; }
+
     // True once the GPU device has been lost (TDR / removal). The overlay loop
     // polls this to exit cleanly instead of spinning on failing calls (black
     // screen + log spam).
@@ -201,6 +208,7 @@ private:
     // the captured frame via UpdateLayeredWindow. See backend.h.
     bool layered_ = false;
     bool vsync_ = true;   // Present sync interval: true→1, false→0
+    bool present_enabled_ = true;  // false → end_frame skips Present (layered BitBlt mode)
     Microsoft::WRL::ComPtr<IDCompositionDevice>     dcomp_device_;
     Microsoft::WRL::ComPtr<IDCompositionTarget>     dcomp_target_;
     Microsoft::WRL::ComPtr<IDCompositionVisual>     dcomp_visual_;
