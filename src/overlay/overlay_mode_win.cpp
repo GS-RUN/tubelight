@@ -1218,6 +1218,25 @@ LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             st->resized  = true;
         }
         return 0;
+    // Keep rendering DURING a Ctrl-drag move/resize. Windows runs a modal loop
+    // inside DefWindowProc that blocks our main render loop, so without this the
+    // captured frame freezes (and stretches) until the mouse is released — the
+    // reported "se queda grabado el frame". A ~16ms WM_TIMER ticks one render
+    // per frame for the duration of the modal loop (mirrors the GL subclass).
+    case WM_ENTERSIZEMOVE:
+        SetTimer(h, kModalRenderTimerId, USER_TIMER_MINIMUM, nullptr);
+        break;
+    case WM_EXITSIZEMOVE:
+        KillTimer(h, kModalRenderTimerId);
+        break;
+    case WM_TIMER:
+        if (wp == kModalRenderTimerId) {
+            auto* fr = reinterpret_cast<FrameRenderState*>(
+                GetPropW(h, kFrameRenderProp));
+            if (fr && fr->render_one) fr->render_one();
+            return 0;
+        }
+        break;
     case WM_CLOSE:
         if (st) st->quit = true;
         return 0;
@@ -1662,6 +1681,39 @@ int run_dx12(const Options& opts) {
         SetWindowDisplayAffinity(hwnd, m_rec ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
     };
 
+    // Render-during-modal: dx12_wndproc's WM_TIMER (armed between WM_ENTERSIZEMOVE
+    // /WM_EXITSIZEMOVE) calls this so the overlay keeps showing the live region
+    // behind it WHILE the user Ctrl-drags to move/resize — otherwise Windows'
+    // modal loop blocks the main render loop and the frame freezes (stretched).
+    // Applies any pending resize itself (the main loop is blocked), follows the
+    // window with the crop, grabs the newest WGC frame, renders + presents.
+    FrameRenderState frame_state;
+    frame_state.render_one = [&]() {
+        if (wnd_state.resized) {
+            wnd_state.resized = false;
+            fb_w = wnd_state.resize_w;
+            fb_h = wnd_state.resize_h;
+            backend_raw->resize(fb_w, fb_h);
+            pipeline.resize(fb_w, fb_h);
+        }
+        if (!state.freeze) {
+            update_region_crop();
+            int tw = 0, th = 0;
+            auto tex11 = wgc.latest_frame(tw, th);
+            if (tex11) {
+                auto hh = d12->wrap_d3d11_texture(tex11.Get(), tw, th);
+                if (hh.is_valid()) last_h = hh;
+            }
+        }
+        if (!last_h.is_valid()) return;
+        pipeline.set_time(static_cast<float>(now_seconds()));
+        backend_raw->begin_frame();
+        pipeline.render_to_screen(last_h);
+        backend_raw->end_frame();
+        if (layered) present_layered();
+    };
+    SetPropW(hwnd, kFrameRenderProp, reinterpret_cast<HANDLE>(&frame_state));
+
     const bool bench = opts.bench_frames > 0;
     std::vector<double> cap_ms;
     if (bench) {
@@ -1939,6 +1991,10 @@ int run_dx12(const Options& opts) {
                 static_cast<unsigned long long>(wgc.frame_count()));
 
     if (has_menu) menu.shutdown();
+
+    // Tear down the render-during-modal timer + prop.
+    KillTimer(hwnd, kModalRenderTimerId);
+    RemovePropW(hwnd, kFrameRenderProp);
 
     // Tear down the keyboard hook thread.
     PostThreadMessage(hk_tid.load(), WM_QUIT, 0, 0);
