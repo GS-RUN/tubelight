@@ -246,7 +246,11 @@ bool D3D12Backend::init(const BackendInitParams& params) {
     // a composition swap chain — the only flavour that is NOT bound to the
     // HWND, which CreateSwapChainForHwnd forbids on WS_EX_LAYERED windows.
     const bool comp_swapchain = composition_ || layered_;
-    scd.Scaling     = comp_swapchain ? DXGI_SCALING_STRETCH : DXGI_SCALING_NONE;
+    // STRETCH (not NONE) so that during a windowed resize, while we DEFER
+    // ResizeBuffers (avoid the per-tick recreate flash), DXGI scales the
+    // fixed-size backbuffer to the new window size smoothly instead of clipping.
+    // When backbuffer == window (steady state) STRETCH is a 1:1 no-op.
+    scd.Scaling     = DXGI_SCALING_STRETCH;
     scd.SwapEffect  = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     scd.AlphaMode   = DXGI_ALPHA_MODE_IGNORE;
     scd.Flags       = 0;

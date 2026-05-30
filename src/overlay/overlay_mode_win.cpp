@@ -1784,11 +1784,12 @@ int run_dx12(const Options& opts) {
         // continuous "vibration". Instead keep rendering LIVE at the current
         // swap-chain size and let present_layered StretchBlt the live frame onto
         // the growing window (live content + zero per-tick recreate = no flash).
-        // Apply the resize live (ShaderGlass-style: ResizeBuffers normally on
-        // each WM_SIZE; the direct flip-model Present + DWM gives a smooth
-        // windowed resize). render_one runs during the modal loop, so the
-        // content stays live while dragging.
-        if (wnd_state.resized) {
+        // DEFER ResizeBuffers during a modal drag: recreating the swap chain on
+        // every WM_SIZE flashes the window → vibration. Instead keep the swap
+        // chain fixed and let DXGI (DXGI_SCALING_STRETCH) scale the direct
+        // Present to the growing window smoothly; ResizeBuffers runs ONCE on
+        // drag-end (main loop, in_modal cleared).
+        if (wnd_state.resized && !wnd_state.in_modal) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
             fb_h = wnd_state.resize_h;
