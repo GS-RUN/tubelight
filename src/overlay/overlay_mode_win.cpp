@@ -971,11 +971,31 @@ void capture_bench_report(const char* label, std::vector<double>& cap_ms) {
     std::fflush(stderr);
 }
 
-// Relaunch this same exe with the renderer swapped. Live teardown/rebuild of a
-// whole backend (GL vs D3D12 use different windows, capture and pipelines) is
-// impractical, so the robust "switch renderer" is a clean process relaunch that
-// preserves the original launch flags. `target` is L"gl" or L"dx12". Returns
-// true if the new process was started (caller then quits the current one).
+// Relaunch this same exe with a modified command line, then hard-exit so the
+// old window doesn't linger on top during its slow teardown (DXGI/WGC/Mag/GLFW)
+// — which, with the menu open, isn't click-through and would block the user
+// (the "frozen copy of the desktop I can't click" bug). Live teardown/rebuild
+// of a backend or a mode switch mid-run is impractical; a clean relaunch is the
+// robust path. Returns false only if CreateProcess fails (else never returns).
+inline bool do_relaunch(std::wstring cmd) {
+    STARTUPINFOW si{}; si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::vector<wchar_t> buf(cmd.begin(), cmd.end());
+    buf.push_back(L'\0');
+    BOOL ok = CreateProcessW(nullptr, buf.data(), nullptr, nullptr, FALSE,
+                             0, nullptr, nullptr, &si, &pi);
+    if (!ok) {
+        std::fprintf(stderr, "[overlay] relaunch CreateProcess failed GLE=%lu\n",
+                     GetLastError());
+        return false;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    std::fflush(nullptr);
+    ExitProcess(0);
+}
+
+// Relaunch with the renderer swapped (`target` = L"gl" or L"dx12").
 inline bool relaunch_with_renderer(const wchar_t* target) {
     std::wstring cmd = GetCommandLineW();
     const std::wstring flag = L"--renderer";
@@ -991,26 +1011,24 @@ inline bool relaunch_with_renderer(const wchar_t* target) {
         cmd += L" --renderer ";
         cmd += target;
     }
-    STARTUPINFOW si{}; si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    std::vector<wchar_t> buf(cmd.begin(), cmd.end());
-    buf.push_back(L'\0');
-    BOOL ok = CreateProcessW(nullptr, buf.data(), nullptr, nullptr, FALSE,
-                             0, nullptr, nullptr, &si, &pi);
-    if (!ok) {
-        std::fprintf(stderr, "[overlay] relaunch CreateProcess failed GLE=%lu\n",
-                     GetLastError());
-        return false;
+    return do_relaunch(std::move(cmd));
+}
+
+// Relaunch into fullscreen (click-through) or windowed. `--overlay-fullscreen`
+// takes precedence over `--overlay` in the parser, so we just add it to go
+// fullscreen and strip it to go windowed (the unique token is safe to match).
+inline bool relaunch_with_fullscreen(bool fullscreen) {
+    std::wstring cmd = GetCommandLineW();
+    const std::wstring fs = L"--overlay-fullscreen";
+    size_t pos = cmd.find(fs);
+    if (fullscreen) {
+        if (pos == std::wstring::npos) cmd += L" " + fs;
+    } else if (pos != std::wstring::npos) {
+        size_t e = pos + fs.size();           // strip the token + a leading space
+        size_t b = (pos > 0 && cmd[pos - 1] == L' ') ? pos - 1 : pos;
+        cmd.erase(b, e - b);
     }
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    // Vanish IMMEDIATELY. A normal quit runs a slow teardown (DXGI / WGC /
-    // Magnification / GLFW) during which THIS overlay's window lingers on top —
-    // and if the menu was open it isn't click-through, so it blocks the user
-    // until it finally dies (the "frozen copy of the desktop I can't click"
-    // bug). Hard-exit so only the freshly launched renderer remains.
-    std::fflush(nullptr);
-    ExitProcess(0);
+    return do_relaunch(std::move(cmd));
 }
 
 #if defined(TUBELIGHT_HAVE_D3D12)
@@ -1630,6 +1648,13 @@ int run_dx12(const Options& opts) {
 
         // Global-hotkey actions (focus-independent).
         if (g_hk_quit.load()) break;
+        if (g_hk_toggle_fullscreen.exchange(false)) {
+            // Ctrl+Alt+Enter: windowed <-> fullscreen via clean relaunch (DX12
+            // mode is fixed at launch). Fullscreen = click-through.
+            std::printf("[overlay] dx12: Ctrl+Alt+Enter -> %s\n",
+                        mode_fullscreen ? "windowed" : "fullscreen");
+            if (relaunch_with_fullscreen(!mode_fullscreen)) { wnd_state.quit = true; break; }
+        }
         if (g_hk_freeze_toggle.exchange(false)) {
             state.freeze = !state.freeze;
             std::printf("[overlay] freeze: %s\n", state.freeze ? "ON" : "OFF");
@@ -1780,6 +1805,13 @@ int run_dx12(const Options& opts) {
             if (wa.switch_renderer_requested) {
                 std::printf("[overlay] dx12: switching renderer -> GL (relaunch)\n");
                 if (relaunch_with_renderer(L"gl")) wnd_state.quit = true;
+            }
+            if (wa.toggle_fullscreen_requested) {
+                // DX12 mode is fixed at launch (window + swap chain + WGC differ
+                // per mode), so toggling fullscreen/windowed is a clean relaunch.
+                std::printf("[overlay] dx12: toggle fullscreen -> %s (relaunch)\n",
+                            mode_fullscreen ? "windowed" : "fullscreen");
+                if (relaunch_with_fullscreen(!mode_fullscreen)) wnd_state.quit = true;
             }
             if (cur_profile != prev_profile && !cur_profile.empty()) {
                 std::string err;
