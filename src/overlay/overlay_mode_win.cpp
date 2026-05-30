@@ -1719,18 +1719,24 @@ int run_dx12(const Options& opts) {
     // window with the crop, grabs the newest WGC frame, renders + presents.
     FrameRenderState frame_state;
     frame_state.render_one = [&]() {
-        // Render LIVE during the modal move/resize loop (the DEVICE_HUNG that
-        // forced the old frozen "stretched preview" was the descriptor-table
-        // cache bug, now fixed in the backend). Apply the pending resize per
-        // tick so the content tracks the window size in real time, then render.
-        if (wnd_state.resized) {
+        // During a modal resize, DEFER the swap-chain recreate: ResizeBuffers on
+        // every WM_SIZE flashes the layered surface (cleared each step) → the
+        // continuous "vibration". Instead keep rendering LIVE at the current
+        // swap-chain size and let present_layered StretchBlt the live frame onto
+        // the growing window (live content + zero per-tick recreate = no flash).
+        // The real resize is applied ONCE on drag-end by the main loop.
+        if (wnd_state.resized && !wnd_state.in_modal) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
             fb_h = wnd_state.resize_h;
             backend_raw->resize(fb_w, fb_h);
             pipeline.resize(fb_w, fb_h);
-            reassert_wda();  // swap-chain recreate can drop WDA → self-capture feedback (vibration)
+            reassert_wda();  // swap-chain recreate can drop WDA → self-capture feedback
         }
+        // Mid-resize: cover the just-reallocated (cleared) layered surface
+        // INSTANTLY with the last frame stretched, before the slower capture+
+        // render below produces the live frame — so the grow never shows a gap.
+        if (wnd_state.in_modal) blit_to_window();
         if (!state.freeze) {
             update_region_crop();
             int tw = 0, th = 0;
@@ -1764,15 +1770,17 @@ int run_dx12(const Options& opts) {
             DispatchMessageW(&wmsg);
             if (wmsg.message == WM_QUIT) wnd_state.quit = true;
         }
-        // Apply a pending resize from WM_SIZE (Ctrl-drag resize in windowed
-        // mode). fb_w/fb_h track the new size so the region crop follows it.
-        if (wnd_state.resized) {
+        // Apply a pending resize from WM_SIZE — but NOT during a modal drag
+        // (deferred to drag-end so the swap chain is recreated ONCE, not per
+        // tick; during the drag render_one renders live + StretchBlt). fb_w/fb_h
+        // track the new size so the region crop follows it.
+        if (wnd_state.resized && !wnd_state.in_modal) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
             fb_h = wnd_state.resize_h;
             backend_raw->resize(fb_w, fb_h);
             pipeline.resize(fb_w, fb_h);
-            reassert_wda();  // swap-chain recreate can drop WDA → self-capture feedback (vibration)
+            reassert_wda();  // swap-chain recreate can drop WDA → self-capture feedback
         }
 
         // Diagnostics: every ~1.5 s log what Windows thinks is under the
