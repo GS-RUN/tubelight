@@ -1407,6 +1407,18 @@ int run_dx12(const Options& opts) {
     std::fprintf(stderr, "[overlay] dx12: WGC capturing %s\n",
                  mode_target ? "target window" : "monitor");
 
+    // Windowed / region: crop the monitor capture to the region behind the
+    // overlay, so it shows the desktop UNDER the window (a CRT "magnifier")
+    // rather than the whole desktop scaled into the window. Updated per-frame
+    // so it follows the window as the user drags it.
+    const bool crop_to_region = (mode_windowed || mode_region);
+    auto update_region_crop = [&]() {
+        if (!crop_to_region) return;
+        POINT tl{ 0, 0 }; ClientToScreen(hwnd, &tl);
+        wgc.set_crop(tl.x - mon.x, tl.y - mon.y, fb_w, fb_h);
+    };
+    update_region_crop();
+
     // Pipeline on the D3D12 backend. After set_backend, the pipeline owns
     // the backend; we keep backend_raw for the per-frame begin/end calls.
     tubelight::Pipeline pipeline;
@@ -1767,6 +1779,7 @@ int run_dx12(const Options& opts) {
 
         if (!state.freeze) {
             // capture→GPU step: WGC latest_frame + zero-copy D3D11On12 wrap.
+            update_region_crop();   // follow the window if it moved
             const auto cap_t0 = std::chrono::high_resolution_clock::now();
             int tw = 0, th = 0;
             auto tex11 = wgc.latest_frame(tw, th);

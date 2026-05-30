@@ -77,6 +77,13 @@ public:
     Microsoft::WRL::ComPtr<ID3D11Texture2D> latest_frame(int& out_w,
                                                           int& out_h);
 
+    // Crop the captured frame to a sub-rectangle of the source (monitor-
+    // relative pixels). w/h == 0 disables cropping (full source). Used by the
+    // windowed overlay to show only the region behind the window instead of
+    // the whole desktop. Cheap to call every frame as the window moves; only
+    // a size change reallocates the shared textures.
+    void set_crop(int x, int y, int w, int h);
+
     // Total frames received since start(). Monotonic, wraps at 2^64.
     uint64_t frame_count() const;
 

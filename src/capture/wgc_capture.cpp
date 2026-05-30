@@ -21,6 +21,7 @@
 #include <inspectable.h>
 #include <ShellScalingApi.h>
 
+#include <algorithm>
 #include <cstdio>
 
 namespace tubelight {
@@ -94,6 +95,10 @@ struct WgcCapture::Impl {
     int                                          owned_w    = 0;
     int                                          owned_h    = 0;
     DXGI_FORMAT                                  owned_fmt  = DXGI_FORMAT_UNKNOWN;
+    // Optional crop (monitor-relative px); w/h 0 = full source. Set/read on the
+    // main thread (set_crop + latest_frame).
+    int                                          crop_x = 0, crop_y = 0;
+    int                                          crop_w = 0, crop_h = 0;
     ComPtr<ID3D11Texture2D>                      latest_tex; // points into opened[]
     int                                          latest_w     = 0;
     int                                          latest_h     = 0;
@@ -304,15 +309,20 @@ ComPtr<ID3D11Texture2D> WgcCapture::latest_frame(int& out_w, int& out_h) {
             D3D11_TEXTURE2D_DESC sd{};
             src->GetDesc(&sd);
             if (!impl_->wgc_ctx) impl_->wgc_device->GetImmediateContext(&impl_->wgc_ctx);
+            // Target texture size = crop size if cropping, else the full source.
+            const bool crop = (impl_->crop_w > 0 && impl_->crop_h > 0);
+            const int tw = crop ? std::min(impl_->crop_w, (int)sd.Width)  : (int)sd.Width;
+            const int th = crop ? std::min(impl_->crop_h, (int)sd.Height) : (int)sd.Height;
             // (Re)create the triple-buffered SHARED textures if size/format
             // changed: created on wgc_device with MISC_SHARED, then opened on
-            // the consumer's d3d_device by shared handle.
-            if (impl_->owned_w != (int)sd.Width || impl_->owned_h != (int)sd.Height ||
+            // the consumer's d3d_device by shared handle. (Only a SIZE change
+            // reallocates — a moving window only shifts the copy box.)
+            if (impl_->owned_w != tw || impl_->owned_h != th ||
                 impl_->owned_fmt != sd.Format) {
                 for (auto& o : impl_->shared) o.Reset();
                 for (auto& o : impl_->opened) o.Reset();
                 D3D11_TEXTURE2D_DESC od{};
-                od.Width  = sd.Width;  od.Height = sd.Height;
+                od.Width  = (UINT)tw;  od.Height = (UINT)th;
                 od.MipLevels = 1;      od.ArraySize = 1;
                 od.Format = sd.Format; od.SampleDesc.Count = 1;
                 od.Usage  = D3D11_USAGE_DEFAULT;
@@ -334,7 +344,7 @@ ComPtr<ID3D11Texture2D> WgcCapture::latest_frame(int& out_w, int& out_h) {
                     }
                 }
                 if (ok) {
-                    impl_->owned_w = sd.Width; impl_->owned_h = sd.Height;
+                    impl_->owned_w = tw; impl_->owned_h = th;
                     impl_->owned_fmt = sd.Format; impl_->widx = 0;
                 } else {
                     std::fprintf(stderr, "[wgc] shared texture setup failed\n");
@@ -344,12 +354,23 @@ ComPtr<ID3D11Texture2D> WgcCapture::latest_frame(int& out_w, int& out_h) {
             }
             const int i = impl_->widx;
             if (impl_->shared[i] && impl_->opened[i] && impl_->wgc_ctx) {
-                impl_->wgc_ctx->CopyResource(impl_->shared[i].Get(), src.Get());
+                if (crop) {
+                    // Clamp the box inside the source so off-screen window edges
+                    // don't read out of bounds.
+                    int bx = std::max(0, std::min(impl_->crop_x, (int)sd.Width  - tw));
+                    int by = std::max(0, std::min(impl_->crop_y, (int)sd.Height - th));
+                    D3D11_BOX box{ (UINT)bx, (UINT)by, 0,
+                                   (UINT)(bx + tw), (UINT)(by + th), 1 };
+                    impl_->wgc_ctx->CopySubresourceRegion(
+                        impl_->shared[i].Get(), 0, 0, 0, 0, src.Get(), 0, &box);
+                } else {
+                    impl_->wgc_ctx->CopyResource(impl_->shared[i].Get(), src.Get());
+                }
                 impl_->wgc_ctx->Flush();   // publish to the shared surface
                 std::lock_guard<std::mutex> lk(impl_->latest_mu);
                 impl_->latest_tex = impl_->opened[i];
-                impl_->latest_w   = sz.Width;
-                impl_->latest_h   = sz.Height;
+                impl_->latest_w   = tw;
+                impl_->latest_h   = th;
                 impl_->widx = (i + 1) % 3;
             }
         }
@@ -361,6 +382,13 @@ ComPtr<ID3D11Texture2D> WgcCapture::latest_frame(int& out_w, int& out_h) {
     out_w = impl_->latest_w;
     out_h = impl_->latest_h;
     return impl_->latest_tex;
+}
+
+void WgcCapture::set_crop(int x, int y, int w, int h) {
+    std::lock_guard<std::mutex> lk(impl_->latest_mu);
+    impl_->crop_x = x; impl_->crop_y = y;
+    impl_->crop_w = (w > 0 ? w : 0);
+    impl_->crop_h = (h > 0 ? h : 0);
 }
 
 uint64_t WgcCapture::frame_count() const {
