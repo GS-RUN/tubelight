@@ -1779,16 +1779,21 @@ int run_dx12(const Options& opts) {
     // window with the crop, grabs the newest WGC frame, renders + presents.
     FrameRenderState frame_state;
     frame_state.render_one = [&]() {
-        // During a modal resize, DEFER the swap-chain recreate: ResizeBuffers on
-        // every WM_SIZE flashes the layered surface (cleared each step) → the
-        // continuous "vibration". Instead keep rendering LIVE at the current
-        // swap-chain size and let present_layered StretchBlt the live frame onto
-        // the growing window (live content + zero per-tick recreate = no flash).
-        // DEFER ResizeBuffers during a modal drag: recreating the swap chain on
-        // every WM_SIZE flashes the window → vibration. Instead keep the swap
-        // chain fixed and let DXGI (DXGI_SCALING_STRETCH) scale the direct
-        // Present to the growing window smoothly; ResizeBuffers runs ONCE on
-        // drag-end (main loop, in_modal cleared).
+        // MID-RESIZE (win_mode, direct present): if the window client size no
+        // longer matches the swap chain, we're mid-drag (ResizeBuffers is
+        // deferred). DON'T render/Present — a flip-model Present mid-resize is
+        // exactly what flickers (the "vibration"). Do nothing: DWM scales the
+        // last presented frame to the window (DXGI_SCALING_STRETCH) → smooth,
+        // like a normal app that doesn't repaint during resize. Crisp again on
+        // drag-end (main loop applies ResizeBuffers, then rendering resumes).
+        if (win_mode) {
+            RECT rc{}; GetClientRect(hwnd, &rc);
+            if ((rc.right - rc.left) != fb_w || (rc.bottom - rc.top) != fb_h)
+                return;
+        }
+        // DEFER ResizeBuffers during a modal drag (also covers the layered modes):
+        // recreating the swap chain per WM_SIZE flashes the window. ResizeBuffers
+        // runs ONCE on drag-end (main loop, in_modal cleared).
         if (wnd_state.resized && !wnd_state.in_modal) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
