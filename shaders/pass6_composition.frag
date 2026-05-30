@@ -294,7 +294,15 @@ void main() {
         }
     }
 
-    uv = magnetic_interference(uv, u_time);
+    // Magnetic interference is a CRT-AGEING artifact (a time-based UV wobble).
+    // It was applied unconditionally, and its amplitude is in UV space, so it
+    // scales with window size — at a large windowed size it became a visible
+    // ~1-2px continuous tremble even on the clean "basic" preset. Gate it by
+    // u_glass_age so age=0 (basic / clean) has ZERO wobble; aged profiles scale
+    // it in.
+    if (u_glass_age > 0.0) {
+        uv = mix(uv, magnetic_interference(uv, u_time), u_glass_age);
+    }
     uv = barrel(uv, u_barrel_strength);
 
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {

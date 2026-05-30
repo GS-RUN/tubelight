@@ -1729,6 +1729,7 @@ int run_dx12(const Options& opts) {
             fb_h = wnd_state.resize_h;
             backend_raw->resize(fb_w, fb_h);
             pipeline.resize(fb_w, fb_h);
+            reassert_wda();  // swap-chain recreate can drop WDA → self-capture feedback (vibration)
         }
         if (!state.freeze) {
             update_region_crop();
@@ -1771,6 +1772,7 @@ int run_dx12(const Options& opts) {
             fb_h = wnd_state.resize_h;
             backend_raw->resize(fb_w, fb_h);
             pipeline.resize(fb_w, fb_h);
+            reassert_wda();  // swap-chain recreate can drop WDA → self-capture feedback (vibration)
         }
 
         // Diagnostics: every ~1.5 s log what Windows thinks is under the
