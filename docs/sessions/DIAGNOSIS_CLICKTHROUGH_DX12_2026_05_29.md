@@ -203,6 +203,42 @@ El mecanismo es idéntico al path GL probado, así que debería cruzar.
 
 ---
 
+## 11. NUEVO BLOQUEO (2026-05-30) — DX12 click-through NO entrega clics (GL sí)
+
+Con la captura ya viva, el usuario seguía sin poder interactuar. Test
+discriminante con `Shell.Document.SelectedItems()` (inyectando clic sobre un
+archivo de Explorer a través del overlay):
+- **GL overlay** (`--overlay-fullscreen`): clic → **`sel=1`** (el archivo SE
+  selecciona). Click-through REAL funciona.
+- **DX12 overlay** (`--renderer dx12`): clic → **`sel=0`** (NO se selecciona).
+  El overlay NO captura el clic (0 `WM_*BUTTON` en el log) PERO el clic tampoco
+  llega a actuar en la ventana de debajo → se "pierde".
+
+O sea: **pese a usar los mismos estilos (`WS_EX_LAYERED|TRANSPARENT` + SLWA
+LWA_ALPHA 255), el click-through de GL entrega los clics y el de DX12 no.** La
+diferencia está en cómo se presenta el frame a la ventana layered:
+- GL: render OpenGL → SwapBuffers (DWM redirige a la superficie de la ventana).
+- DX12: readback + **BitBlt a `GetDC(hwnd)`** cada frame.
+
+**Hipótesis principal (a verificar)**: el `BitBlt` continuo a la DC de la
+ventana SLWA deja la ventana en un estado donde DWM no enruta los clics ni
+arriba (a nuestro wndproc) ni abajo (a la app). El `WS_EX_TRANSPARENT` deja de
+surtir efecto con ese método de pintado. Alternativas a probar mañana:
+1. Presentar el frame DX12 de otra forma compatible con click-through: pintar
+   por **WM_PAINT** (invalidar + BitBlt en el handler) en vez de BitBlt directo
+   en el loop; o `UpdateLayeredWindow` con **alpha por-píxel 255** (probar si en
+   ESTE caso WS_EX_TRANSPARENT sí domina el hit-test) — antes se descartó pero
+   con el dato nuevo merece re-test medido con `SelectedItems`.
+2. Crear la ventana DX12 EXACTAMENTE como la de GL (misma clase/estilos GLFW)
+   o reusar el window-management del path GL.
+3. Comparar con un mini-repro: ventana SLWA + BitBlt vs SLWA + GL, medir
+   selección.
+
+**ESTADO**: launcher vuelto a **GL** (funciona end-to-end: captura viva +
+click-through + selección, verificado `sel=1`). DX12 = captura zero-copy OK
+pero **click-through roto** → bloqueo para la próxima sesión. La fix de WGC
+(§10) sigue siendo válida e independiente.
+
 ## 10. RESUELTO (2026-05-30) — WGC freeze = recycle roto en device 11On12
 
 Causa raíz **probada**: WGC **no recicla los buffers del pool sobre un device
