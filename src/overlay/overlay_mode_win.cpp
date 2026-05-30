@@ -1217,6 +1217,15 @@ LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             st->resize_w = LOWORD(lp);
             st->resize_h = HIWORD(lp);
             st->resized  = true;
+            // During a Ctrl-drag resize, repaint SYNCHRONOUSLY now instead of
+            // waiting up to ~16ms for the next WM_TIMER tick. The OS reallocates
+            // the layered surface as the window grows; an immediate render+blit
+            // closes the cleared-surface gap that would otherwise flicker.
+            if (st->in_modal) {
+                if (auto* fr = reinterpret_cast<FrameRenderState*>(
+                        GetPropW(h, kFrameRenderProp)))
+                    if (fr->render_one) fr->render_one();
+            }
         }
         return 0;
     // Keep rendering DURING a Ctrl-drag move/resize. Windows runs a modal loop
@@ -1710,21 +1719,11 @@ int run_dx12(const Options& opts) {
     // window with the crop, grabs the newest WGC frame, renders + presents.
     FrameRenderState frame_state;
     frame_state.render_one = [&]() {
-        // Modal RESIZE in progress (window client size != the swap-chain size)?
-        // Do ZERO D3D work: rendering / Present / capture / ResizeBuffers per
-        // tick inside the OS modal loop is what hangs the GPU (TDR → black).
-        // Just re-StretchBlt the last captured frame onto the growing window —
-        // a smooth stretched preview. The real render + resize resume once the
-        // drag ends (in_modal clears, the main loop applies the resize once).
-        {
-            RECT rc{}; GetClientRect(hwnd, &rc);
-            const int winW = rc.right - rc.left, winH = rc.bottom - rc.top;
-            if (wnd_state.in_modal && (winW != fb_w || winH != fb_h)) {
-                blit_to_window();
-                return;
-            }
-        }
-        if (!wnd_state.in_modal && wnd_state.resized) {
+        // Render LIVE during the modal move/resize loop (the DEVICE_HUNG that
+        // forced the old frozen "stretched preview" was the descriptor-table
+        // cache bug, now fixed in the backend). Apply the pending resize per
+        // tick so the content tracks the window size in real time, then render.
+        if (wnd_state.resized) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
             fb_h = wnd_state.resize_h;
@@ -1766,9 +1765,7 @@ int run_dx12(const Options& opts) {
         }
         // Apply a pending resize from WM_SIZE (Ctrl-drag resize in windowed
         // mode). fb_w/fb_h track the new size so the region crop follows it.
-        // Deferred while a modal resize is in progress (in_modal) — applied once
-        // on drag-end so the swap chain is recreated a single time, not per tick.
-        if (wnd_state.resized && !wnd_state.in_modal) {
+        if (wnd_state.resized) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
             fb_h = wnd_state.resize_h;
