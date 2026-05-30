@@ -240,6 +240,17 @@ bool WgcCapture::start() {
             size);
         impl_->session = impl_->pool.CreateCaptureSession(impl_->item);
 
+        // Don't capture the mouse cursor: the OS already draws the real cursor
+        // on top of our (topmost) overlay, so capturing it too would show TWO
+        // cursors slightly out of sync → they jitter/ghost as the mouse moves
+        // (the "vibra cuando muevo el ratón"). Requires Win10 2004+
+        // (GraphicsCaptureSession2) — guarded so older builds still run.
+        try {
+            impl_->session.IsCursorCaptureEnabled(false);
+        } catch (...) {
+            std::fprintf(stderr, "[wgc] IsCursorCaptureEnabled unavailable (pre-2004?)\n");
+        }
+
         // FrameArrived drives continuous production (a CreateFreeThreaded pool
         // delivers on a system thread-pool thread). The handler drains + keeps
         // the latest texture and recycles the previous buffer (see Impl).
