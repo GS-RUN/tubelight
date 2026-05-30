@@ -1013,6 +1013,9 @@ int main(int argc, char** argv) {
     // can change it and "Guardar como predeterminada" later (Phase 3).
     o.profile_id    = args.profile_id.empty() ? std::string("basic")   : args.profile_id;
     o.signal_id     = args.signal_id.empty()  ? std::string("rgb_vga") : args.signal_id;
+    // No explicit profile/signal on the CLI → let the overlay load the user's
+    // saved default config (if any) over the built-in basic preset.
+    o.use_saved_default = args.profile_id.empty() && args.signal_id.empty();
     o.monitor_index = args.overlay_monitor;
     const bool has_target = !args.overlay_target_title.empty() || args.overlay_target_pid > 0;
     if (has_target) {

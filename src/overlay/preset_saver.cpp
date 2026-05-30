@@ -168,4 +168,119 @@ bool save_crt_preset(const std::string& source_id,
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Default startup config (full params snapshot).
+// ---------------------------------------------------------------------------
+
+namespace {
+fs::path default_config_path() {
+#ifdef _WIN32
+    const char* appdata = std::getenv("APPDATA");
+    fs::path base = appdata ? fs::path(appdata) : fs::current_path();
+    return base / "Tubelight" / "default_config.json";
+#else
+    const char* xdg  = std::getenv("XDG_CONFIG_HOME");
+    const char* home = std::getenv("HOME");
+    fs::path base = xdg ? fs::path(xdg)
+                  : home ? (fs::path(home) / ".config")
+                  : fs::current_path();
+    return base / "tubelight" / "default_config.json";
+#endif
+}
+} // namespace
+
+bool save_default_config(const std::string& profile_id,
+                         const std::string& signal_id,
+                         const Pipeline::GlobalParams& p) {
+    nlohmann::json j;
+    j["profile_id"] = profile_id;
+    j["signal_id"]  = signal_id;
+    auto& g = j["params"];
+    g["scanline_strength"]   = p.scanline_strength;
+    g["beam_width"]          = p.beam_width;
+    g["gamma_crt"]           = p.gamma_crt;
+    g["scanline_count"]      = p.scanline_count;
+    g["mask_type"]           = p.mask_type;
+    g["mask_strength"]       = p.mask_strength;
+    g["mask_pitch_px"]       = p.mask_pitch_px;
+    g["bloom_strength"]      = p.bloom_strength;
+    g["halation_strength"]   = p.halation_strength;
+    g["barrel_strength"]     = p.barrel_strength;
+    g["vignette_strength"]   = p.vignette_strength;
+    g["gamma_display"]       = p.gamma_display;
+    g["target_aspect"]       = p.target_aspect;
+    g["bezel_style"]         = p.bezel_style;
+    g["persistence_strength"]= p.persistence_strength;
+    g["persistence_ratio_r"] = p.persistence_ratio_r;
+    g["persistence_ratio_g"] = p.persistence_ratio_g;
+    g["persistence_ratio_b"] = p.persistence_ratio_b;
+    g["monochrome"]          = p.monochrome;
+    g["posterize_levels"]    = p.posterize_levels;
+    g["phosphor_color_r"]    = p.phosphor_color_r;
+    g["phosphor_color_g"]    = p.phosphor_color_g;
+    g["phosphor_color_b"]    = p.phosphor_color_b;
+    g["glass_tint_r"]        = p.glass_tint_r;
+    g["glass_tint_g"]        = p.glass_tint_g;
+    g["glass_tint_b"]        = p.glass_tint_b;
+    g["glass_age"]           = p.glass_age;
+
+    fs::path out = default_config_path();
+    std::error_code ec;
+    fs::create_directories(out.parent_path(), ec);
+    std::ofstream os(out, std::ios::binary | std::ios::trunc);
+    if (!os) { std::fprintf(stderr, "[overlay] save_default_config: cannot write %s\n",
+                            out.string().c_str()); return false; }
+    os << j.dump(2);
+    return static_cast<bool>(os);
+}
+
+bool load_default_config(std::string& profile_id,
+                         std::string& signal_id,
+                         Pipeline::GlobalParams& p) {
+    fs::path in = default_config_path();
+    std::error_code ec;
+    if (!fs::is_regular_file(in, ec)) return false;
+    std::ifstream is(in, std::ios::binary);
+    if (!is) return false;
+    nlohmann::json j;
+    try { is >> j; } catch (...) {
+        std::fprintf(stderr, "[overlay] default_config.json parse error — ignoring\n");
+        return false;
+    }
+    profile_id = j.value("profile_id", std::string());
+    signal_id  = j.value("signal_id",  std::string());
+    if (!j.contains("params")) return true;
+    const auto& g = j["params"];
+    auto f = [&](const char* k, float& dst) { if (g.contains(k)) dst = g[k].get<float>(); };
+    auto i = [&](const char* k, int&   dst) { if (g.contains(k)) dst = g[k].get<int>();   };
+    f("scanline_strength", p.scanline_strength);
+    f("beam_width",        p.beam_width);
+    f("gamma_crt",         p.gamma_crt);
+    f("scanline_count",    p.scanline_count);
+    i("mask_type",         p.mask_type);
+    f("mask_strength",     p.mask_strength);
+    f("mask_pitch_px",     p.mask_pitch_px);
+    f("bloom_strength",    p.bloom_strength);
+    f("halation_strength", p.halation_strength);
+    f("barrel_strength",   p.barrel_strength);
+    f("vignette_strength", p.vignette_strength);
+    f("gamma_display",     p.gamma_display);
+    f("target_aspect",     p.target_aspect);
+    i("bezel_style",       p.bezel_style);
+    f("persistence_strength", p.persistence_strength);
+    f("persistence_ratio_r",  p.persistence_ratio_r);
+    f("persistence_ratio_g",  p.persistence_ratio_g);
+    f("persistence_ratio_b",  p.persistence_ratio_b);
+    i("monochrome",        p.monochrome);
+    i("posterize_levels",  p.posterize_levels);
+    f("phosphor_color_r",  p.phosphor_color_r);
+    f("phosphor_color_g",  p.phosphor_color_g);
+    f("phosphor_color_b",  p.phosphor_color_b);
+    f("glass_tint_r",      p.glass_tint_r);
+    f("glass_tint_g",      p.glass_tint_g);
+    f("glass_tint_b",      p.glass_tint_b);
+    f("glass_age",         p.glass_age);
+    return true;
+}
+
 } // namespace tubelight::overlay

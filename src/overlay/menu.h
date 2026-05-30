@@ -33,6 +33,7 @@ struct WindowActions {
     int  current_renderer     = 0;     // 0 = OpenGL, 1 = Direct3D 12
     // Output to host:
     bool switch_renderer_requested = false; // relaunch with the other renderer
+    bool save_default_requested    = false; // persist current config as startup default
     bool snap_to_aspect_requested    = false; // resize window to match target_aspect
     bool toggle_fullscreen_requested = false; // flip windowed <-> fullscreen
     bool track_foreground_requested  = false; // attach to whatever has OS focus

@@ -1442,6 +1442,21 @@ int run_dx12(const Options& opts) {
         }
     }
 
+    // Saved default config (full params snapshot) overrides the basic preset
+    // when no --profile/--signal was passed.
+    std::string saved_profile, saved_signal;
+    bool have_saved_default = false;
+    if (opts.use_saved_default) {
+        tubelight::Pipeline::GlobalParams dp = pipeline.params();
+        if (load_default_config(saved_profile, saved_signal, dp)) {
+            pipeline.params() = dp;
+            have_saved_default = true;
+            std::fprintf(stderr, "[overlay] loaded saved default config "
+                         "(profile=%s signal=%s)\n",
+                         saved_profile.c_str(), saved_signal.c_str());
+        }
+    }
+
     // Hotkeys (ESC/1..8/0/F) come through the global keyboard hook below.
     // AppState carries pipeline + freeze for the loop. Window state (resize
     // /quit) lives in wnd_state, wired into the WndProc via GWLP_USERDATA.
@@ -1466,8 +1481,10 @@ int run_dx12(const Options& opts) {
     // on DX12. The host-managed controls below are dispatched after
     // build_widgets: audio + vsync + recordable are wired; video recording
     // + HUD are deferred (need a DX12 readback / HUD path).
-    std::string cur_profile = opts.profile_id;
-    std::string cur_signal  = opts.signal_id;
+    std::string cur_profile = have_saved_default && !saved_profile.empty()
+                              ? saved_profile : opts.profile_id;
+    std::string cur_signal  = have_saved_default && !saved_signal.empty()
+                              ? saved_signal : opts.signal_id;
     float menu_intensity = 1.0f;
     bool  m_hud=false, m_ct=false;
     bool  m_aud=false;            // audio enabled
@@ -1813,6 +1830,10 @@ int run_dx12(const Options& opts) {
                             mode_fullscreen ? "windowed" : "fullscreen");
                 if (relaunch_with_fullscreen(!mode_fullscreen)) wnd_state.quit = true;
             }
+            if (wa.save_default_requested) {
+                if (save_default_config(cur_profile, cur_signal, pipeline.params()))
+                    std::printf("[overlay] dx12: saved current config as default\n");
+            }
             if (cur_profile != prev_profile && !cur_profile.empty()) {
                 std::string err;
                 auto p = tubelight::load_crt_profile_by_id(cur_profile, err);
@@ -2096,6 +2117,21 @@ int run(const Options& opts) {
         } else {
             std::fprintf(stderr, "[overlay] signal profile '%s' not found: %s\n",
                          opts.signal_id.c_str(), err.c_str());
+        }
+    }
+
+    // Saved default config (full params snapshot) overrides the basic preset
+    // when no --profile/--signal was passed.
+    std::string gl_saved_profile, gl_saved_signal;
+    bool gl_have_saved_default = false;
+    if (opts.use_saved_default) {
+        tubelight::Pipeline::GlobalParams dp = pipeline.params();
+        if (load_default_config(gl_saved_profile, gl_saved_signal, dp)) {
+            pipeline.params() = dp;
+            gl_have_saved_default = true;
+            std::fprintf(stderr, "[overlay] loaded saved default config "
+                         "(profile=%s signal=%s)\n",
+                         gl_saved_profile.c_str(), gl_saved_signal.c_str());
         }
     }
 
@@ -2451,8 +2487,10 @@ int run(const Options& opts) {
     };
 
     // Menu state â€” selected profile/signal ids + a global intensity multiplier.
-    std::string current_profile_id = opts.profile_id;
-    std::string current_signal_id  = opts.signal_id;
+    std::string current_profile_id = gl_have_saved_default && !gl_saved_profile.empty()
+                                     ? gl_saved_profile : opts.profile_id;
+    std::string current_signal_id  = gl_have_saved_default && !gl_saved_signal.empty()
+                                     ? gl_saved_signal : opts.signal_id;
     float intensity_multiplier     = 1.0f;
     Pipeline::GlobalParams base_params = pipeline.params();
     Settings settings = load_settings();
@@ -2897,6 +2935,13 @@ int run(const Options& opts) {
                 std::printf("[overlay] gl: switching renderer -> DX12 (relaunch)\n");
                 if (relaunch_with_renderer(L"dx12"))
                     glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
+            if (wa.save_default_requested) {
+                if (save_default_config(current_profile_id, current_signal_id,
+                                        pipeline.params())) {
+                    toast_text = "Configuracion guardada como predeterminada";
+                    toast_time = std::chrono::steady_clock::now();
+                }
             }
             // Click-away: a left click outside the menu closes it (matches the
             // DX12 path). ImGui has the current hover/click state here, right

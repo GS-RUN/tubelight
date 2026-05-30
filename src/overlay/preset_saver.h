@@ -24,4 +24,17 @@ bool save_crt_preset(const std::string& source_id,
                      const Pipeline::GlobalParams& params,
                      std::string& error_out);
 
+// Default startup config: persist the current profile/signal ids + the FULL
+// pipeline params to %APPDATA%\Tubelight\default_config.json so the next launch
+// reproduces exactly what the user has on screen ("Guardar como predeterminada").
+bool save_default_config(const std::string& profile_id,
+                         const std::string& signal_id,
+                         const Pipeline::GlobalParams& params);
+
+// Loads the saved default config. Returns false if none exists (caller then
+// falls back to the built-in "basic" preset).
+bool load_default_config(std::string& profile_id,
+                         std::string& signal_id,
+                         Pipeline::GlobalParams& params);
+
 } // namespace tubelight::overlay

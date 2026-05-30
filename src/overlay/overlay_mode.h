@@ -26,6 +26,10 @@ enum class OverlayMode {
 struct Options {
     std::string profile_id;            // empty → use defaults
     std::string signal_id;             // empty → use defaults
+    // True when neither --profile nor --signal was given on the CLI: the
+    // overlay then loads the user's saved default_config.json if it exists
+    // (else the built-in "basic" preset).
+    bool use_saved_default = false;
     int  monitor_index = 0;            // which output to capture (Windows)
     OverlayMode mode = OverlayMode::Windowed;
     int  init_w = 1280;                // initial windowed size

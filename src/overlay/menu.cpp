@@ -1073,6 +1073,11 @@ void Menu::build_widgets(Pipeline& pipeline,
             ? "Reinicia con el motor OpenGL (captura DXGI Duplication)."
             : "Reinicia con el motor Direct3D 12 (captura WGC zero-copy).");
     }
+    if (ImGui::Button("Guardar como predeterminada", ImVec2(-1, 0))) {
+        window_actions.save_default_requested = true;
+    }
+    tl_tooltip("Guarda el perfil + senal + todos los ajustes actuales como\n"
+               "configuracion de arranque. Al abrir Tubelight se cargara esta.");
     // Quit button uses coral accent — destructive action, deserves
     // its own colour so the user notices what they're clicking.
     ImGui::PushStyleColor(ImGuiCol_Button,        pal::coral(0.30f));
