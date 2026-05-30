@@ -157,6 +157,7 @@ private:
     bool create_cb_ring();
     void destroy_cb_ring();
     void drain_info_queue();
+    void log_device_removed(const char* where);  // dump GetDeviceRemovedReason + DRED
     Microsoft::WRL::ComPtr<ID3D12InfoQueue>         info_queue_;
 
     // D3D11On12 + WGC interop state (Phase 3d). Lazily initialised by

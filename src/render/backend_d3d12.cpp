@@ -101,6 +101,18 @@ bool D3D12Backend::init(const BackendInitParams& params) {
         }
     }
 
+    // DRED (Device Removed Extended Data): auto-breadcrumbs + page-fault info,
+    // always on (negligible cost). If a TDR removes the device, log_device_
+    // removed() dumps the last GPU ops + faulting VA so a hang is diagnosable
+    // from a user's run, not just under PIX. Must be set BEFORE device creation.
+    {
+        ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dred;
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dred)))) {
+            dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            dred->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+        }
+    }
+
     if (FAILED(CreateDXGIFactory2(factory_flags, IID_PPV_ARGS(&dxgi_factory_)))) {
         std::fprintf(stderr, "[tubelight][d3d12] CreateDXGIFactory2 failed\n");
         return false;
@@ -335,6 +347,31 @@ void D3D12Backend::drain_info_queue() {
         }
     }
     info_queue_->ClearStoredMessages();
+}
+
+void D3D12Backend::log_device_removed(const char* where) {
+    const unsigned long rr =
+        device_ ? static_cast<unsigned long>(device_->GetDeviceRemovedReason()) : 0;
+    std::fprintf(stderr, "[tubelight][d3d12] DEVICE REMOVED at %s: reason 0x%lX\n",
+                 where ? where : "?", rr);
+    ComPtr<ID3D12DeviceRemovedExtendedData> dred;
+    if (!device_ || FAILED(device_->QueryInterface(IID_PPV_ARGS(&dred)))) return;
+    D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT bc{};
+    if (SUCCEEDED(dred->GetAutoBreadcrumbsOutput(&bc))) {
+        int n = 0;
+        for (const D3D12_AUTO_BREADCRUMB_NODE* node = bc.pHeadAutoBreadcrumbNode;
+             node && n < 8; node = node->pNext, ++n) {
+            const UINT done = node->pLastBreadcrumbValue ? *node->pLastBreadcrumbValue : 0;
+            std::fprintf(stderr, "  [dred] list '%ls': completed %u of %u ops\n",
+                         node->pCommandListDebugNameW ? node->pCommandListDebugNameW : L"?",
+                         done, node->BreadcrumbCount);
+        }
+    }
+    D3D12_DRED_PAGE_FAULT_OUTPUT pf{};
+    if (SUCCEEDED(dred->GetPageFaultAllocationOutput(&pf)) && pf.PageFaultVA) {
+        std::fprintf(stderr, "  [dred] page fault VA = 0x%llX\n",
+                     static_cast<unsigned long long>(pf.PageFaultVA));
+    }
 }
 
 void D3D12Backend::wait_for_fence(UINT64 value) {
@@ -633,12 +670,30 @@ void D3D12Backend::resize(int width, int height) {
         return;
     }
     wait_for_gpu_idle();
+    // ResizeBuffers requires NO outstanding references to the back buffers. A
+    // closed+executed command list still holds the resources it recorded until
+    // it is Reset, so reset both the main and capture lists first — otherwise
+    // ResizeBuffers fails, the swap chain stays the old size while the pipeline
+    // moves to the new one, and the size mismatch can fault the GPU (TDR).
+    cmd_list_->Reset(cmd_alloc_[current_back_buffer_].Get(), nullptr);
+    cmd_list_->Close();
+    if (cap_list_ && cap_alloc_) {
+        cap_list_->Reset(cap_alloc_.Get(), nullptr);
+        cap_list_->Close();
+    }
     destroy_swap_chain_resources();
-    if (FAILED(swap_chain_->ResizeBuffers(kBackBufferCount,
-                                           static_cast<UINT>(width),
-                                           static_cast<UINT>(height),
-                                           kBackBufferFormat, 0))) {
-        std::fprintf(stderr, "[tubelight][d3d12] swap_chain_->ResizeBuffers failed\n");
+    HRESULT hr = swap_chain_->ResizeBuffers(kBackBufferCount,
+                                            static_cast<UINT>(width),
+                                            static_cast<UINT>(height),
+                                            kBackBufferFormat, 0);
+    if (FAILED(hr)) {
+        std::fprintf(stderr, "[tubelight][d3d12] swap_chain_->ResizeBuffers failed 0x%lX\n",
+                     static_cast<unsigned long>(hr));
+        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+            HRESULT rr = device_->GetDeviceRemovedReason();
+            std::fprintf(stderr, "[tubelight][d3d12] device removed: 0x%lX\n",
+                         static_cast<unsigned long>(rr));
+        }
         return;
     }
     width_  = width;
@@ -1519,7 +1574,9 @@ void D3D12Backend::end_frame() {
     // stays put without Present → the bench runs 1-frame-in-flight, which
     // is exactly what we want for an isolated per-frame measurement.)
     if (!timing_enabled_) {
-        swap_chain_->Present(vsync_ ? 1 : 0, 0);
+        HRESULT pr = swap_chain_->Present(vsync_ ? 1 : 0, 0);
+        if (pr == DXGI_ERROR_DEVICE_REMOVED || pr == DXGI_ERROR_DEVICE_RESET)
+            log_device_removed("Present");
     }
 
     // Frame pacing (DX-22 + DX-10): signal a fence value for this slot and

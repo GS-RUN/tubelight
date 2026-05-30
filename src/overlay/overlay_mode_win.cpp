@@ -1657,6 +1657,27 @@ int run_dx12(const Options& opts) {
     // Capture the just-rendered backbuffer and paint it onto the layered
     // window's surface. RGBA8 (R,G,B,A) → DIB BGRA. SLWA applies a uniform
     // opaque alpha, so per-pixel alpha is irrelevant here.
+    // Blit the LAST captured frame (the persisted DIB) onto the window's
+    // CURRENT client rect. 1:1 BitBlt in steady state; StretchBlt (HALFTONE)
+    // when the window is a different size than the captured frame — i.e. during
+    // a modal resize, where it scales the last frame to fill the growing window
+    // (a smooth stretched preview) with NO D3D work at all.
+    auto blit_to_window = [&]() {
+        if (!ovl_dib || ovl_w <= 0 || ovl_h <= 0) return;
+        HDC wdc = GetDC(hwnd);
+        if (!wdc) return;
+        RECT rc{}; GetClientRect(hwnd, &rc);
+        const int dw = rc.right - rc.left, dh = rc.bottom - rc.top;
+        if (dw == ovl_w && dh == ovl_h) {
+            BitBlt(wdc, 0, 0, ovl_w, ovl_h, ovl_mem_dc, 0, 0, SRCCOPY);
+        } else if (dw > 0 && dh > 0) {
+            SetStretchBltMode(wdc, HALFTONE);
+            SetBrushOrgEx(wdc, 0, 0, nullptr);
+            StretchBlt(wdc, 0, 0, dw, dh, ovl_mem_dc, 0, 0, ovl_w, ovl_h, SRCCOPY);
+        }
+        ReleaseDC(hwnd, wdc);
+    };
+
     auto present_layered = [&]() {
         int cw = 0, ch = 0;
         if (!d12->capture_backbuffer(cap_buf, cw, ch)) return;
@@ -1669,24 +1690,7 @@ int run_dx12(const Options& opts) {
             dst[i*4 + 2] = cap_buf[i*4 + 0];  // R
             dst[i*4 + 3] = 255;               // A
         }
-        HDC wdc = GetDC(hwnd);
-        if (wdc) {
-            // Blit to the window's CURRENT client rect. They match 1:1 in steady
-            // state (fast BitBlt). During a deferred modal resize the swap chain
-            // is still the old size while the window has grown — StretchBlt then
-            // scales the frame to fill the window each tick (smooth preview, no
-            // per-tick swap-chain churn). HALFTONE = smooth scaling.
-            RECT rc{}; GetClientRect(hwnd, &rc);
-            const int dw = rc.right - rc.left, dh = rc.bottom - rc.top;
-            if (dw == cw && dh == ch) {
-                BitBlt(wdc, 0, 0, cw, ch, ovl_mem_dc, 0, 0, SRCCOPY);
-            } else if (dw > 0 && dh > 0) {
-                SetStretchBltMode(wdc, HALFTONE);
-                SetBrushOrgEx(wdc, 0, 0, nullptr);
-                StretchBlt(wdc, 0, 0, dw, dh, ovl_mem_dc, 0, 0, cw, ch, SRCCOPY);
-            }
-            ReleaseDC(hwnd, wdc);
-        }
+        blit_to_window();
     };
 
     // NVIDIA + Win11: a GWL_EXSTYLE swap silently drops the window's display
@@ -1706,12 +1710,20 @@ int run_dx12(const Options& opts) {
     // window with the crop, grabs the newest WGC frame, renders + presents.
     FrameRenderState frame_state;
     frame_state.render_one = [&]() {
-        // During a modal resize, DON'T recreate the swap chain per tick — that
-        // churns DXGI ResizeBuffers dozens of times/sec and can TDR the device.
-        // Defer the real resize to drag-end (the main loop applies
-        // wnd_state.resized once WM_EXITSIZEMOVE unblocks it); meanwhile keep
-        // rendering at the current size and let present_layered StretchBlt the
-        // frame onto the live (growing) window rect — a smooth stretched preview.
+        // Modal RESIZE in progress (window client size != the swap-chain size)?
+        // Do ZERO D3D work: rendering / Present / capture / ResizeBuffers per
+        // tick inside the OS modal loop is what hangs the GPU (TDR → black).
+        // Just re-StretchBlt the last captured frame onto the growing window —
+        // a smooth stretched preview. The real render + resize resume once the
+        // drag ends (in_modal clears, the main loop applies the resize once).
+        {
+            RECT rc{}; GetClientRect(hwnd, &rc);
+            const int winW = rc.right - rc.left, winH = rc.bottom - rc.top;
+            if (wnd_state.in_modal && (winW != fb_w || winH != fb_h)) {
+                blit_to_window();
+                return;
+            }
+        }
         if (!wnd_state.in_modal && wnd_state.resized) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
