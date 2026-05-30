@@ -203,6 +203,26 @@ El mecanismo es idéntico al path GL probado, así que debería cruzar.
 
 ---
 
+## 10. RESUELTO (2026-05-30) — WGC freeze = recycle roto en device 11On12
+
+Causa raíz **probada**: WGC **no recicla los buffers del pool sobre un device
+D3D11On12**. Diagnóstico decisivo: con el consumidor mínimo (sample MS,
+auto-dispose del frame) el callback `FrameArrived` para en **exactamente
+BufferCount** (2 buffers→cb#2, 4 buffers→cb#4); al crear un **device D3D11
+plano dedicado** para WGC, el callback dispara sin parar (cb#1..14+). No es
+oclusión, ni "nada cambia", ni mi lógica de consumo — es el device.
+
+**Fix (`wgc_capture.cpp`)**: WGC corre en su **propio device D3D11 hardware**
+(`create_plain_d3d11_device`) donde el reciclaje funciona. Cada frame se copia
+a una **textura SHARED triple-buffer** en ese device y se **abre por handle
+compartido en el device 11On12** del consumidor (`OpenSharedResource`), de modo
+que el pipeline DX12 la muestrea **sin readback CPU** (GPU-GPU, zero-copy
+preservado). El callback solo parquea el frame más reciente; el hilo principal
+copia + lo cierra (libera el buffer del pool). **Verificado RTX 2080 Ti**:
+`WGC: frame_count` crece ~45-60/s de forma continua; imagen viva y correcta
+(CRT sobre target window, screenshot); 0 errores. **DX12 ahora completo:
+captura viva zero-copy + click-through.** Launcher vuelto a `--renderer dx12`.
+
 ## 9. El síntoma "no funciona" del usuario = imagen CONGELADA (no el click)
 
 Tras todo lo anterior, el usuario confirmó que **el clic SÍ atraviesa** (su log
