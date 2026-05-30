@@ -997,10 +997,20 @@ inline bool relaunch_with_renderer(const wchar_t* target) {
     buf.push_back(L'\0');
     BOOL ok = CreateProcessW(nullptr, buf.data(), nullptr, nullptr, FALSE,
                              0, nullptr, nullptr, &si, &pi);
-    if (ok) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
-    else std::fprintf(stderr, "[overlay] relaunch CreateProcess failed GLE=%lu\n",
-                      GetLastError());
-    return ok != 0;
+    if (!ok) {
+        std::fprintf(stderr, "[overlay] relaunch CreateProcess failed GLE=%lu\n",
+                     GetLastError());
+        return false;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    // Vanish IMMEDIATELY. A normal quit runs a slow teardown (DXGI / WGC /
+    // Magnification / GLFW) during which THIS overlay's window lingers on top —
+    // and if the menu was open it isn't click-through, so it blocks the user
+    // until it finally dies (the "frozen copy of the desktop I can't click"
+    // bug). Hard-exit so only the freshly launched renderer remains.
+    std::fflush(nullptr);
+    ExitProcess(0);
 }
 
 #if defined(TUBELIGHT_HAVE_D3D12)
