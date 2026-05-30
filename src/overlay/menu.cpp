@@ -1059,6 +1059,20 @@ void Menu::build_widgets(Pipeline& pipeline,
         open_ = false;
     }
     tl_tooltip("Oculta el menu. Reabrir con Ctrl+Alt+M.");
+    // Switch render backend (relaunches the overlay with the other renderer,
+    // preserving the launch flags). Live teardown/rebuild of a whole backend
+    // mid-run is impractical, so a clean relaunch is the robust path.
+    {
+        const bool is_dx12 = (window_actions.current_renderer == 1);
+        if (ImGui::Button(is_dx12 ? "Cambiar a OpenGL (reinicia)"
+                                  : "Cambiar a Direct3D 12 (reinicia)",
+                          ImVec2(-1, 0))) {
+            window_actions.switch_renderer_requested = true;
+        }
+        tl_tooltip(is_dx12
+            ? "Reinicia con el motor OpenGL (captura DXGI Duplication)."
+            : "Reinicia con el motor Direct3D 12 (captura WGC zero-copy).");
+    }
     // Quit button uses coral accent — destructive action, deserves
     // its own colour so the user notices what they're clicking.
     ImGui::PushStyleColor(ImGuiCol_Button,        pal::coral(0.30f));

@@ -971,6 +971,38 @@ void capture_bench_report(const char* label, std::vector<double>& cap_ms) {
     std::fflush(stderr);
 }
 
+// Relaunch this same exe with the renderer swapped. Live teardown/rebuild of a
+// whole backend (GL vs D3D12 use different windows, capture and pipelines) is
+// impractical, so the robust "switch renderer" is a clean process relaunch that
+// preserves the original launch flags. `target` is L"gl" or L"dx12". Returns
+// true if the new process was started (caller then quits the current one).
+inline bool relaunch_with_renderer(const wchar_t* target) {
+    std::wstring cmd = GetCommandLineW();
+    const std::wstring flag = L"--renderer";
+    size_t pos = cmd.find(flag);
+    if (pos != std::wstring::npos) {
+        size_t v = pos + flag.size();
+        auto is_sp = [](wchar_t c) { return c == L' ' || c == L'\t'; };
+        while (v < cmd.size() && is_sp(cmd[v])) ++v;       // skip spaces
+        size_t e = v;
+        while (e < cmd.size() && !is_sp(cmd[e])) ++e;       // value token
+        cmd.replace(v, e - v, target);
+    } else {
+        cmd += L" --renderer ";
+        cmd += target;
+    }
+    STARTUPINFOW si{}; si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::vector<wchar_t> buf(cmd.begin(), cmd.end());
+    buf.push_back(L'\0');
+    BOOL ok = CreateProcessW(nullptr, buf.data(), nullptr, nullptr, FALSE,
+                             0, nullptr, nullptr, &si, &pi);
+    if (ok) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
+    else std::fprintf(stderr, "[overlay] relaunch CreateProcess failed GLE=%lu\n",
+                      GetLastError());
+    return ok != 0;
+}
+
 #if defined(TUBELIGHT_HAVE_D3D12)
 // ---------------------------------------------------------------------------
 // T5.5 — D3D12 + WGC overlay path.
@@ -1723,6 +1755,7 @@ int run_dx12(const Options& opts) {
             wa.is_fullscreen      = mode_fullscreen;
             wa.is_tracking_target = mode_target;
             wa.is_region_active   = mode_region;
+            wa.current_renderer   = 1;   // D3D12
             Menu::SettingsIO sio{
                 m_hud, hud_c,
                 m_aud, m_vol, aud_c,
@@ -1734,6 +1767,10 @@ int run_dx12(const Options& opts) {
             const std::string prev_profile = cur_profile, prev_signal = cur_signal;
             menu.build_widgets(pipeline, cur_profile, cur_signal, menu_intensity,
                                want_quit, cap_dir, cap_changed, wa, sio);
+            if (wa.switch_renderer_requested) {
+                std::printf("[overlay] dx12: switching renderer -> GL (relaunch)\n");
+                if (relaunch_with_renderer(L"gl")) wnd_state.quit = true;
+            }
             if (cur_profile != prev_profile && !cur_profile.empty()) {
                 std::string err;
                 auto p = tubelight::load_crt_profile_by_id(cur_profile, err);
@@ -2796,6 +2833,7 @@ int run(const Options& opts) {
             wa.is_tracking_target = target_active;
             wa.target_title       = target_title_cached;
             wa.is_region_active   = region_active;
+            wa.current_renderer   = 0;   // OpenGL
             bool hud_changed = false;
             bool audio_changed = false;
             bool clickthrough_changed = false;
@@ -2813,6 +2851,11 @@ int run(const Options& opts) {
             menu.build_widgets(pipeline, current_profile_id, current_signal_id,
                                intensity_multiplier, want_quit_from_menu,
                                ui_capture_dir, cap_changed, wa, sio);
+            if (wa.switch_renderer_requested) {
+                std::printf("[overlay] gl: switching renderer -> DX12 (relaunch)\n");
+                if (relaunch_with_renderer(L"dx12"))
+                    glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
             // Click-away: a left click outside the menu closes it (matches the
             // DX12 path). ImGui has the current hover/click state here, right
             // after build_widgets. GL recomputes g_clickthrough_effective from

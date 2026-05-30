@@ -30,7 +30,9 @@ struct WindowActions {
     bool is_fullscreen        = false; // overlay is currently borderless fullscreen
     bool is_tracking_target   = false; // overlay is currently following another window
     std::string target_title;          // human-readable title of the current target
+    int  current_renderer     = 0;     // 0 = OpenGL, 1 = Direct3D 12
     // Output to host:
+    bool switch_renderer_requested = false; // relaunch with the other renderer
     bool snap_to_aspect_requested    = false; // resize window to match target_aspect
     bool toggle_fullscreen_requested = false; // flip windowed <-> fullscreen
     bool track_foreground_requested  = false; // attach to whatever has OS focus
