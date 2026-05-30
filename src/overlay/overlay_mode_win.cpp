@@ -1599,6 +1599,25 @@ int run_dx12(const Options& opts) {
     SetWindowPos(hwnd, HWND_TOPMOST, win_x, win_y, W, H,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
+    // ShaderGlass technique (win_mode): the swap chain was created with
+    // CreateSwapChainForHwnd on a NON-layered window (required — ForHwnd forbids
+    // a layered window at creation). Now add WS_EX_LAYERED at RUNTIME + opaque
+    // SLWA: DWM then composites the DIRECT flip-model Present of the layered
+    // window → VISIBLE D3D content + low lag (no readback/BitBlt) + smooth resize
+    // (normal ResizeBuffers), while WS_EX_TRANSPARENT (toggled by Ctrl) gives
+    // click-through. This is how ShaderGlass does glass mode — our old
+    // composition+BitBlt path was the wrong technique (caused the lag AND the
+    // vibration). vsync off → Present(0) for lowest latency (ShaderGlass does
+    // the same). Requires Win10 2004+ (older → black layered window).
+    if (win_mode) {
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ex |= WS_EX_LAYERED;
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+        SetWindowDisplayAffinity(hwnd, m_rec ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
+        d12->set_vsync(false);   // Present(0) — low latency like ShaderGlass
+    }
+
     // Global low-level keyboard hook so Ctrl+Alt+<key> works regardless of
     // focus — essential because the borderless overlay is WS_EX_NOACTIVATE
     // and won't receive GLFW key events. Same pattern + same kb_hook_proc /
@@ -1736,25 +1755,19 @@ int run_dx12(const Options& opts) {
         SetWindowDisplayAffinity(hwnd, m_rec ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
     };
 
-    // win_mode click-through toggle (the INVERTED scheme). ON (Ctrl held) →
-    // WS_EX_LAYERED|TRANSPARENT + BitBlt present (skip the direct Present);
-    // OFF → non-layered, direct Present (smooth, interactive/draggable). No
-    // swap-chain recreate — just style + present-mode. NOT used by the
-    // layered-always modes (they manage WS_EX_TRANSPARENT separately).
+    // win_mode click-through toggle (ShaderGlass technique). The window is
+    // ALWAYS WS_EX_LAYERED + DIRECT Present (set up after show). set_ct only
+    // toggles WS_EX_TRANSPARENT: ON (Ctrl) → clicks pass through to the app
+    // below + the window doesn't take focus (NOACTIVATE) → emulator keeps
+    // keyboard; OFF → interactive (draggable/resizable via NCHITTEST). Does NOT
+    // touch WS_EX_LAYERED / present-mode / ct_layered — stays direct-present
+    // (low lag, smooth), never BitBlt.
     auto set_ct = [&](bool on) {
         LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        if (on) {
-            ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-            SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-            d12->set_present_enabled(false);   // show via BitBlt while layered
-        } else {
-            ex &= ~(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
-            d12->set_present_enabled(true);     // show via direct Present (smooth)
-        }
-        reassert_wda();
-        ct_layered = on;
+        if (on) ex |=  (WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+        else    ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        reassert_wda();   // WS_EX_LAYERED stays — only TRANSPARENT flips
         g_dx12_ct_active.store(on);
     };
 
@@ -1771,8 +1784,11 @@ int run_dx12(const Options& opts) {
         // continuous "vibration". Instead keep rendering LIVE at the current
         // swap-chain size and let present_layered StretchBlt the live frame onto
         // the growing window (live content + zero per-tick recreate = no flash).
-        // The real resize is applied ONCE on drag-end by the main loop.
-        if (wnd_state.resized && !wnd_state.in_modal) {
+        // Apply the resize live (ShaderGlass-style: ResizeBuffers normally on
+        // each WM_SIZE; the direct flip-model Present + DWM gives a smooth
+        // windowed resize). render_one runs during the modal loop, so the
+        // content stays live while dragging.
+        if (wnd_state.resized) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
             fb_h = wnd_state.resize_h;
@@ -1780,11 +1796,8 @@ int run_dx12(const Options& opts) {
             pipeline.resize(fb_w, fb_h);
             reassert_wda();  // swap-chain recreate can drop WDA → self-capture feedback
         }
-        // Mid-resize, LAYERED mode only: cover the just-reallocated layered
-        // surface with the last frame. In DIRECT mode (win_mode default) the
-        // window shows via the swap-chain Present — a GDI BitBlt here would FIGHT
-        // that Present over the same HWND → that was the persistent "vibration".
-        // Direct mode relies on DWM stretching the (deferred) swap chain instead.
+        // BitBlt cover only in the layered-BitBlt modes (NOT win_mode, which is
+        // direct-present — a GDI blit there fights the swap-chain Present).
         if (wnd_state.in_modal && ct_layered) blit_to_window();
         if (!state.freeze) {
             update_region_crop();
@@ -1819,11 +1832,9 @@ int run_dx12(const Options& opts) {
             DispatchMessageW(&wmsg);
             if (wmsg.message == WM_QUIT) wnd_state.quit = true;
         }
-        // Apply a pending resize from WM_SIZE — but NOT during a modal drag
-        // (deferred to drag-end so the swap chain is recreated ONCE, not per
-        // tick; during the drag render_one renders live + StretchBlt). fb_w/fb_h
-        // track the new size so the region crop follows it.
-        if (wnd_state.resized && !wnd_state.in_modal) {
+        // Apply a pending resize from WM_SIZE (when not consumed by render_one
+        // during the modal loop). fb_w/fb_h track the new size for the crop.
+        if (wnd_state.resized) {
             wnd_state.resized = false;
             fb_w = wnd_state.resize_w;
             fb_h = wnd_state.resize_h;

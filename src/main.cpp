@@ -1041,21 +1041,11 @@ int main(int argc, char** argv) {
     o.region_y = args.region_y;
     o.region_w = args.region_w;
     o.region_h = args.region_h;
-    // Mode-aware default backend (unless --renderer was explicit): WINDOWED
-    // defaults to GL. Rationale (audit AUDIT_DX12_VS_GL_2026_05_30.md): DX12's
-    // DXGI flip-model windowed resize vibrates and WGC can't capture live
-    // (MPO/hardware-overlay) video — both are fundamental, not polish. GL's
-    // OpenGL present resizes smoothly and its DXGI-Duplication+Magnification
-    // capture shows the video. Other modes (fullscreen/target/region) keep the
-    // D3D12 default (zero-copy WGC, no live-resize, typically no video).
-    tubelight::BackendKind backend = args.backend;
-    if (!args.renderer_explicit &&
-        o.mode == tubelight::overlay::OverlayMode::Windowed) {
-        backend = tubelight::BackendKind::OpenGL;
-        std::fprintf(stderr, "[tubelight] windowed → GL backend by default "
-                             "(smooth resize + live video; use --renderer dx12 to override)\n");
-    }
-    o.backend = backend;
+    // Default backend = D3D12 (zero-copy WGC = low lag, the ShaderGlass-class
+    // path). Windowed DX12 uses the ShaderGlass technique: CreateSwapChainForHwnd
+    // + runtime WS_EX_LAYERED + DIRECT Present (no readback/BitBlt) → low lag +
+    // click-through (Ctrl) + smooth resize. --renderer overrides.
+    o.backend = args.backend;
     o.bench_frames = args.bench_frames;  // Phase 3e end-to-end capture bench
     return tubelight::overlay::run(o);
 }
