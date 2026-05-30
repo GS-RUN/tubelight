@@ -203,6 +203,33 @@ El mecanismo es idéntico al path GL probado, así que debería cruzar.
 
 ---
 
+## 13. RESUELTO DE VERDAD (2026-05-30) — el bug era el MENÚ, no el click-through
+
+El log REAL del usuario (`tubelight_clickthrough.log`) lo zanjó:
+- **Frames 0-495**: `TRANSPARENT=1`, cursor sobre `SysListView32`/`DirectUIHWND`
+  (Explorer), **0 `WM_LBUTTONDOWN`** → **el click-through DX12 FUNCIONA** (el
+  usuario clicaba archivos y pasaban). Confirma §12: GL == DX12.
+- **Abre el menú** (Ctrl+Alt+M) → el código pone `TRANSPARENT=0` + foco (para
+  que ImGui reciba el ratón). Cambia el aspect ratio.
+- **A partir de ahí y hasta el final**: `TRANSPARENT=0` PEGADO, `underCursor=
+  TubelightDX12Overlay`, `WM_LBUTTONDOWN *** click on overlay ***` repetido →
+  el overlay captura TODO y ya no atraviesa. **Ese era el bug.**
+
+**Causa**: abrir el menú quita `WS_EX_TRANSPARENT`; solo se restaura cerrando el
+menú con Ctrl+Alt+M. Si el usuario toca un ajuste y no cierra el menú (o cree
+que "perdió el foco"), el overlay se queda opaco-a-clics → "ya no puedo pinchar
+en nada".
+
+**FIX** (`overlay_mode_win.cpp`): (a) **click-away** — un clic fuera del menú
+ImGui (que ImGui no consume) lo cierra y restaura `WS_EX_TRANSPARENT`;
+(b) **red de seguridad** — cada frame, si el menú está cerrado y la ventana es
+borderless, se re-asegura `WS_EX_TRANSPARENT`. **Verificado**: tras el menú,
+un clic en el CRT → `underCursor` pasa de `TubelightDX12Overlay` a la ventana
+de debajo (`Chrome_RenderWidgetHostHWND`), `TRANSPARENT` vuelve a 1. **DX12 ya
+completo**: captura WGC viva (§10) + click-through + menú robusto. Launcher
+vuelto a `--renderer dx12`. (GL tiene el mismo patrón de menú latente — aplicar
+igual si se reporta.)
+
 ## 12. AUDITORÍA (2026-05-30) — NO se reproduce diferencia GL/DX12
 
 Auditoría a fondo del supuesto bug DX12 con `dx12-engineer` mode=debug.

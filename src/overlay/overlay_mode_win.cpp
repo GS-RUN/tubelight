@@ -1057,6 +1057,10 @@ FILE* g_ct_log = nullptr;
 // True while click-through should be active (borderless, menu closed). Lets
 // the wndproc return HTTRANSPARENT only when appropriate (menu stays clickable).
 std::atomic<bool> g_dx12_ct_active{false};
+// Set by the wndproc when a click lands OUTSIDE the open ImGui menu, so the
+// main loop closes the menu and restores click-through (otherwise the overlay
+// stays opaque-to-clicks after the user touches the menu — they get stuck).
+std::atomic<bool> g_dx12_menu_clickaway{false};
 
 void ct_log_open() {
     if (g_ct_log) return;
@@ -1110,6 +1114,13 @@ LRESULT CALLBACK dx12_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     // open + click-through is off, so the overlay receives input).
     if (ImGui_ImplWin32_WndProcHandler(h, msg, wp, lp)) return 1;
 #endif
+    // A button-down that ImGui did NOT consume while the menu is open means the
+    // user clicked OUTSIDE the menu → ask the loop to close it and restore
+    // click-through. (g_dx12_ct_active is false exactly while the menu is open.)
+    if ((msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_NCLBUTTONDOWN)
+        && !g_dx12_ct_active.load()) {
+        g_dx12_menu_clickaway.store(true);
+    }
     auto* st = reinterpret_cast<Dx12WndState*>(GetWindowLongPtrW(h, GWLP_USERDATA));
     switch (msg) {
     case WM_SIZE:
@@ -1613,6 +1624,33 @@ int run_dx12(const Options& opts) {
                         menu.is_open() ? "OPEN" : "closed",
                         static_cast<unsigned long>(ex),
                         (ex & WS_EX_TRANSPARENT) ? 1 : 0);
+        }
+
+        // Click-away: a click outside the open menu closes it and restores
+        // click-through. Without this the overlay stays opaque-to-clicks after
+        // the user touches the menu (e.g. changes the aspect ratio) and they
+        // can no longer click anything below — the reported bug.
+        if (has_menu && menu.is_open() && g_dx12_menu_clickaway.exchange(false)) {
+            menu.toggle();  // close
+            if (!chrome) {
+                LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                g_dx12_ct_active.store(!no_ct);
+            }
+            std::printf("[overlay] dx12: menu auto-closed (click-away) — click-through restored\n");
+        }
+
+        // Safety net: a borderless overlay with the menu CLOSED must always be
+        // click-through. Re-assert WS_EX_TRANSPARENT every frame in case any
+        // path (menu, focus loss, resize) left it off.
+        if (!chrome && has_menu && !menu.is_open() && !no_ct) {
+            LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            if (!(ex & WS_EX_TRANSPARENT)) {
+                ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+                g_dx12_ct_active.store(true);
+            }
         }
 
         // Target-window tracking: follow the target as it moves so the
