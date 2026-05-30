@@ -125,6 +125,10 @@ struct Args {
 #else
     tubelight::BackendKind backend = tubelight::BackendKind::OpenGL;
 #endif
+    // True if the backend was chosen explicitly (--renderer, or a flag that
+    // implies a backend). When false, the launch applies a MODE-AWARE default:
+    // windowed → GL (smooth resize + video), other modes → the D3D12 default.
+    bool renderer_explicit = false;
     // Phase 3c F3c-5: deterministic offscreen capture for pixel-equivalence
     // testing. When set, --shader-only renders 60 warmup frames, captures
     // the backbuffer to <path> as PNG, then exits.
@@ -217,6 +221,7 @@ Args parse_args(int argc, char** argv) {
         } else if (arg == "--wgc-test") {
             a.wgc_test = true;
             a.backend  = tubelight::BackendKind::D3D12;  // implied
+            a.renderer_explicit = true;
         } else if (arg == "--screenshot") {
             if (i + 1 < argc) {
                 a.screenshot_path = argv[++i];
@@ -241,6 +246,7 @@ Args parse_args(int argc, char** argv) {
                 tubelight::BackendKind k;
                 if (tubelight::parse_backend_kind(tok, k)) {
                     a.backend = k;
+                    a.renderer_explicit = true;
                 } else {
                     a.unknown_flag = true;
                     a.unknown_flag_text = std::string("--renderer ") + tok +
@@ -1035,9 +1041,21 @@ int main(int argc, char** argv) {
     o.region_y = args.region_y;
     o.region_w = args.region_w;
     o.region_h = args.region_h;
-    // T5.5: forward --renderer dx12 into the overlay so it takes the
-    // WGC + D3D11On12 + D3D12 path (run_dx12). Defaults to GL otherwise.
-    o.backend = args.backend;
+    // Mode-aware default backend (unless --renderer was explicit): WINDOWED
+    // defaults to GL. Rationale (audit AUDIT_DX12_VS_GL_2026_05_30.md): DX12's
+    // DXGI flip-model windowed resize vibrates and WGC can't capture live
+    // (MPO/hardware-overlay) video — both are fundamental, not polish. GL's
+    // OpenGL present resizes smoothly and its DXGI-Duplication+Magnification
+    // capture shows the video. Other modes (fullscreen/target/region) keep the
+    // D3D12 default (zero-copy WGC, no live-resize, typically no video).
+    tubelight::BackendKind backend = args.backend;
+    if (!args.renderer_explicit &&
+        o.mode == tubelight::overlay::OverlayMode::Windowed) {
+        backend = tubelight::BackendKind::OpenGL;
+        std::fprintf(stderr, "[tubelight] windowed → GL backend by default "
+                             "(smooth resize + live video; use --renderer dx12 to override)\n");
+    }
+    o.backend = backend;
     o.bench_frames = args.bench_frames;  // Phase 3e end-to-end capture bench
     return tubelight::overlay::run(o);
 }
