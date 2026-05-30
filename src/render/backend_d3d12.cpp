@@ -349,6 +349,16 @@ void D3D12Backend::drain_info_queue() {
     info_queue_->ClearStoredMessages();
 }
 
+void D3D12Backend::invalidate_baked_tables() {
+    for (auto& kv : passes_) {
+        PassEntry& pe = kv.second;
+        for (UINT f = 0; f < kBackBufferCount; ++f) {
+            pe.baked[f][0] = false;
+            pe.baked[f][1] = false;
+        }
+    }
+}
+
 void D3D12Backend::log_device_removed(const char* where) {
     const unsigned long rr =
         device_ ? static_cast<unsigned long>(device_->GetDeviceRemovedReason()) : 0;
@@ -894,8 +904,10 @@ void D3D12Backend::destroy_texture(TextureHandle h) {
     // Return the CPU-SRV slot for reuse — BUT NOT for a borrowed alias of an
     // RT (rt_as_texture): that slot belongs to the RT and is freed when the RT
     // is destroyed; freeing it here too would double-free it into the list.
-    if (!it->second.borrowed_from_rt && it->second.srv_cpu_slot != UINT_MAX)
+    if (!it->second.borrowed_from_rt && it->second.srv_cpu_slot != UINT_MAX) {
         free_srv_cpu_slots_.push_back(it->second.srv_cpu_slot);
+        invalidate_baked_tables();  // a reused CPU-SRV slot must not be a false cache hit
+    }
     textures_.erase(it);
 }
 
@@ -1060,6 +1072,7 @@ void D3D12Backend::destroy_render_target(RenderTargetHandle h) {
     if (it->second.rtv_slot     != UINT_MAX) free_rtv_slots_.push_back(it->second.rtv_slot);
     if (it->second.srv_cpu_slot != UINT_MAX) free_srv_cpu_slots_.push_back(it->second.srv_cpu_slot);
     rts_.erase(it);
+    invalidate_baked_tables();  // a reused CPU-SRV slot must not be a false cache hit
 }
 
 bool D3D12Backend::capture_backbuffer(std::vector<uint8_t>& out_rgba,

@@ -2008,6 +2008,13 @@ int run_dx12(const Options& opts) {
             menu.end_frame_to_screen_dx12(d12->command_list());
         }
         backend_raw->end_frame();
+        // Safety net: if the GPU device was lost (TDR / removal), bail out
+        // cleanly instead of spinning forever on failing calls (black overlay +
+        // log spam). DRED has already logged the cause in end_frame.
+        if (d12->device_removed()) {
+            std::fprintf(stderr, "[overlay] dx12: device removed — exiting\n");
+            break;
+        }
         // Path B: push the finished frame onto the layered window. (Borderless
         // modes only; plain windowed shows via its HWND swap chain.)
         if (layered) present_layered();

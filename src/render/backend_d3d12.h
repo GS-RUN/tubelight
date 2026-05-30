@@ -133,6 +133,13 @@ public:
     void set_vsync(bool on) { vsync_ = on; }
     bool vsync() const { return vsync_; }
 
+    // True once the GPU device has been lost (TDR / removal). The overlay loop
+    // polls this to exit cleanly instead of spinning on failing calls (black
+    // screen + log spam).
+    bool device_removed() const {
+        return device_ && device_->GetDeviceRemovedReason() != S_OK;
+    }
+
 private:
     static constexpr UINT kBackBufferCount = 2;
     static constexpr DXGI_FORMAT kBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -158,6 +165,13 @@ private:
     void destroy_cb_ring();
     void drain_info_queue();
     void log_device_removed(const char* where);  // dump GetDeviceRemovedReason + DRED
+    // Mark every pass's shader-visible descriptor-table cache stale. MUST be
+    // called whenever a CPU-SRV slot is recycled (free-list reuse on resize):
+    // the per-pass "baked" cache keys on the CPU handle .ptr, so a reused slot
+    // (same .ptr, NEW resource) would be a false cache hit → the shader-visible
+    // table keeps pointing at the destroyed resource → GPU samples freed memory
+    // → DEVICE_HUNG. Forcing a re-copy next draw fixes it.
+    void invalidate_baked_tables();
     Microsoft::WRL::ComPtr<ID3D12InfoQueue>         info_queue_;
 
     // D3D11On12 + WGC interop state (Phase 3d). Lazily initialised by
