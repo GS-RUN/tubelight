@@ -117,8 +117,14 @@ struct Args {
     int  region_x = 0, region_y = 0, region_w = 0, region_h = 0;
     bool unknown_flag = false;
     std::string unknown_flag_text;
-    // ADR-0002 Phase 3a: render backend selector. Only "gl" accepted today.
+    // Render backend selector (--renderer gl|dx12). Default to D3D12 on Windows
+    // (zero-copy WGC capture + cross-process click-through); the D3D12 backend
+    // falls back to GL automatically if device creation fails. GL elsewhere.
+#if defined(TUBELIGHT_HAVE_D3D12)
+    tubelight::BackendKind backend = tubelight::BackendKind::D3D12;
+#else
     tubelight::BackendKind backend = tubelight::BackendKind::OpenGL;
+#endif
     // Phase 3c F3c-5: deterministic offscreen capture for pixel-equivalence
     // testing. When set, --shader-only renders 60 warmup frames, captures
     // the backbuffer to <path> as PNG, then exits.
@@ -1002,8 +1008,11 @@ int main(int argc, char** argv) {
     // Default action (no flags, or just --overlay / --overlay-fullscreen):
     // launch the real overlay. Double-clicking the exe should "just work".
     tubelight::overlay::Options o;
-    o.profile_id    = args.profile_id.empty() ? std::string("pvm-8220")     : args.profile_id;
-    o.signal_id     = args.signal_id.empty()  ? std::string("composite_ntsc"): args.signal_id;
+    // Out-of-box default: the clean "basic" preset (aperture-grille grid + soft
+    // scanlines, no other effects, RGB signal — no NTSC artifacts). The user
+    // can change it and "Guardar como predeterminada" later (Phase 3).
+    o.profile_id    = args.profile_id.empty() ? std::string("basic")   : args.profile_id;
+    o.signal_id     = args.signal_id.empty()  ? std::string("rgb_vga") : args.signal_id;
     o.monitor_index = args.overlay_monitor;
     const bool has_target = !args.overlay_target_title.empty() || args.overlay_target_pid > 0;
     if (has_target) {

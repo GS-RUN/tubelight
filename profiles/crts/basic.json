@@ -1,0 +1,54 @@
+{
+  "$schema": "../../schemas/crt_profile.schema.json",
+  "id": "basic",
+  "display_name": "Basico (rejilla limpia)",
+  "era": "preset",
+
+  "tube": {
+    "mask_type": "aperture_grille",
+    "dot_pitch_mm": 0.30,
+    "screen_curvature": "flat",
+    "diagonal_inches": 20,
+    "aspect_native": "fill",
+    "source": {
+      "url": "n/a",
+      "retrieved_at": "2026-05-30"
+    }
+  },
+
+  "phosphor": {
+    "type": "P22",
+    "decay_ms": { "r": 1.0, "g": 1.0, "b": 1.0 },
+    "chromaticity_smpte_c": {
+      "r": [0.630, 0.340],
+      "g": [0.310, 0.595],
+      "b": [0.155, 0.070]
+    },
+    "source": {
+      "url": "n/a",
+      "retrieved_at": "2026-05-30"
+    }
+  },
+
+  "beam": {
+    "focus": 1.00,
+    "intensity_curve": "linear",
+    "scanline_strength": 0.25,
+    "interlace_mode": "off"
+  },
+
+  "glass": {
+    "age": 0.0,
+    "tint": [1.00, 1.00, 1.00],
+    "reflection_strength": 0.0
+  },
+
+  "ageing": {
+    "phosphor_burn_in": 0.0,
+    "purity_drift": 0.0,
+    "geometry_warp": 0.0
+  },
+
+  "h_freq_khz": 31.469,
+  "v_freq_hz": 60.0
+}

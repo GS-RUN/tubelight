@@ -496,6 +496,27 @@ void Pipeline::apply_crt_profile(const CRTProfile& p) {
         params_.mask_pitch_px = std::max(params_.mask_pitch_px, 1.5f);
     }
 
+    // "basic" preset — the clean out-of-box default: aperture-grille grid +
+    // soft scanlines and NOTHING else. Zero every extra effect that isn't a
+    // CRTProfile field (these otherwise keep the GlobalParams defaults), and
+    // leave target_aspect at 0 so it never changes the window's form factor.
+    if (p.id == "basic") {
+        params_.bloom_strength       = 0.0f;
+        params_.halation_strength    = 0.0f;
+        params_.barrel_strength      = 0.0f;
+        params_.vignette_strength    = 0.0f;
+        params_.persistence_strength = 0.0f;  // no trails when dragging
+        params_.target_aspect        = 0.0f;  // fill — keep the form factor
+        params_.bezel_style          = 0;
+        // Reset colour/mono fields too (in case we switched from a mono tube).
+        params_.monochrome       = 0;
+        params_.posterize_levels = 0;
+        params_.phosphor_color_r = params_.phosphor_color_g = params_.phosphor_color_b = 1.0f;
+        params_.glass_tint_r     = params_.glass_tint_g     = params_.glass_tint_b     = 1.0f;
+        params_.glass_age        = 0.0f;
+        return;  // skip the per-tube tuning below; basic stays minimal
+    }
+
     // Monochrome handling: no triad mask, instead colour the output using
     // the phosphor's chromaticity (Pass 6 reads u_phosphor_color when
     // u_monochrome is on).
