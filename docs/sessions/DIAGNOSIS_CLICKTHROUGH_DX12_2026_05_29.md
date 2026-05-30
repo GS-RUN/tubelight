@@ -203,7 +203,42 @@ El mecanismo es idéntico al path GL probado, así que debería cruzar.
 
 ---
 
-## 11. NUEVO BLOQUEO (2026-05-30) — DX12 click-through NO entrega clics (GL sí)
+## 12. AUDITORÍA (2026-05-30) — NO se reproduce diferencia GL/DX12
+
+Auditoría a fondo del supuesto bug DX12 con `dx12-engineer` mode=debug.
+**Hallazgo incómodo: el test que dio "GL=1 / DX12=0" (§11) era INVÁLIDO.**
+`Shell.Document.SelectedItems()` devolvía 0 **aunque el archivo estuviera
+visiblemente seleccionado** (confirmado por screenshot de la barra de estado:
+"1 elemento seleccionado" mientras el COM decía 0). Las conclusiones de §11
+quedan retractadas.
+
+Re-medido con método FIABLE (clic a través del overlay → matar overlay →
+screenshot de la barra de estado del Explorer, que persiste la selección):
+- **Ventana objetivo ENFOCADA**: GL → selecciona ✓ · **DX12 → selecciona ✓**.
+  Ambos pasan el clic.
+- **Ventana objetivo SIN foco** (Notepad enfocado, movimiento real + doble-clic):
+  GL → NO selecciona · DX12 → NO selecciona. **Ambos fallan igual.**
+- **Bisección BitBlt** (`TUBELIGHT_SKIP_PRESENT`): sin BitBlt el resultado es el
+  mismo → **el BitBlt NO es la causa**.
+- **Probe de cursor** (`GetCursorInfo`): inconcluso (baseline ya daba ARROW) pero
+  GL == DX12.
+
+**Conclusión**: GL y DX12 usan el MISMO mecanismo Win32 (`WS_EX_LAYERED|
+TRANSPARENT` + SLWA) y se comportan IDÉNTICO en todos los tests controlados.
+**No se reproduce la diferencia GL/DX12 del usuario por inyección de input.**
+Hipótesis principal del por qué el usuario la percibe: el bug de **imagen
+congelada** de DX12 (ahora arreglado, §10) — con el CRT congelado los clics
+funcionaban pero eran INVISIBLES → "DX12 no atraviesa"; GL (vivo) sí se veía.
+El patrón "ventana sin foco no recibe el clic" afecta a AMBOS y es ortogonal
+(clic a ventana inactiva bajo overlay topmost NOACTIVATE).
+
+**SIGUIENTE PASO decisivo (necesita al usuario)**: re-test de DX12 con el build
+ACTUAL (imagen ya viva) + si sigue fallando, capturar `tubelight_clickthrough.log`
+de su intento REAL (¿aparece `WM_LBUTTONDOWN`? → overlay captura; ¿no? → pasa).
+Es la única forma de cerrar el gap real-mouse vs inyectado. Launcher se mantiene
+en **GL** (confirmado funcionando para el usuario) hasta validar DX12 en vivo.
+
+## 11. NUEVO BLOQUEO (2026-05-30) — DX12 click-through NO entrega clics (GL sí) [RETRACTADO §12]
 
 Con la captura ya viva, el usuario seguía sin poder interactuar. Test
 discriminante con `Shell.Document.SelectedItems()` (inyectando clic sobre un
