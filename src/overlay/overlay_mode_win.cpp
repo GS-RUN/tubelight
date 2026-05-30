@@ -1780,10 +1780,12 @@ int run_dx12(const Options& opts) {
             pipeline.resize(fb_w, fb_h);
             reassert_wda();  // swap-chain recreate can drop WDA → self-capture feedback
         }
-        // Mid-resize: cover the just-reallocated (cleared) layered surface
-        // INSTANTLY with the last frame stretched, before the slower capture+
-        // render below produces the live frame — so the grow never shows a gap.
-        if (wnd_state.in_modal) blit_to_window();
+        // Mid-resize, LAYERED mode only: cover the just-reallocated layered
+        // surface with the last frame. In DIRECT mode (win_mode default) the
+        // window shows via the swap-chain Present — a GDI BitBlt here would FIGHT
+        // that Present over the same HWND → that was the persistent "vibration".
+        // Direct mode relies on DWM stretching the (deferred) swap chain instead.
+        if (wnd_state.in_modal && ct_layered) blit_to_window();
         if (!state.freeze) {
             update_region_crop();
             int tw = 0, th = 0;
