@@ -84,6 +84,17 @@ Evolución (cada uno intento de la vibración, hasta dar con la técnica correct
     4. La ventana en default (no-transparent) recibe `WM_MOUSEMOVE`/`WM_SETCURSOR`
        → algún redibujo/cambio de estado.
   - Esfuerzo: M. Bloquea: la "paridad ShaderGlass completa".
+- [ ] **BUG: el menú (Ctrl+Alt+M) en DX12 ventana abre pero NO recibe clics**
+  (no puedes pulsar nada ni cerrarlo).
+  - Causa (diagnosticada): en el esquema invertido, con el menú abierto (no
+    click-through), el `WM_NCHITTEST` de win_mode devuelve `HTCAPTION`/HT*BORDER
+    para TODA la ventana (para arrastrar/redimensionar sin tecla) → al clicar el
+    menú, Windows lo trata como arrastre de ventana, no llega a ImGui.
+  - Fix (mañana): cuando `menu.is_open()`, el `WM_NCHITTEST` de win_mode debe
+    devolver `HTCLIENT` (no HTCAPTION) para que ImGui reciba los clics. Hace
+    falta un flag global (p.ej. `g_dx12_menu_open`) que lea el wndproc, o
+    condicionar el bloque NCHITTEST de win_mode a `!menu_open`.
+  - Esfuerzo: S. En `dx12_wndproc` WM_NCHITTEST (`src/overlay/overlay_mode_win.cpp`).
 - [ ] (menor) Vídeo MPO en negro en DX12 (C-1, límite WGC). Vía real: GL+WGC
   capture. Esfuerzo: L. Diferido.
 
