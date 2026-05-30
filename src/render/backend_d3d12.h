@@ -249,6 +249,21 @@ private:
     bool   ts_wrote_       = false;   // a query pair was written this frame
     double last_gpu_ms_    = -1.0;
 
+    // capture_backbuffer: PERSISTENT readback path for the layered present.
+    // Recreated only when the backbuffer size changes — NOT per frame (the old
+    // per-frame CreateCommittedResource + CreateCommandList capped the windowed
+    // overlay at ~30fps). The copy is submitted on its own allocator/list, then
+    // we wait on cap_fence_value_ (just the copy, not a full pipeline flush).
+    Microsoft::WRL::ComPtr<ID3D12Resource>            cap_readback_;
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator>    cap_alloc_;
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> cap_list_;
+    UINT64                            cap_total_bytes_ = 0;
+    UINT                              cap_num_rows_    = 0;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT cap_layout_{};
+    int                               cap_w_ = 0;     // size the readback was sized for
+    int                               cap_h_ = 0;
+    UINT64                            cap_fence_value_ = 0;
+
     HWND hwnd_ = nullptr;
     int  width_  = 0;
     int  height_ = 0;

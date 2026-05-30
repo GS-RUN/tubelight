@@ -998,44 +998,58 @@ bool D3D12Backend::capture_backbuffer(std::vector<uint8_t>& out_rgba,
     ID3D12Resource* src = back_buffers_[bb_idx].Get();
     if (!src) return false;
     D3D12_RESOURCE_DESC sd = src->GetDesc();
-    UINT64 total_bytes = 0;
-    UINT   num_rows = 0;
-    UINT64 row_size = 0;
-    D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout{};
-    device_->GetCopyableFootprints(&sd, 0, 1, 0, &layout, &num_rows, &row_size, &total_bytes);
+    const int w = static_cast<int>(sd.Width);
+    const int h = static_cast<int>(sd.Height);
 
-    // Allocate a transient READBACK buffer.
-    D3D12_HEAP_PROPERTIES rb_hp{};
-    rb_hp.Type = D3D12_HEAP_TYPE_READBACK;
-    D3D12_RESOURCE_DESC rb_rd{};
-    rb_rd.Dimension          = D3D12_RESOURCE_DIMENSION_BUFFER;
-    rb_rd.Width              = total_bytes;
-    rb_rd.Height             = 1;
-    rb_rd.DepthOrArraySize   = 1;
-    rb_rd.MipLevels          = 1;
-    rb_rd.Format             = DXGI_FORMAT_UNKNOWN;
-    rb_rd.SampleDesc.Count   = 1;
-    rb_rd.Layout             = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    ComPtr<ID3D12Resource> readback;
-    if (FAILED(device_->CreateCommittedResource(
-            &rb_hp, D3D12_HEAP_FLAG_NONE, &rb_rd,
-            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
-            IID_PPV_ARGS(&readback)))) {
-        std::fprintf(stderr, "[tubelight][d3d12] capture readback CCResource failed\n");
-        return false;
+    // (Re)create the PERSISTENT readback buffer + copy allocator/list only when
+    // the backbuffer size changes — never per frame. The previous capture copy
+    // is always waited on before we return (below), and resize() flushes the
+    // GPU, so releasing/recreating here is safe.
+    if (!cap_readback_ || w != cap_w_ || h != cap_h_) {
+        UINT64 row_size = 0;
+        device_->GetCopyableFootprints(&sd, 0, 1, 0, &cap_layout_,
+                                       &cap_num_rows_, &row_size, &cap_total_bytes_);
+        D3D12_HEAP_PROPERTIES rb_hp{};
+        rb_hp.Type = D3D12_HEAP_TYPE_READBACK;
+        D3D12_RESOURCE_DESC rb_rd{};
+        rb_rd.Dimension          = D3D12_RESOURCE_DIMENSION_BUFFER;
+        rb_rd.Width              = cap_total_bytes_;
+        rb_rd.Height             = 1;
+        rb_rd.DepthOrArraySize   = 1;
+        rb_rd.MipLevels          = 1;
+        rb_rd.Format             = DXGI_FORMAT_UNKNOWN;
+        rb_rd.SampleDesc.Count   = 1;
+        rb_rd.Layout             = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        cap_readback_.Reset();
+        if (FAILED(device_->CreateCommittedResource(
+                &rb_hp, D3D12_HEAP_FLAG_NONE, &rb_rd,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                IID_PPV_ARGS(&cap_readback_)))) {
+            std::fprintf(stderr, "[tubelight][d3d12] capture readback CCResource failed\n");
+            return false;
+        }
+        if (!cap_alloc_ &&
+            FAILED(device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                   IID_PPV_ARGS(&cap_alloc_)))) {
+            std::fprintf(stderr, "[tubelight][d3d12] capture alloc create failed\n");
+            return false;
+        }
+        if (!cap_list_) {
+            if (FAILED(device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                  cap_alloc_.Get(), nullptr,
+                                                  IID_PPV_ARGS(&cap_list_)))) {
+                std::fprintf(stderr, "[tubelight][d3d12] capture list create failed\n");
+                return false;
+            }
+            cap_list_->Close();  // created recording; close so the per-call Reset is uniform
+        }
+        cap_w_ = w; cap_h_ = h;
     }
 
-    // Transient command list to do the copy synchronously.
-    ComPtr<ID3D12CommandAllocator> alloc;
-    ComPtr<ID3D12GraphicsCommandList> list;
-    if (FAILED(device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                               IID_PPV_ARGS(&alloc))) ||
-        FAILED(device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                          alloc.Get(), nullptr,
-                                          IID_PPV_ARGS(&list)))) {
-        std::fprintf(stderr, "[tubelight][d3d12] capture cmd list create failed\n");
-        return false;
-    }
+    // Record the copy on the persistent list. The previous copy is guaranteed
+    // complete (we wait on its fence every call), so resetting now is safe (DX-10).
+    cap_alloc_->Reset();
+    cap_list_->Reset(cap_alloc_.Get(), nullptr);
 
     // Backbuffer is in PRESENT state right after Present(). Transition
     // to COPY_SOURCE, copy, then transition back to PRESENT.
@@ -1045,45 +1059,55 @@ bool D3D12Backend::capture_backbuffer(std::vector<uint8_t>& out_rgba,
     b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
     b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
     b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    list->ResourceBarrier(1, &b);
+    cap_list_->ResourceBarrier(1, &b);
 
     D3D12_TEXTURE_COPY_LOCATION sloc{};
     sloc.pResource        = src;
     sloc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     sloc.SubresourceIndex = 0;
     D3D12_TEXTURE_COPY_LOCATION dloc{};
-    dloc.pResource       = readback.Get();
+    dloc.pResource       = cap_readback_.Get();
     dloc.Type            = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    dloc.PlacedFootprint = layout;
-    list->CopyTextureRegion(&dloc, 0, 0, 0, &sloc, nullptr);
+    dloc.PlacedFootprint = cap_layout_;
+    cap_list_->CopyTextureRegion(&dloc, 0, 0, 0, &sloc, nullptr);
 
     b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
     b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
-    list->ResourceBarrier(1, &b);
-    list->Close();
-    ID3D12CommandList* lists[] = { list.Get() };
+    cap_list_->ResourceBarrier(1, &b);
+    cap_list_->Close();
+    ID3D12CommandList* lists[] = { cap_list_.Get() };
     cmd_queue_->ExecuteCommandLists(1, lists);
-    wait_for_gpu_idle();
+
+    // Wait only for THIS copy (a ~few-MB GPU copy), not a full pipeline flush:
+    // signal a monotonic fence value and block on it. fence_value_ stays
+    // monotonic so it never corrupts begin_frame's per-slot pacing waits.
+    const UINT64 v = ++fence_value_;
+    cmd_queue_->Signal(fence_.Get(), v);
+    cap_fence_value_ = v;
+    if (fence_->GetCompletedValue() < v) {
+        fence_->SetEventOnCompletion(v, fence_event_);
+        WaitForSingleObject(fence_event_, INFINITE);
+    }
 
     // Map and copy out, stripping row padding.
     void* mapped = nullptr;
-    D3D12_RANGE read_range{ 0, static_cast<SIZE_T>(total_bytes) };
-    if (FAILED(readback->Map(0, &read_range, &mapped))) {
+    D3D12_RANGE read_range{ 0, static_cast<SIZE_T>(cap_total_bytes_) };
+    if (FAILED(cap_readback_->Map(0, &read_range, &mapped))) {
         std::fprintf(stderr, "[tubelight][d3d12] capture readback Map failed\n");
         return false;
     }
-    out_width  = static_cast<int>(sd.Width);
-    out_height = static_cast<int>(sd.Height);
+    out_width  = w;
+    out_height = h;
     out_rgba.assign(static_cast<size_t>(out_width) * out_height * 4, 0);
-    const uint8_t* msrc = static_cast<const uint8_t*>(mapped) + layout.Offset;
+    const uint8_t* msrc = static_cast<const uint8_t*>(mapped) + cap_layout_.Offset;
     const UINT dst_row = static_cast<UINT>(out_width) * 4u;
-    for (UINT y = 0; y < num_rows; ++y) {
+    for (UINT y = 0; y < cap_num_rows_; ++y) {
         std::memcpy(out_rgba.data() + static_cast<size_t>(y) * dst_row,
-                    msrc + static_cast<size_t>(y) * layout.Footprint.RowPitch,
+                    msrc + static_cast<size_t>(y) * cap_layout_.Footprint.RowPitch,
                     dst_row);
     }
     D3D12_RANGE empty{0, 0};
-    readback->Unmap(0, &empty);
+    cap_readback_->Unmap(0, &empty);
     return true;
 }
 
